@@ -41,6 +41,7 @@ from sqlalchemy.orm import Session
 import app.core.database as db_module
 from app.models.dimensoes import SkuMapping, ModalidadeAlias
 from app.models.kit_config import KitConfig
+from app.models.kit_mapping_snapshot import KitMappingSnapshot
 from app.queries.detalhe_eventos import build_ativo_detalhe, build_magento_detalhe
 
 logger = logging.getLogger(__name__)
@@ -439,20 +440,30 @@ def _build_kit_canonical_maps(
     magento_map: Dict[Tuple, str] = {}
     ativo_map: Dict[str, str] = {}
 
-    query = db.query(KitConfig).filter(
-        KitConfig.tipo_kit.isnot(None),
-        KitConfig.tipo_kit != "",
+    # Join KitMappingSnapshot to resolve nome_kit (raw Magento bundle name)
+    # when KitConfig.kit_nome is null (common — UI never sends it).
+    query = (
+        db.query(KitConfig, KitMappingSnapshot.nome_kit)
+        .outerjoin(
+            KitMappingSnapshot,
+            KitMappingSnapshot.bundle_entity_id == KitConfig.bundle_entity_id,
+        )
+        .filter(
+            KitConfig.tipo_kit.isnot(None),
+            KitConfig.tipo_kit != "",
+        )
     )
     if magento_event_ids:
         query = query.filter(KitConfig.id_evento.in_(magento_event_ids))
 
-    for cfg in query.all():
+    for cfg, snap_nome_kit in query.all():
         tipo = cfg.tipo_kit.strip()
         if not tipo:
             continue
-        # Mapa Magento: (id_evento, kit_nome) → tipo_kit
-        if cfg.id_evento is not None and cfg.kit_nome:
-            magento_map[(int(cfg.id_evento), cfg.kit_nome.strip())] = tipo
+        # Mapa Magento: prefer KitConfig.kit_nome; fall back to KitMappingSnapshot.nome_kit
+        bundle_name = (cfg.kit_nome or snap_nome_kit or "").strip()
+        if cfg.id_evento is not None and bundle_name:
+            magento_map[(int(cfg.id_evento), bundle_name)] = tipo
         # Mapa Ativo: ativo_categoria → tipo_kit (pode ter múltiplos separados por vírgula)
         if cfg.ativo_categoria:
             for cat in cfg.ativo_categoria.replace("\n", ",").split(","):

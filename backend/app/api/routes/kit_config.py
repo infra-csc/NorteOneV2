@@ -2118,6 +2118,19 @@ def upsert_kit_config(
         ).update({"is_promo_principal": False})
 
     existing = db.query(KitConfig).filter(KitConfig.bundle_entity_id == bundle_entity_id).first()
+
+    # Auto-populate kit_nome from KitMappingSnapshot when not provided by the caller.
+    # kit_nome is the raw Magento bundle name used as lookup key in detalhe_eventos_service.
+    resolved_kit_nome = body.kit_nome
+    if not resolved_kit_nome:
+        from app.models.kit_mapping_snapshot import KitMappingSnapshot as _KMS
+        snap_row = db.query(_KMS.nome_kit).filter(
+            _KMS.bundle_entity_id == bundle_entity_id,
+            _KMS.nome_kit.isnot(None),
+        ).first()
+        if snap_row:
+            resolved_kit_nome = snap_row.nome_kit
+
     try:
         if existing:
             existing.multiplicador = body.multiplicador
@@ -2126,8 +2139,8 @@ def upsert_kit_config(
             if body.id_evento is not None:
                 existing.id_evento = body.id_evento
             existing.tipo_kit = body.tipo_kit
-            if body.kit_nome is not None:
-                existing.kit_nome = body.kit_nome
+            if resolved_kit_nome is not None:
+                existing.kit_nome = resolved_kit_nome
             if body.custo_kit is not None:
                 existing.custo_kit = body.custo_kit
             existing.ativo_categoria = body.ativo_categoria or None
