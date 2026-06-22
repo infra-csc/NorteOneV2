@@ -718,6 +718,26 @@ def get_detalhe(
             snap_raw = _read_snapshot_raw(db, evento_grupo)
             if snap_raw is not None:
                 payload_dict, updated_at, age_h = snap_raw
+
+                # Re-apply canonical kit names so alias changes in KitConfig
+                # are reflected immediately without waiting for the next live refresh.
+                try:
+                    por_banco = payload_dict.get("por_banco") or {}
+                    rows_ativo_snap = por_banco.get("Ativo") or []
+                    rows_magento_snap = por_banco.get("Magento") or []
+                    magento_ids_snap = list({
+                        int(r["id_evento"])
+                        for r in rows_magento_snap
+                        if r.get("id_evento")
+                    })
+                    km_snap, ka_snap = _build_kit_canonical_maps(db, magento_ids_snap)
+                    _apply_canonical_kit(rows_ativo_snap, km_snap, ka_snap)
+                    _apply_canonical_kit(rows_magento_snap, km_snap, ka_snap)
+                    payload_dict["consolidado"] = _consolidar(rows_ativo_snap, rows_magento_snap)
+                    payload_dict["totais"] = _calc_totais(payload_dict["consolidado"])
+                except Exception as _kit_err:
+                    logger.warning(f"[DetalheSnap] Erro ao re-aplicar kit names no snapshot: {_kit_err}")
+
                 payload_dict["source"] = "snapshot"
                 payload_dict["snapshot_updated_at"] = updated_at.isoformat()
 
