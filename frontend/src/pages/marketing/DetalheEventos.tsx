@@ -736,9 +736,14 @@ const DetalheEventos: React.FC = () => {
     [payload]
   );
 
+  const activeHierarchy = useMemo(
+    () => hasProdutos ? DEFAULT_HIERARCHY : DEFAULT_HIERARCHY.filter(d => d !== 'produtos'),
+    [hasProdutos]
+  );
+
   const tree = useMemo(
-    () => buildTree(filteredRows, allBancoRows, DEFAULT_HIERARCHY, divergenciaKeys),
-    [filteredRows, allBancoRows, divergenciaKeys]
+    () => buildTree(filteredRows, allBancoRows, activeHierarchy, divergenciaKeys),
+    [filteredRows, allBancoRows, activeHierarchy, divergenciaKeys]
   );
 
   const canalChartData = useMemo(() => {
