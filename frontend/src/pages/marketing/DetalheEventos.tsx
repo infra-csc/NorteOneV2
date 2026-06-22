@@ -1164,7 +1164,7 @@ const DetalheEventos: React.FC = () => {
                                 <tr key={row.name}>
                                   <td className="py-0.5 pr-3">
                                     <div className="flex items-center gap-1.5">
-                                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: CHART_COLORS[i % CHART_COLORS.length], flexShrink: 0, display: 'inline-block' }} />
+                                      <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, display: 'inline-block', background: dark ? '#4b5563' : '#d1d5db' }} />
                                       <span className={`${dark ? 'text-gray-200' : 'text-gray-700'} truncate`} style={{ maxWidth: 130 }}>{row.name}</span>
                                     </div>
                                   </td>
@@ -1237,7 +1237,7 @@ const DetalheEventos: React.FC = () => {
                           );
                         }}
                       />
-                      <Legend iconSize={8} iconType="circle" wrapperStyle={{ fontSize: 10 }} />
+                      <Legend iconSize={7} iconType="square" wrapperStyle={{ fontSize: 10 }} />
                     </PieChart>
                   </ResponsiveContainer>
                 )
