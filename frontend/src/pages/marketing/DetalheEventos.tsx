@@ -315,21 +315,7 @@ function buildTree(
         hasDivergencia,
       };
 
-      if (isLeaf) {
-        // Leaf: add bank-split sub-nodes by matching all groupRows against por_banco rows
-        const matching = groupRows.flatMap(gr => findBancoRows(gr, allBancoRows));
-        // Deduplicate by banco+id_evento combination
-        const seen = new Set<string>();
-        const deduped = matching.filter(r => {
-          const id = `${r.banco}|${r.id_evento}|${r.canal}|${r.kit}|${r.modalidade}`;
-          if (seen.has(id)) return false;
-          seen.add(id);
-          return true;
-        });
-        if (deduped.length > 0) {
-          node.bankSplit = buildBankSplit(deduped);
-        }
-      } else {
+      if (!isLeaf) {
         node.children = group(groupRows, rest, depth + 1, nodeKey);
       }
 
