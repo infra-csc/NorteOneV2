@@ -47,7 +47,7 @@ export default function ModalidadeAliases() {
     setError(null);
     try {
       const { data } = await api.get('/api/admin/modalidade-aliases');
-      setAliases(data);
+      setAliases(Array.isArray(data) ? data : []);
     } catch (e: any) {
       setError(e?.response?.data?.detail || 'Erro ao carregar aliases.');
     } finally {
@@ -127,7 +127,7 @@ export default function ModalidadeAliases() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className={`text-2xl font-bold ${text}`}>Aliases de Modalidade</h1>
+          <h1 className={`text-2xl font-bold ${text}`}>Configuração Modalidade</h1>
           <p className={`mt-1 text-sm ${subtext}`}>
             Mapeie valores brutos de modalidade (vindos do Ativo/Magento) para um nome canônico unificado.
             A normalização automática por regex já trata padrões numéricos (5K, 5km, 5 Km → 5km);
