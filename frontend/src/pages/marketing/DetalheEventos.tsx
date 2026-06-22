@@ -22,6 +22,7 @@ import {
   Filter,
   Database,
   Layers,
+  Info,
 } from 'lucide-react';
 import {
   BarChart,
@@ -833,9 +834,6 @@ const DetalheEventos: React.FC = () => {
           <Table2 className={`w-5 h-5 ${dark ? 'text-blue-400' : 'text-blue-600'}`} />
           <h1 className={`text-xl font-bold ${textPrimary}`}>Detalhamento de Eventos</h1>
         </div>
-        <p className={`text-sm ${textSec}`}>
-          Visão granular de inscrições e receita — hierarquia: Kit → Modalidade → Pelotão → Tamanho{hasProdutos ? ' (+ Produtos)' : ''}
-        </p>
       </div>
 
       {/* Event Selector */}
@@ -1366,7 +1364,16 @@ const DetalheEventos: React.FC = () => {
                   <thead>
                     <tr className={`text-left text-xs font-semibold uppercase tracking-wide ${dark ? 'bg-gray-700/80 text-gray-400' : 'bg-gray-50 text-gray-500'}`}>
                       <th className="py-2 px-3">
-                        Dimensão
+                        <div className="flex items-center gap-1">
+                          Dimensão
+                          <span className="relative group cursor-default">
+                            <Info className="w-3 h-3 text-gray-400 hover:text-blue-400 transition-colors" />
+                            <span className={`pointer-events-none absolute left-0 top-5 z-50 w-max max-w-xs rounded-lg px-3 py-2 text-xs font-normal normal-case shadow-lg opacity-0 group-hover:opacity-100 transition-opacity ${dark ? 'bg-gray-800 text-gray-200 border border-gray-600' : 'bg-white text-gray-700 border border-gray-200'}`}>
+                              Visão granular de inscrições e receita<br />
+                              Hierarquia: Kit → Modalidade → Pelotão{hasProdutos ? ' → Produtos' : ''} → Tamanho
+                            </span>
+                          </span>
+                        </div>
                       </th>
                       <th className="py-2 px-3 text-right">Inscritos</th>
                       <th className="py-2 px-2 text-right">%</th>
