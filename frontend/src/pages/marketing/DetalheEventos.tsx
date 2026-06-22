@@ -275,6 +275,14 @@ function buildTree(
 
     const nodes: TreeNode[] = [];
     grouped.forEach((groupRows, k) => {
+      // Fold null/empty 'produtos' nodes: promote children directly to parent
+      // so kits without product granularity don't show a "—" intermediary row.
+      if (dim === 'produtos' && k === NULL_LABEL && rest.length > 0) {
+        const promoted = group(groupRows, rest, depth, parentKey);
+        nodes.push(...promoted);
+        return;
+      }
+
       const totalIns = groupRows.reduce((s, r) => s + (r.inscritos || 0), 0);
       const totalBruta = groupRows.reduce((s, r) => s + (r.receita_bruta || 0), 0);
       const totalLiq = groupRows.reduce((s, r) => s + (r.receita_liquida || 0), 0);
