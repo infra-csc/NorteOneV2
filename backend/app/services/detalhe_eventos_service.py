@@ -39,7 +39,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 import app.core.database as db_module
-from app.models.dimensoes import SkuMapping
+from app.models.dimensoes import SkuMapping, ModalidadeAlias
 from app.models.kit_config import KitConfig
 from app.queries.detalhe_eventos import build_ativo_detalhe, build_magento_detalhe
 
@@ -50,6 +50,59 @@ SNAPSHOT_MAX_AGE_HOURS = 26  # snapshot válido por 26h
 
 _cache: Dict[str, Tuple[float, Any]] = {}
 _cache_lock = threading.Lock()
+
+# ---------------------------------------------------------------------------
+# Cache de aliases de modalidade
+# ---------------------------------------------------------------------------
+
+_alias_map: Dict[str, str] = {}
+_alias_map_lock = threading.Lock()
+_alias_map_loaded: bool = False
+
+
+def _load_alias_map(db: Session) -> Dict[str, str]:
+    global _alias_map, _alias_map_loaded
+    rows = db.query(ModalidadeAlias).all()
+    result = {r.raw_value: r.canonical_value for r in rows}
+    with _alias_map_lock:
+        _alias_map = result
+        _alias_map_loaded = True
+    return result
+
+
+def _get_alias_map(db: Session) -> Dict[str, str]:
+    with _alias_map_lock:
+        if _alias_map_loaded:
+            return dict(_alias_map)
+    return _load_alias_map(db)
+
+
+def invalidate_alias_cache() -> None:
+    global _alias_map_loaded
+    with _alias_map_lock:
+        _alias_map.clear()
+        _alias_map_loaded = False
+
+
+def _normalize_modalidade(val: Optional[str], alias_map: Dict[str, str]) -> Optional[str]:
+    """Normaliza o valor bruto de modalidade em 5 passos:
+    1. Strip + colapsar espaços internos.
+    2. Lookup no alias_map pelo valor bruto (override manual).
+    3. Regex: padrões numérico+k/km → '<N>km' (ex: '5K', '5 km', '5Km' → '5km').
+    4. Lowercase.
+    5. Segundo lookup no alias_map pelo valor já normalizado.
+    """
+    if not val:
+        return val
+    v = " ".join(val.strip().split())
+    if v in alias_map:
+        return alias_map[v]
+    v = re.sub(r"(\d+)\s*[Kk][Mm]?", lambda m: f"{m.group(1)}km", v)
+    v = v.lower()
+    if v in alias_map:
+        return alias_map[v]
+    return v
+
 
 # Single-flight guard para force_refresh ao vivo.
 # Impede que dois usuários simultâneos disparem queries pesadas ao Ativo/Magento
@@ -796,6 +849,15 @@ def get_detalhe(
         # Tag each row with its canonical_grupo before consolidating
         _tag_canonical_grupo(rows_ativo or [], canonical_map, evento_grupo)
         _tag_canonical_grupo(rows_magento or [], canonical_map, evento_grupo)
+
+        # Normaliza modalidade em todas as rows (regex + alias table)
+        alias_map = _get_alias_map(db)
+        for row in (rows_ativo or []):
+            if row.get("modalidade"):
+                row["modalidade"] = _normalize_modalidade(row["modalidade"], alias_map)
+        for row in (rows_magento or []):
+            if row.get("modalidade"):
+                row["modalidade"] = _normalize_modalidade(row["modalidade"], alias_map)
 
         # Resolve canonical kit names via KitConfig.tipo_kit (lightweight PG query).
         # Magento rows look up by (id_evento, kit_nome); Ativo rows by ativo_categoria.

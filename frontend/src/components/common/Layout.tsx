@@ -31,6 +31,7 @@ import {
   Shield,
   AlertTriangle,
   Table2,
+  ArrowRight,
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -62,6 +63,7 @@ const adminItems = [
   { path: '/admin/dados-consolidados', icon: Database, label: 'Dados Consolidados', modulo: 'admin_dados_consolidados' },
   { path: '/admin/sku-mappings', icon: Package, label: 'Mapeamento SKUs', modulo: 'admin_sku_mappings' },
   { path: '/admin/kit-config', icon: Layers, label: 'Mapeamento de Kits', modulo: 'admin_kit_config' },
+  { path: '/admin/modalidade-aliases', icon: ArrowRight, label: 'Aliases de Modalidade', modulo: 'admin_sku_mappings' },
   { path: '/admin/usuarios', icon: UserCog, label: 'Usuários', modulo: 'admin_usuarios' },
   { path: '/admin/perfis-acesso', icon: ShieldCheck, label: 'Perfis de Acesso', modulo: 'admin_perfis_acesso' },
   { path: '/admin/centros-custo', icon: Building2, label: 'Centros de Custo', modulo: 'admin_centros_custo' },
