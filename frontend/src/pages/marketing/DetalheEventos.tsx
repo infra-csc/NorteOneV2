@@ -1143,59 +1143,104 @@ const DetalheEventos: React.FC = () => {
                 )}
               </div>
               {tamanhoChartData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={160}>
-                  <PieChart>
-                    <Pie
-                      data={tamanhoDetalhado ? tamanhoChartData : tamanhoChartDataSimple}
-                      dataKey="value"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={52}
-                      innerRadius={28}
-                    >
-                      {(tamanhoDetalhado ? tamanhoChartData : tamanhoChartDataSimple).map((_, i) => (
-                        <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      content={({ active, payload: tp }) => {
-                        if (!active || !tp?.length) return null;
-                        const entry = tp[0];
-                        const baseName = entry.name as string;
-                        const total = entry.value as number;
-                        const variants = !tamanhoDetalhado ? tamanhoBreakdownMap.get(baseName) : null;
-                        const hasVariants = variants && variants.length > 1;
-                        return (
-                          <div style={{
-                            background: dark ? '#1f2937' : '#fff',
-                            border: `1px solid ${dark ? '#374151' : '#e5e7eb'}`,
-                            borderRadius: 8,
-                            padding: '8px 10px',
-                            fontSize: 12,
-                            minWidth: 140,
-                            maxWidth: 220,
-                          }}>
-                            <p style={{ fontWeight: 600, marginBottom: hasVariants ? 6 : 0, color: dark ? '#f3f4f6' : '#111827' }}>
-                              {baseName} — {fmt(total)}
-                            </p>
-                            {hasVariants && variants!.map(v => {
-                              const pct = total > 0 ? ((v.value / total) * 100).toFixed(1) : '0';
-                              const label = v.name === baseName ? `${baseName} (sem variação)` : v.name;
+                tamanhoDetalhado ? (
+                  /* Detailed mode: horizontal bar table */
+                  (() => {
+                    const totalAll = tamanhoChartData.reduce((s, r) => s + r.value, 0);
+                    return (
+                      <div className="overflow-y-auto" style={{ maxHeight: 220 }}>
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className={`${dark ? 'text-gray-500' : 'text-gray-400'} uppercase tracking-wide`}>
+                              <th className="text-left pb-1.5 font-semibold pr-3">Tamanho</th>
+                              <th className="text-right pb-1.5 font-semibold pr-3">Qtd</th>
+                              <th className="text-right pb-1.5 font-semibold w-10">%</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {tamanhoChartData.map((row, i) => {
+                              const pct = totalAll > 0 ? (row.value / totalAll) * 100 : 0;
                               return (
-                                <div key={v.name} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: dark ? '#9ca3af' : '#6b7280', marginTop: 2 }}>
-                                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
-                                  <span style={{ flexShrink: 0 }}>{fmt(v.value)} ({pct}%)</span>
-                                </div>
+                                <tr key={row.name}>
+                                  <td className="py-0.5 pr-3">
+                                    <div className="flex items-center gap-1.5">
+                                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: CHART_COLORS[i % CHART_COLORS.length], flexShrink: 0, display: 'inline-block' }} />
+                                      <span className={`${dark ? 'text-gray-200' : 'text-gray-700'} truncate`} style={{ maxWidth: 130 }}>{row.name}</span>
+                                    </div>
+                                  </td>
+                                  <td className={`py-0.5 pr-3 text-right tabular-nums ${dark ? 'text-gray-300' : 'text-gray-600'}`}>{fmt(row.value)}</td>
+                                  <td className="py-0.5 text-right w-10">
+                                    <div className="flex items-center justify-end gap-1">
+                                      <div className={`h-1.5 rounded-full ${dark ? 'bg-gray-600' : 'bg-gray-200'}`} style={{ width: 36 }}>
+                                        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: CHART_COLORS[i % CHART_COLORS.length] }} />
+                                      </div>
+                                      <span className={`tabular-nums w-8 text-right ${dark ? 'text-gray-400' : 'text-gray-500'}`}>{pct.toFixed(0)}%</span>
+                                    </div>
+                                  </td>
+                                </tr>
                               );
                             })}
-                          </div>
-                        );
-                      }}
-                    />
-                    <Legend iconSize={8} iconType="circle" wrapperStyle={{ fontSize: 10 }} />
-                  </PieChart>
-                </ResponsiveContainer>
+                          </tbody>
+                        </table>
+                      </div>
+                    );
+                  })()
+                ) : (
+                  /* Simplified mode: donut with rich tooltip */
+                  <ResponsiveContainer width="100%" height={160}>
+                    <PieChart>
+                      <Pie
+                        data={tamanhoChartDataSimple}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={52}
+                        innerRadius={28}
+                      >
+                        {tamanhoChartDataSimple.map((_, i) => (
+                          <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        content={({ active, payload: tp }) => {
+                          if (!active || !tp?.length) return null;
+                          const entry = tp[0];
+                          const baseName = entry.name as string;
+                          const total = entry.value as number;
+                          const variants = tamanhoBreakdownMap.get(baseName);
+                          const hasVariants = variants && variants.length > 1;
+                          return (
+                            <div style={{
+                              background: dark ? '#1f2937' : '#fff',
+                              border: `1px solid ${dark ? '#374151' : '#e5e7eb'}`,
+                              borderRadius: 8,
+                              padding: '8px 10px',
+                              fontSize: 12,
+                              minWidth: 140,
+                              maxWidth: 220,
+                            }}>
+                              <p style={{ fontWeight: 600, marginBottom: hasVariants ? 6 : 0, color: dark ? '#f3f4f6' : '#111827' }}>
+                                {baseName} — {fmt(total)}
+                              </p>
+                              {hasVariants && variants!.map(v => {
+                                const pct = total > 0 ? ((v.value / total) * 100).toFixed(1) : '0';
+                                const label = v.name === baseName ? `${baseName} (sem variação)` : v.name;
+                                return (
+                                  <div key={v.name} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: dark ? '#9ca3af' : '#6b7280', marginTop: 2 }}>
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+                                    <span style={{ flexShrink: 0 }}>{fmt(v.value)} ({pct}%)</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        }}
+                      />
+                      <Legend iconSize={8} iconType="circle" wrapperStyle={{ fontSize: 10 }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )
               ) : (
                 <div className={`flex items-center justify-center h-[160px] text-sm ${textSec}`}>Sem dados de tamanho</div>
               )}
