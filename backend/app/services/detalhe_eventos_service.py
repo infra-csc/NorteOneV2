@@ -412,11 +412,50 @@ def _consolidar(
 # Canonicalização de nomes de kit via KitConfig.tipo_kit
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Regras de normalização de nomes brutos de kit (aplicadas como fallback
+# quando o kit NÃO tem tipo_kit configurado no kit_config).
+#
+# Formato: lista de tuplas (regex_pattern, substituição).
+# - A primeira regra que casar é aplicada; as demais são ignoradas.
+# - Use grupos de captura (\1, \2…) na substituição quando precisar
+#   preservar parte do nome original.
+# - Para adicionar um novo padrão: inclua uma nova tupla ANTES do
+#   comentário "# ── fim das regras ──" abaixo.
+# ---------------------------------------------------------------------------
+_KIT_NAME_PATTERNS: list = [
+    # "DESCONTO PARA GRUPOS - 159,99" / "- 169.99" etc. → "Desconto Grupo"
+    (r"(?i)^desconto\s+para\s+grupos?\s*[-–]\s*[\d.,]+\s*$", "Desconto Grupo"),
+    # "DESCONTO PARA GRUPOS - CORTESIA" → "Desconto Grupo - Cortesia"
+    (r"(?i)^desconto\s+para\s+grupos?\s*[-–]\s*cortesia\s*$", "Desconto Grupo - Cortesia"),
+    # "DESCONTO PARA GRUPOS - PARTICIPAÇÃO" / "- PARTICIPACAO" → "Desconto Grupo - Participação"
+    (r"(?i)^desconto\s+para\s+grupos?\s*[-–]\s*participa[cç][aã]o\s*$", "Desconto Grupo - Participação"),
+    # "DESCONTO PARA GRUPOS - <outro sufixo>" → "Desconto Grupo - <sufixo capitalizado>"
+    (r"(?i)^desconto\s+para\s+grupos?\s*[-–]\s*(.+)$", r"Desconto Grupo - \1"),
+    # ── fim das regras ──
+]
+# Pré-compila os padrões uma única vez no import do módulo.
+_KIT_NAME_PATTERNS_COMPILED: list = [
+    (re.compile(pat), repl) for pat, repl in _KIT_NAME_PATTERNS
+]
+
+
 def _normalize_kit_raw(name: Optional[str]) -> str:
-    """Trim + colapso de espaços internos. Fallback leve para nomes sem tipo_kit."""
+    """Trim + colapso de espaços internos com padrões de normalização.
+
+    Aplicado como fallback para kits sem tipo_kit em kit_config.
+    Os padrões em _KIT_NAME_PATTERNS são testados em ordem; o primeiro
+    que casar substitui o nome inteiro. Se nenhum casar, devolve o nome
+    com apenas trim + colapso de espaços.
+    """
     if not name:
         return ""
-    return re.sub(r"\s+", " ", name.strip())
+    cleaned = re.sub(r"\s+", " ", name.strip())
+    for pattern, repl in _KIT_NAME_PATTERNS_COMPILED:
+        result = pattern.sub(repl, cleaned)
+        if result != cleaned:
+            return re.sub(r"\s+", " ", result).strip()
+    return cleaned
 
 
 def _build_kit_canonical_maps(
