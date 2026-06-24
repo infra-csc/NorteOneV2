@@ -65,6 +65,14 @@ const DimensaoAliasConfig: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<Record<number, boolean>>({});
   const [deleting, setDeleting] = useState<Record<number, boolean>>({});
+  const [collapsedDims, setCollapsedDims] = useState<Set<string>>(new Set());
+
+  const toggleDim = (key: string) =>
+    setCollapsedDims(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
 
   // New alias form state
@@ -366,17 +374,32 @@ const DimensaoAliasConfig: React.FC = () => {
         </div>
       ) : (
         <div className="space-y-4">
-          {grouped.map(group => (
+          {grouped.map(group => {
+            const isCollapsed = collapsedDims.has(group.key);
+            return (
             <div key={group.key} className={`border rounded-xl overflow-hidden ${card}`}>
-              <div className={`flex items-center justify-between px-4 py-3 ${isDark ? 'bg-gray-750 border-b border-gray-700' : 'bg-gray-50 border-b border-gray-200'}`}>
-                <span className="font-semibold text-sm">{group.label}</span>
+              <button
+                onClick={() => toggleDim(group.key)}
+                className={`w-full flex items-center justify-between px-4 py-3 transition-colors text-left ${
+                  isDark
+                    ? 'bg-gray-750 hover:bg-gray-700' + (isCollapsed ? '' : ' border-b border-gray-700')
+                    : 'bg-gray-50 hover:bg-gray-100' + (isCollapsed ? '' : ' border-b border-gray-200')
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  {isCollapsed
+                    ? <ChevronDown className={`w-4 h-4 ${textSecondary}`} />
+                    : <ChevronUp className={`w-4 h-4 ${textSecondary}`} />}
+                  <span className="font-semibold text-sm">{group.label}</span>
+                </div>
                 <span className={`text-xs ${textSecondary}`}>
                   {group.items.length} {group.items.length === 1 ? 'padrão' : 'padrões'}
                 </span>
-              </div>
-              {group.items.length === 0 ? (
+              </button>
+              {!isCollapsed && group.items.length === 0 && (
                 <p className={`text-sm px-4 py-4 ${textSecondary}`}>Nenhum padrão configurado para esta dimensão.</p>
-              ) : (
+              )}
+              {!isCollapsed && group.items.length > 0 && (
                 <table className="w-full text-sm">
                   <thead>
                     <tr className={`text-xs ${textSecondary} ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
@@ -496,7 +519,7 @@ const DimensaoAliasConfig: React.FC = () => {
                 </table>
               )}
             </div>
-          ))}
+          ); })}
         </div>
       )}
     </div>
