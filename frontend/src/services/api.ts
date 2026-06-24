@@ -1760,6 +1760,10 @@ export const projecaoService = {
     const response = await api.post('/projecao/notif-test');
     return response.data;
   },
+  getTeamsHealth: async (): Promise<{ ok: boolean; missing_scopes: string[]; error: string | null }> => {
+    const response = await api.get('/projecao/notif-teams-health');
+    return response.data;
+  },
   reabrirCorte: async (eventoId: number, corte: 1 | 2) => {
     const response = await api.post(`/projecao/eventos/${eventoId}/corte/${corte}/reabrir`);
     return response.data;

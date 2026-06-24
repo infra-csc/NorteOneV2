@@ -544,6 +544,8 @@ const ProjecaoInscritos: React.FC = () => {
   const [notifDraft, setNotifDraft] = useState<{ ativo: boolean; hora: string; canal: string }>({ ativo: false, hora: '8', canal: 'email' });
   const [savingNotif, setSavingNotif] = useState(false);
   const [sendingNotifTest, setSendingNotifTest] = useState(false);
+  const [teamsHealth, setTeamsHealth] = useState<{ ok: boolean; missing_scopes: string[]; error: string | null } | null>(null);
+  const [loadingTeamsHealth, setLoadingTeamsHealth] = useState(false);
 
   type DiagnosticoPosCorteItem = {
     projecao_id: number;
@@ -748,6 +750,27 @@ const ProjecaoInscritos: React.FC = () => {
       // silently ignore — config pode não existir ainda
     }
   };
+
+  const fetchTeamsHealth = async () => {
+    setLoadingTeamsHealth(true);
+    setTeamsHealth(null);
+    try {
+      const data = await projecaoService.getTeamsHealth();
+      setTeamsHealth(data);
+    } catch {
+      setTeamsHealth({ ok: false, missing_scopes: [], error: 'Erro ao verificar permissões' });
+    } finally {
+      setLoadingTeamsHealth(false);
+    }
+  };
+
+  useEffect(() => {
+    if (notifDraft.canal === 'teams' || notifDraft.canal === 'ambos') {
+      fetchTeamsHealth();
+    } else {
+      setTeamsHealth(null);
+    }
+  }, [notifDraft.canal]);
 
   const saveAlertaConfig = async () => {
     const dias = parseInt(alertaDraft, 10);
@@ -3176,18 +3199,92 @@ const ProjecaoInscritos: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Aviso permissões Teams */}
+                {/* Aviso permissões Teams + badge de health */}
                 {(notifDraft.canal === 'teams' || notifDraft.canal === 'ambos') && (
-                  <div className={`flex gap-3 p-3 rounded-xl text-xs ${isDark ? 'bg-blue-900/30 border border-blue-700/40 text-blue-300' : 'bg-blue-50 border border-blue-200 text-blue-700'}`}>
-                    <span className="text-base leading-none mt-0.5">ℹ️</span>
-                    <div>
-                      <p className="font-semibold mb-1">Permissões necessárias no App Registration do Azure</p>
-                      <p>Para enviar mensagens diretas (DM) no Teams, o App Registration precisa ter as seguintes permissões de aplicativo habilitadas no Azure Portal:</p>
-                      <ul className="mt-1.5 space-y-0.5 font-mono">
-                        <li>• <strong>User.Read.All</strong> — localizar usuários pelo e-mail</li>
-                        <li>• <strong>Chat.Create</strong> — criar o chat 1:1</li>
-                        <li>• <strong>ChatMessage.Send</strong> — enviar a mensagem</li>
-                      </ul>
+                  <div className={`rounded-xl border text-xs overflow-hidden ${
+                    loadingTeamsHealth
+                      ? (isDark ? 'border-gray-700 bg-gray-800/40' : 'border-gray-200 bg-gray-50')
+                      : teamsHealth?.ok
+                        ? (isDark ? 'border-emerald-700/50 bg-emerald-900/20' : 'border-emerald-200 bg-emerald-50')
+                        : teamsHealth
+                          ? (isDark ? 'border-red-700/50 bg-red-900/20' : 'border-red-200 bg-red-50')
+                          : (isDark ? 'border-blue-700/40 bg-blue-900/30' : 'border-blue-200 bg-blue-50')
+                  }`}>
+                    {/* Cabeçalho com badge */}
+                    <div className="flex items-center justify-between gap-2 px-3 pt-3 pb-2">
+                      <div className="flex items-center gap-2">
+                        {loadingTeamsHealth ? (
+                          <span className={`inline-block w-2.5 h-2.5 rounded-full animate-pulse ${isDark ? 'bg-gray-500' : 'bg-gray-400'}`} />
+                        ) : teamsHealth?.ok ? (
+                          <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                        ) : teamsHealth ? (
+                          <span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500" />
+                        ) : (
+                          <span className="inline-block w-2.5 h-2.5 rounded-full bg-blue-400" />
+                        )}
+                        <span className={`font-semibold ${
+                          loadingTeamsHealth
+                            ? (isDark ? 'text-gray-400' : 'text-gray-500')
+                            : teamsHealth?.ok
+                              ? (isDark ? 'text-emerald-300' : 'text-emerald-700')
+                              : teamsHealth
+                                ? (isDark ? 'text-red-300' : 'text-red-700')
+                                : (isDark ? 'text-blue-300' : 'text-blue-700')
+                        }`}>
+                          {loadingTeamsHealth
+                            ? 'Verificando permissões Azure…'
+                            : teamsHealth?.ok
+                              ? 'Permissões Azure verificadas'
+                              : teamsHealth
+                                ? 'Permissões Azure com problema'
+                                : 'Permissões necessárias no App Registration do Azure'}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={fetchTeamsHealth}
+                        disabled={loadingTeamsHealth}
+                        className={`px-2 py-0.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-40 ${
+                          isDark ? 'bg-gray-700 hover:bg-gray-600 text-gray-300' : 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200'
+                        }`}
+                      >
+                        Verificar agora
+                      </button>
+                    </div>
+
+                    {/* Corpo */}
+                    <div className={`px-3 pb-3 ${
+                      teamsHealth?.ok
+                        ? (isDark ? 'text-emerald-300' : 'text-emerald-700')
+                        : teamsHealth?.error
+                          ? (isDark ? 'text-red-300' : 'text-red-700')
+                          : (isDark ? 'text-blue-300' : 'text-blue-700')
+                    }`}>
+                      {teamsHealth?.ok ? (
+                        <p>Token adquirido e permissões <span className="font-mono">User.Read.All</span> e <span className="font-mono">Chat.Create</span> confirmadas.</p>
+                      ) : teamsHealth?.error ? (
+                        <p><span className="font-semibold">Erro:</span> {teamsHealth.error}</p>
+                      ) : teamsHealth && teamsHealth.missing_scopes.length > 0 ? (
+                        <div>
+                          <p className="mb-1">As seguintes permissões estão ausentes no Azure Portal:</p>
+                          <ul className="space-y-0.5 font-mono">
+                            {teamsHealth.missing_scopes.map(s => (
+                              <li key={s} className="flex items-center gap-1.5">
+                                <span className="text-red-400">✕</span> <strong>{s}</strong>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : (
+                        <div>
+                          <p className="mb-1">Para enviar mensagens diretas (DM) no Teams, o App Registration precisa ter as seguintes permissões de aplicativo habilitadas no Azure Portal:</p>
+                          <ul className="mt-1.5 space-y-0.5 font-mono">
+                            <li>• <strong>User.Read.All</strong> — localizar usuários pelo e-mail</li>
+                            <li>• <strong>Chat.Create</strong> — criar o chat 1:1</li>
+                            <li>• <strong>ChatMessage.Send</strong> — enviar a mensagem</li>
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

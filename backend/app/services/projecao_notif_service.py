@@ -581,3 +581,112 @@ def enviar_resumo_diario(db: Session, *, force: bool = False) -> dict:
         "erros": erros_all,
         "total_eventos": sum(len(g["eventos"]) for g in grupos),
     }
+
+
+# ── Health check de permissões Azure para Teams DM ───────────────────────────
+
+def check_teams_permissions() -> dict:
+    """
+    Verifica se as permissões Azure necessárias para envio de Teams DM estão
+    configuradas. Tenta adquirir token e provar User.Read.All + Chat.Create.
+
+    Retorna: { ok: bool, missing_scopes: list[str], error: str | null }
+    """
+    import os
+    from .email_service import _acquire_token, EmailError
+
+    missing_scopes: list[str] = []
+
+    # 1. Credenciais presentes?
+    tenant_id = os.environ.get("MS_TENANT_ID", "").strip()
+    client_id = os.environ.get("MS_CLIENT_ID", "").strip()
+    client_secret = os.environ.get("MS_CLIENT_SECRET", "").strip()
+
+    cred_missing = [k for k, v in [
+        ("MS_TENANT_ID", tenant_id),
+        ("MS_CLIENT_ID", client_id),
+        ("MS_CLIENT_SECRET", client_secret),
+    ] if not v]
+    if cred_missing:
+        return {
+            "ok": False,
+            "missing_scopes": [],
+            "error": f"Variáveis de ambiente ausentes: {', '.join(cred_missing)}",
+        }
+
+    # 2. Adquirir token (valida credenciais + consentimento de admin)
+    try:
+        token = _acquire_token()
+    except EmailError as exc:
+        return {"ok": False, "missing_scopes": [], "error": str(exc)}
+    except Exception as exc:
+        return {"ok": False, "missing_scopes": [], "error": f"Erro ao adquirir token: {exc}"}
+
+    # 3. Provar User.Read.All: listar 1 usuário
+    try:
+        resp = requests.get(
+            f"{_GRAPH_BASE}/users",
+            params={"$top": "1", "$select": "id,mail"},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+        if resp.status_code == 403:
+            missing_scopes.append("User.Read.All")
+            logger.warning("[TeamsHealth] User.Read.All ausente: %s", resp.text[:200])
+        elif resp.status_code not in (200,):
+            missing_scopes.append("User.Read.All")
+            logger.warning("[TeamsHealth] GET /users retornou %s", resp.status_code)
+    except Exception as exc:
+        return {
+            "ok": False,
+            "missing_scopes": missing_scopes,
+            "error": f"Erro ao verificar User.Read.All: {exc}",
+        }
+
+    # 4. Provar Chat.Create: POST /chats com payload intencionalmente inválido.
+    #    403 → permissão ausente; 400/422/outros → permissão concedida, payload rejeitado (esperado).
+    try:
+        resp = requests.post(
+            f"{_GRAPH_BASE}/chats",
+            json={"chatType": "oneOnOne", "members": []},
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            timeout=10,
+        )
+        if resp.status_code == 403:
+            missing_scopes.append("Chat.Create")
+            logger.warning("[TeamsHealth] Chat.Create ausente: %s", resp.text[:200])
+        # 400/422/outros = payload rejeitado mas acesso concedido → OK para este escopo
+    except Exception as exc:
+        return {
+            "ok": False,
+            "missing_scopes": missing_scopes,
+            "error": f"Erro ao verificar Chat.Create: {exc}",
+        }
+
+    # 5. Provar ChatMessage.Send independentemente: POST /chats/{id}/messages com ID fictício.
+    #    403 → permissão ausente; 404 → permissão presente mas chat não encontrado (esperado);
+    #    400/outros → acesso concedido, payload ou rota rejeitada.
+    _FAKE_CHAT_ID = "19:00000000000000000000000000000000_00000000-0000-0000-0000-000000000000@unq.gbl.spaces"
+    try:
+        resp = requests.post(
+            f"{_GRAPH_BASE}/chats/{_FAKE_CHAT_ID}/messages",
+            json={"body": {"content": "health-check", "contentType": "text"}},
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            timeout=10,
+        )
+        if resp.status_code == 403:
+            missing_scopes.append("ChatMessage.Send")
+            logger.warning("[TeamsHealth] ChatMessage.Send ausente: %s", resp.text[:200])
+        # 404 = chat não existe mas permissão OK; 400 = permissão OK mas request inválido
+    except Exception as exc:
+        return {
+            "ok": False,
+            "missing_scopes": missing_scopes,
+            "error": f"Erro ao verificar ChatMessage.Send: {exc}",
+        }
+
+    return {
+        "ok": len(missing_scopes) == 0,
+        "missing_scopes": missing_scopes,
+        "error": None,
+    }

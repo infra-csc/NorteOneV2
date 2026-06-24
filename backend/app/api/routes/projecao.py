@@ -870,6 +870,22 @@ def update_notif_config(
     )
 
 
+@router.get("/notif-teams-health")
+def notif_teams_health(
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
+):
+    """
+    Verifica se as permissões Azure necessárias para envio de Teams DM estão
+    configuradas (User.Read.All, Chat.Create, ChatMessage.Send).
+    Tenta adquirir token e faz chamadas de dry-run ao Microsoft Graph.
+    Retorna { ok, missing_scopes, error }.
+    """
+    if not is_user_admin(current_user):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem verificar as permissões Teams")
+    from ...services.projecao_notif_service import check_teams_permissions
+    return check_teams_permissions()
+
+
 @router.post("/notif-test")
 def enviar_notif_teste(
     db: Session = Depends(get_db),
