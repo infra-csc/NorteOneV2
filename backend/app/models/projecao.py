@@ -279,6 +279,28 @@ class ProjecaoCorteDistSnapshot(Base):
     )
 
 
+class ProjecaoNotifLog(Base):
+    """
+    Registro histórico de cada disparo de notificação (agendado ou manual).
+    Permite consultar os últimos N envios no painel de configuração.
+    """
+    __tablename__ = "projecao_notif_log"
+
+    id = Column(Integer, primary_key=True, index=True)
+    disparado_em = Column(DateTime, nullable=False, default=_now_brasilia, index=True)
+    canal = Column(String(20), nullable=False)
+    enviados_email = Column(Integer, nullable=False, default=0)
+    enviados_teams = Column(Integer, nullable=False, default=0)
+    falhas = Column(Integer, nullable=False, default=0)
+    total_eventos = Column(Integer, nullable=False, default=0)
+    destinatarios_json = Column(Text, nullable=True)
+    erros_json = Column(Text, nullable=True)
+    foi_teste = Column(Boolean, nullable=False, default=False)
+    usuario_teste_id = Column(Integer, ForeignKey("dim_usuario.id", ondelete="SET NULL"), nullable=True)
+
+    usuario_teste = relationship("Usuario", foreign_keys=[usuario_teste_id])
+
+
 class SimuladorProjetadoFaixas(Base):
     __tablename__ = "simulador_projetado_faixas"
 

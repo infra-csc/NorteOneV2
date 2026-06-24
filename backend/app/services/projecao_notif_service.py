@@ -29,6 +29,7 @@ from ..models.projecao import (
     ProjecaoInscritos,
     ProjecaoCutoffEventoArea,
     ProjecaoCorteConfig,
+    ProjecaoNotifLog,
 )
 from ..models.cadastro_evento import CadastroEvento
 from ..models.user import Usuario
@@ -494,6 +495,43 @@ def _render_email(usuario: Usuario, eventos: list) -> tuple[str, str]:
     return html, txt
 
 
+def _persist_notif_log(
+    db: Session,
+    *,
+    canal: str,
+    enviados_email: int,
+    enviados_teams: int,
+    falhas: int,
+    total_eventos: int,
+    destinatarios: list,
+    erros: list,
+    foi_teste: bool,
+    usuario_teste_id=None,
+) -> None:
+    """Persiste um registro de disparo de notificação na tabela projecao_notif_log."""
+    import json as _json
+    try:
+        entry = ProjecaoNotifLog(
+            canal=canal,
+            enviados_email=enviados_email,
+            enviados_teams=enviados_teams,
+            falhas=falhas,
+            total_eventos=total_eventos,
+            destinatarios_json=_json.dumps(destinatarios, ensure_ascii=False),
+            erros_json=_json.dumps(erros, ensure_ascii=False),
+            foi_teste=bool(foi_teste),
+            usuario_teste_id=usuario_teste_id,
+        )
+        db.add(entry)
+        db.commit()
+    except Exception as exc:
+        logger.warning("[ProjecaoNotifLog] Falha ao persistir log: %s", exc)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+
 def enviar_resumo_diario(db: Session, *, force: bool = False) -> dict:
     """
     Envia o resumo diário pelo(s) canal(is) configurado(s).
@@ -569,6 +607,20 @@ def enviar_resumo_diario(db: Session, *, force: bool = False) -> dict:
     falhas_total = result_email["falhas"] + result_teams["falhas"]
     destinatarios_all = list(dict.fromkeys(result_email["destinatarios"] + result_teams["destinatarios"]))
     erros_all = result_email["erros"] + result_teams["erros"]
+    total_eventos = sum(len(g["eventos"]) for g in grupos)
+
+    _persist_notif_log(
+        db=db,
+        canal=canal,
+        enviados_email=result_email["enviados"],
+        enviados_teams=result_teams["enviados"],
+        falhas=falhas_total,
+        total_eventos=total_eventos,
+        destinatarios=destinatarios_all,
+        erros=erros_all,
+        foi_teste=force,
+        usuario_teste_id=getattr(force, "_usuario_id", None) if not isinstance(force, bool) else None,
+    )
 
     return {
         "ativo": ativo,
@@ -579,7 +631,7 @@ def enviar_resumo_diario(db: Session, *, force: bool = False) -> dict:
         "falhas": falhas_total,
         "destinatarios": destinatarios_all,
         "erros": erros_all,
-        "total_eventos": sum(len(g["eventos"]) for g in grupos),
+        "total_eventos": total_eventos,
     }
 
 

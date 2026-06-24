@@ -1764,6 +1764,10 @@ export const projecaoService = {
     const response = await api.get('/projecao/notif-teams-health');
     return response.data;
   },
+  getNotifHistory: async (limit = 20) => {
+    const response = await api.get('/projecao/notif-history', { params: { limit } });
+    return response.data;
+  },
   reabrirCorte: async (eventoId: number, corte: 1 | 2) => {
     const response = await api.post(`/projecao/eventos/${eventoId}/corte/${corte}/reabrir`);
     return response.data;

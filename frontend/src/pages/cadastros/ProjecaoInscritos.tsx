@@ -547,6 +547,22 @@ const ProjecaoInscritos: React.FC = () => {
   const [teamsHealth, setTeamsHealth] = useState<{ ok: boolean; missing_scopes: string[]; error: string | null } | null>(null);
   const [loadingTeamsHealth, setLoadingTeamsHealth] = useState(false);
 
+  type NotifLogEntry = {
+    id: number;
+    disparado_em: string;
+    canal: string;
+    enviados_email: number;
+    enviados_teams: number;
+    falhas: number;
+    total_eventos: number;
+    destinatarios: string[];
+    erros: string[];
+    foi_teste: boolean;
+  };
+  const [notifHistory, setNotifHistory] = useState<NotifLogEntry[]>([]);
+  const [loadingNotifHistory, setLoadingNotifHistory] = useState(false);
+  const [expandedNotifLogId, setExpandedNotifLogId] = useState<number | null>(null);
+
   type DiagnosticoPosCorteItem = {
     projecao_id: number;
     evento_id: number;
@@ -858,6 +874,18 @@ const ProjecaoInscritos: React.FC = () => {
     });
   };
 
+  const fetchNotifHistory = async () => {
+    setLoadingNotifHistory(true);
+    try {
+      const data = await projecaoService.getNotifHistory(20);
+      setNotifHistory(data);
+    } catch {
+      // silently ignore — history is informational
+    } finally {
+      setLoadingNotifHistory(false);
+    }
+  };
+
   const sendNotifTest = async () => {
     setSendingNotifTest(true);
     try {
@@ -870,6 +898,7 @@ const ProjecaoInscritos: React.FC = () => {
 
       if (totalEnv === 0 && falhas === 0) {
         showToast('Nenhuma pendência para notificar hoje (nada enviado).', 'success', 6000);
+        fetchNotifHistory();
         return;
       }
 
@@ -893,6 +922,7 @@ const ProjecaoInscritos: React.FC = () => {
       } else {
         showToast(summary, 'success', 8000);
       }
+      fetchNotifHistory();
     } catch (err: any) {
       showToast(err?.response?.data?.detail || 'Erro ao enviar notificação de teste');
     } finally {
@@ -1116,7 +1146,7 @@ const ProjecaoInscritos: React.FC = () => {
 
   useEffect(() => {
     if (activeTab === 'consolidado') loadConsolidado();
-    if (activeTab === 'config' && isAdmin) { loadAreasDetail(); loadAutoLockConfig(); loadCorteConfig(); loadDiagnosticoPosCorte(); }
+    if (activeTab === 'config' && isAdmin) { loadAreasDetail(); loadAutoLockConfig(); loadCorteConfig(); loadDiagnosticoPosCorte(); fetchNotifHistory(); }
     if (activeTab === 'lixeira' && isAdmin) loadLixeira();
   }, [activeTab]);
 
@@ -3363,6 +3393,137 @@ const ProjecaoInscritos: React.FC = () => {
                     ? `Resumo diário ativo — canal: ${corteConfig.notif_canal ?? 'email'} — envio às ${corteConfig.notif_email_hora ?? 8}h (BRT).`
                     : 'Resumo diário desativado.'}
                 </p>
+              </div>
+            </div>
+
+            {/* ── Histórico de Notificações ── */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <History className={`w-5 h-5 ${isDark ? 'text-violet-400' : 'text-violet-600'}`} />
+                  <div>
+                    <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Histórico de Envios</h2>
+                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      Últimos disparos de notificação — agendados ou manuais.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={fetchNotifHistory}
+                  disabled={loadingNotifHistory}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all disabled:opacity-50 ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700/50' : 'border-gray-300 text-gray-600 hover:bg-gray-100'}`}
+                >
+                  <RotateCcw className={`w-3.5 h-3.5 ${loadingNotifHistory ? 'animate-spin' : ''}`} />
+                  Atualizar
+                </button>
+              </div>
+
+              <div className={`rounded-2xl border overflow-hidden ${isDark ? 'bg-gray-800/50 border-gray-700/50' : 'bg-white border-gray-200'}`}>
+                {loadingNotifHistory ? (
+                  <div className={`p-6 text-center text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Carregando histórico…</div>
+                ) : notifHistory.length === 0 ? (
+                  <div className={`p-6 text-center text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                    Nenhum disparo registrado ainda. O histórico aparece aqui após cada envio.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-200/50 dark:divide-gray-700/50">
+                    {notifHistory.map(entry => {
+                      const dt = entry.disparado_em ? new Date(entry.disparado_em) : null;
+                      const dtStr = dt
+                        ? dt.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                        : '—';
+                      const totalEnv = entry.enviados_email + entry.enviados_teams;
+                      const canalLabel: Record<string, string> = { email: 'E-mail', teams: 'Teams', ambos: 'Ambos' };
+                      const isExpanded = expandedNotifLogId === entry.id;
+                      const hasDetails = entry.destinatarios.length > 0 || entry.erros.length > 0;
+                      return (
+                        <div key={entry.id} className={`${isDark ? 'hover:bg-gray-700/30' : 'hover:bg-gray-50'} transition-colors`}>
+                          <div
+                            className="flex items-center gap-3 px-4 py-3 cursor-pointer"
+                            onClick={() => hasDetails && setExpandedNotifLogId(isExpanded ? null : entry.id)}
+                          >
+                            <div className={`flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center ${
+                              entry.falhas > 0 && totalEnv === 0
+                                ? (isDark ? 'bg-red-900/40 text-red-400' : 'bg-red-100 text-red-600')
+                                : entry.falhas > 0
+                                  ? (isDark ? 'bg-yellow-900/40 text-yellow-400' : 'bg-yellow-100 text-yellow-600')
+                                  : (isDark ? 'bg-emerald-900/40 text-emerald-400' : 'bg-emerald-100 text-emerald-600')
+                            }`}>
+                              <Mail className="w-4 h-4" />
+                            </div>
+
+                            <div className="flex-1 min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{dtStr}</span>
+                                {entry.foi_teste && (
+                                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md uppercase tracking-wide ${isDark ? 'bg-violet-900/50 text-violet-300' : 'bg-violet-100 text-violet-700'}`}>
+                                    Teste
+                                  </span>
+                                )}
+                                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
+                                  {canalLabel[entry.canal] ?? entry.canal}
+                                </span>
+                              </div>
+                              <div className={`flex flex-wrap gap-3 mt-0.5 text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                {entry.canal !== 'teams' && (
+                                  <span>✉ E-mail: <strong className={isDark ? 'text-gray-200' : 'text-gray-700'}>{entry.enviados_email}</strong></span>
+                                )}
+                                {entry.canal !== 'email' && (
+                                  <span>💬 Teams: <strong className={isDark ? 'text-gray-200' : 'text-gray-700'}>{entry.enviados_teams}</strong></span>
+                                )}
+                                {entry.total_eventos > 0 && (
+                                  <span>📅 Eventos: <strong className={isDark ? 'text-gray-200' : 'text-gray-700'}>{entry.total_eventos}</strong></span>
+                                )}
+                                {entry.falhas > 0 && (
+                                  <span className={isDark ? 'text-red-400' : 'text-red-600'}>⚠ Falhas: <strong>{entry.falhas}</strong></span>
+                                )}
+                              </div>
+                            </div>
+
+                            {hasDetails && (
+                              <div className={`flex-shrink-0 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                                {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                              </div>
+                            )}
+                          </div>
+
+                          {isExpanded && hasDetails && (
+                            <div className={`px-4 pb-4 space-y-3 border-t ${isDark ? 'border-gray-700/50' : 'border-gray-100'}`}>
+                              {entry.destinatarios.length > 0 && (
+                                <div className="pt-3">
+                                  <p className={`text-xs font-bold uppercase tracking-wide mb-1.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                    Destinatários ({entry.destinatarios.length})
+                                  </p>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {entry.destinatarios.map((d, i) => (
+                                      <span key={i} className={`text-xs px-2 py-0.5 rounded-lg ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-700'}`}>
+                                        {d}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                              {entry.erros.length > 0 && (
+                                <div>
+                                  <p className={`text-xs font-bold uppercase tracking-wide mb-1.5 ${isDark ? 'text-red-400' : 'text-red-600'}`}>
+                                    Erros ({entry.erros.length})
+                                  </p>
+                                  <div className="space-y-1">
+                                    {entry.erros.map((e, i) => (
+                                      <p key={i} className={`text-xs font-mono px-2 py-1 rounded-lg ${isDark ? 'bg-red-900/30 text-red-300' : 'bg-red-50 text-red-700'}`}>
+                                        {e}
+                                      </p>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
 

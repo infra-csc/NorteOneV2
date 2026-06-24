@@ -21,7 +21,7 @@ from ...models.projecao import (
     ProjecaoInscritosHistorico, ProjecaoInscritosCliente, ProjecaoInscritosKit, ProjecaoCutoffRule,
     ProjecaoCutoffEventoArea, ProjecaoAutoLockConfig,
     ProjecaoCorteConfig, ProjecaoCorteSnapshot, ProjecaoKitCorteSnapshot,
-    ProjecaoCorteDistSnapshot,
+    ProjecaoCorteDistSnapshot, ProjecaoNotifLog,
     KIT_CAMISETA_AVULSA_ORIGEM,
 )
 from ...models.cadastro_evento import CadastroEvento
@@ -900,6 +900,54 @@ def enviar_notif_teste(
     from ...services.projecao_notif_service import enviar_resumo_diario
     resumo = enviar_resumo_diario(db, force=True)
     return resumo
+
+
+@router.get("/notif-history")
+def get_notif_history(
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
+):
+    """
+    Retorna os últimos N disparos de notificação registrados em projecao_notif_log.
+    Apenas administradores.
+    """
+    import json as _json
+    if not is_user_admin(current_user):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem consultar o histórico de notificações")
+
+    rows = (
+        db.query(ProjecaoNotifLog)
+        .order_by(ProjecaoNotifLog.disparado_em.desc())
+        .limit(limit)
+        .all()
+    )
+
+    result = []
+    for r in rows:
+        try:
+            destinatarios = _json.loads(r.destinatarios_json) if r.destinatarios_json else []
+        except Exception:
+            destinatarios = []
+        try:
+            erros = _json.loads(r.erros_json) if r.erros_json else []
+        except Exception:
+            erros = []
+        result.append({
+            "id": r.id,
+            "disparado_em": r.disparado_em.isoformat() if r.disparado_em else None,
+            "canal": r.canal,
+            "enviados_email": r.enviados_email,
+            "enviados_teams": r.enviados_teams,
+            "falhas": r.falhas,
+            "total_eventos": r.total_eventos,
+            "destinatarios": destinatarios,
+            "erros": erros,
+            "foi_teste": r.foi_teste,
+            "usuario_teste_id": r.usuario_teste_id,
+        })
+
+    return result
 
 
 def _get_or_create_corte_snapshot(db: Session, evento_id: int) -> ProjecaoCorteSnapshot:
