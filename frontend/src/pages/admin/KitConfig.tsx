@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useTheme } from '../../context/ThemeContext';
+import { usePermissions } from '../../context/PermissionContext';
 import api from '../../services/api';
-import { RefreshCw, Save, Search, AlertCircle, AlertTriangle, Package, Check, Star, Zap, Download, Filter, X, EyeOff, Loader2, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { RefreshCw, Save, Search, AlertCircle, AlertTriangle, Package, Check, Star, Zap, Download, Filter, X, EyeOff, Loader2, CheckCircle2, XCircle, Clock, SlidersHorizontal, List } from 'lucide-react';
+import DimensaoAliasConfig from './DimensaoAliasConfig';
 
 interface KitRow {
   id_evento: string | null;
@@ -99,6 +101,8 @@ const initialUpdateModal: UpdateModalState = {
 
 const KitConfig: React.FC = () => {
   const { isDark } = useTheme();
+  const { canView } = usePermissions();
+  const [activeTab, setActiveTab] = useState<'mapeamento' | 'padroes'>('mapeamento');
   const [kits, setKits] = useState<KitRow[]>(_kitsCache ?? []);
   const [loading, setLoading] = useState(_kitsCache === null);
   const [error, setError] = useState<string | null>(null);
@@ -831,8 +835,54 @@ const KitConfig: React.FC = () => {
 
   const checkboxClass = `w-4 h-4 rounded cursor-pointer accent-blue-500`;
 
+  const showPadroesTab = canView('admin_detalhe_alias');
+
   return (
     <div className={`min-h-screen ${bg} p-0`}>
+
+      {/* Tab strip */}
+      <div className={`flex gap-1 mb-6 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+        <button
+          onClick={() => setActiveTab('mapeamento')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
+            activeTab === 'mapeamento'
+              ? isDark
+                ? 'border-blue-400 text-blue-400'
+                : 'border-blue-500 text-blue-600'
+              : isDark
+                ? 'border-transparent text-gray-400 hover:text-gray-200'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <List className="w-4 h-4" />
+          Mapeamento de Kits
+        </button>
+        {showPadroesTab && (
+          <button
+            onClick={() => setActiveTab('padroes')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              activeTab === 'padroes'
+                ? isDark
+                  ? 'border-blue-400 text-blue-400'
+                  : 'border-blue-500 text-blue-600'
+                : isDark
+                  ? 'border-transparent text-gray-400 hover:text-gray-200'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+            Padrões de Dimensão
+          </button>
+        )}
+      </div>
+
+      {/* Padrões de Dimensão tab */}
+      {activeTab === 'padroes' && showPadroesTab && (
+        <DimensaoAliasConfig />
+      )}
+
+      {/* Mapeamento de Kits tab */}
+      {activeTab === 'mapeamento' && (<>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className={`text-2xl font-bold ${textPrimary}`}>Mapeamento de Kits</h1>
@@ -1614,6 +1664,7 @@ const KitConfig: React.FC = () => {
           </div>
         );
       })()}
+      </>)}
     </div>
   );
 };

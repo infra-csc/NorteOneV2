@@ -42,6 +42,7 @@ import app.core.database as db_module
 from app.models.dimensoes import SkuMapping, ModalidadeAlias
 from app.models.kit_config import KitConfig
 from app.models.kit_mapping_snapshot import KitMappingSnapshot
+from app.models.detalhe_dimensao_alias import DetalheDimensaoAlias
 from app.queries.detalhe_eventos import build_ativo_detalhe, build_magento_detalhe
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,77 @@ _cache_lock = threading.Lock()
 _alias_map: Dict[str, str] = {}
 _alias_map_lock = threading.Lock()
 _alias_map_loaded: bool = False
+
+# ---------------------------------------------------------------------------
+# Cache de padrões de dimensão (DetalheDimensaoAlias — todas as dimensões)
+# ---------------------------------------------------------------------------
+# Estrutura: {dimensao: [(compiled_pattern | None, substituicao, is_regex), ...]}
+# None em compiled_pattern indica match exato (case-insensitive).
+_dim_alias_cache: Dict[str, list] = {}
+_dim_alias_lock = threading.Lock()
+_dim_alias_loaded: bool = False
+
+
+def _load_dimension_aliases(db: Session) -> Dict[str, list]:
+    """Carrega DetalheDimensaoAlias do banco e devolve mapa {dimensao: [regras]}."""
+    global _dim_alias_cache, _dim_alias_loaded
+    rows = (
+        db.query(DetalheDimensaoAlias)
+        .filter(DetalheDimensaoAlias.ativo == True)
+        .order_by(DetalheDimensaoAlias.dimensao, DetalheDimensaoAlias.ordem, DetalheDimensaoAlias.id)
+        .all()
+    )
+    result: Dict[str, list] = {}
+    for row in rows:
+        entry: list = result.setdefault(row.dimensao, [])
+        if row.is_regex:
+            try:
+                entry.append((re.compile(row.pattern, re.IGNORECASE), row.substituicao, True))
+            except re.error:
+                pass
+        else:
+            entry.append((None, row.substituicao, row.pattern.strip()))
+    with _dim_alias_lock:
+        _dim_alias_cache = result
+        _dim_alias_loaded = True
+    return result
+
+
+def _get_dimension_aliases(db: Session) -> Dict[str, list]:
+    with _dim_alias_lock:
+        if _dim_alias_loaded:
+            return dict(_dim_alias_cache)
+    return _load_dimension_aliases(db)
+
+
+def _apply_dim_alias_to_value(value: Optional[str], rules: list) -> str:
+    """Aplica regras de uma dimensão a um valor bruto; devolve o alias ou o original."""
+    if not value:
+        return value or ""
+    cleaned = re.sub(r"\s+", " ", value.strip())
+    for compiled, substituicao, extra in rules:
+        if compiled is None:
+            # Exact match (case-insensitive)
+            if cleaned.lower() == str(extra).lower():
+                return re.sub(r"\s+", " ", substituicao).strip()
+        else:
+            result = compiled.sub(substituicao, cleaned)
+            if result != cleaned:
+                return re.sub(r"\s+", " ", result).strip()
+    return cleaned
+
+
+def _apply_dimension_aliases(rows: List[Dict], db: Session) -> None:
+    """Aplica padrões de DetalheDimensaoAlias a TODAS as dimensões, in-place."""
+    aliases = _get_dimension_aliases(db)
+    if not aliases:
+        return
+    dims = ["kit", "modalidade", "pelotao", "tamanho_camiseta", "produtos"]
+    for row in rows:
+        for dim in dims:
+            rules = aliases.get(dim)
+            if rules and row.get(dim):
+                row[dim] = _apply_dim_alias_to_value(row[dim], rules)
 
 
 def _load_alias_map(db: Session) -> Dict[str, str]:
@@ -79,10 +151,13 @@ def _get_alias_map(db: Session) -> Dict[str, str]:
 
 
 def invalidate_alias_cache() -> None:
-    global _alias_map_loaded
+    global _alias_map_loaded, _dim_alias_loaded
     with _alias_map_lock:
         _alias_map.clear()
         _alias_map_loaded = False
+    with _dim_alias_lock:
+        _dim_alias_cache.clear()
+        _dim_alias_loaded = False
 
 
 def _normalize_modalidade(val: Optional[str], alias_map: Dict[str, str]) -> Optional[str]:
@@ -783,6 +858,8 @@ def get_detalhe(
                     km_snap, ka_snap = _build_kit_canonical_maps(db, magento_ids_snap)
                     _apply_canonical_kit(rows_ativo_snap, km_snap, ka_snap)
                     _apply_canonical_kit(rows_magento_snap, km_snap, ka_snap)
+                    _apply_dimension_aliases(rows_ativo_snap, db)
+                    _apply_dimension_aliases(rows_magento_snap, db)
                     payload_dict["consolidado"] = _consolidar(rows_ativo_snap, rows_magento_snap)
                     payload_dict["totais"] = _calc_totais(payload_dict["consolidado"])
                 except Exception as _kit_err:
@@ -935,6 +1012,8 @@ def get_detalhe(
         kit_mapa_magento, kit_mapa_ativo = _build_kit_canonical_maps(db, magento_ids)
         _apply_canonical_kit(rows_ativo or [], kit_mapa_magento, kit_mapa_ativo)
         _apply_canonical_kit(rows_magento or [], kit_mapa_magento, kit_mapa_ativo)
+        _apply_dimension_aliases(rows_ativo or [], db)
+        _apply_dimension_aliases(rows_magento or [], db)
 
         consolidado = _consolidar(rows_ativo or [], rows_magento or [])
         divergencias = _check_divergencias(consolidado, rows_ativo or [], rows_magento or [])

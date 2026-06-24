@@ -23,6 +23,7 @@ MODULOS_SISTEMA = [
     {"key": "cotacoes_importacao", "label": "Cotação & Importação"},
     {"key": "admin_monitoramento", "label": "Admin - Monitoramento"},
     {"key": "manual_sistema", "label": "Manual do Sistema"},
+    {"key": "admin_detalhe_alias", "label": "Admin - Padrões de Dimensão"},
 ]
 
 
