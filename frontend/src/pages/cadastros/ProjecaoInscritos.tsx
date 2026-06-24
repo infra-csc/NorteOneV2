@@ -563,7 +563,7 @@ const ProjecaoInscritos: React.FC = () => {
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
   const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const showToast = (message: unknown, type: 'error' | 'success' = 'error') => {
+  const showToast = (message: unknown, type: 'error' | 'success' = 'error', duration = 4000) => {
     if (toastTimeout.current) clearTimeout(toastTimeout.current);
     let text: string;
     if (typeof message === 'string') {
@@ -585,7 +585,7 @@ const ProjecaoInscritos: React.FC = () => {
       text = message != null ? String(message) : 'Erro desconhecido';
     }
     setToast({ message: text || 'Erro desconhecido', type });
-    toastTimeout.current = setTimeout(() => setToast(null), 4000);
+    toastTimeout.current = setTimeout(() => setToast(null), duration);
   };
 
   const showConfirm = (opts: {
@@ -839,17 +839,39 @@ const ProjecaoInscritos: React.FC = () => {
     setSendingNotifTest(true);
     try {
       const r = await projecaoService.sendNotifTest();
-      const enviados = r?.enviados ?? 0;
-      const falhas = r?.falhas ?? 0;
-      if (enviados === 0 && falhas === 0) {
-        showToast('Nenhuma pendência para notificar hoje (nada enviado).', 'success');
-      } else if (falhas > 0) {
-        showToast(`Enviados: ${enviados}. Falhas: ${falhas}. ${(r?.erros || []).slice(0, 1).join('') || ''}`.trim());
+      const emailEnv: number = r?.enviados_email ?? 0;
+      const teamsEnv: number = r?.enviados_teams ?? 0;
+      const falhas: number = r?.falhas ?? 0;
+      const totalEnv = emailEnv + teamsEnv;
+      const canal: string = r?.canal ?? '';
+
+      if (totalEnv === 0 && falhas === 0) {
+        showToast('Nenhuma pendência para notificar hoje (nada enviado).', 'success', 6000);
+        return;
+      }
+
+      const parts: string[] = [];
+      if (canal === 'email' || canal === 'ambos' || emailEnv > 0) {
+        parts.push(`E-mails: ${emailEnv} enviado${emailEnv !== 1 ? 's' : ''}`);
+      }
+      if (canal === 'teams' || canal === 'ambos' || teamsEnv > 0) {
+        parts.push(`Teams DMs: ${teamsEnv} enviado${teamsEnv !== 1 ? 's' : ''}`);
+      }
+      if (falhas > 0) {
+        parts.push(`Falhas: ${falhas}`);
+      }
+
+      const summary = parts.join(' · ');
+
+      if (falhas > 0) {
+        const primeiroErro = (r?.erros as string[] | undefined)?.[0];
+        const detalhe = primeiroErro ? ` — ${primeiroErro}` : '';
+        showToast(`${summary}${detalhe}`, 'error', 8000);
       } else {
-        showToast(`Resumo enviado para ${enviados} destinatário(s).`, 'success');
+        showToast(summary, 'success', 8000);
       }
     } catch (err: any) {
-      showToast(err?.response?.data?.detail || 'Erro ao enviar e-mail de teste');
+      showToast(err?.response?.data?.detail || 'Erro ao enviar notificação de teste');
     } finally {
       setSendingNotifTest(false);
     }
