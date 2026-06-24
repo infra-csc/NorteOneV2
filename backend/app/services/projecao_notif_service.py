@@ -222,7 +222,7 @@ def _render_email(usuario: Usuario, eventos: list) -> tuple[str, str]:
         <a href="{link}" style="background:#b91c1c;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;font-weight:600;display:inline-block;">Abrir Projeção de Inscritos</a>
       </div>
       <p style="margin:22px 0 0;color:#999;font-size:12px;">
-        Você recebeu este e-mail porque é responsável por uma ou mais áreas no DW Financeiro.
+        Você recebeu este e-mail porque é responsável por uma ou mais áreas no Norte One.
       </p>
     </div>
   </div>
@@ -234,7 +234,7 @@ def _render_email(usuario: Usuario, eventos: list) -> tuple[str, str]:
         f"que atingiram o ponto de corte hoje.\n\n"
         + "\n".join(linhas_txt)
         + f"\n\nAbra a Projeção de Inscritos: {link}\n\n"
-        "Você recebeu este e-mail porque é responsável por uma ou mais áreas no DW Financeiro."
+        "Você recebeu este e-mail porque é responsável por uma ou mais áreas no Norte One."
     )
     return html, txt
 
@@ -278,9 +278,9 @@ def enviar_resumo_diario(db: Session, *, force: bool = False) -> dict:
         html, txt = _render_email(u, g["eventos"])
         n_ev = len(g["eventos"])
         subject = (
-            f"[DW Financeiro] {n_ev} evento(s) com projeção pendente"
+            f"[Norte One] {n_ev} evento(s) com projeção pendente"
             if n_ev != 1 else
-            "[DW Financeiro] 1 evento com projeção pendente"
+            "[Norte One] 1 evento com projeção pendente"
         )
         try:
             send_email(
