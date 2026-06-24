@@ -111,12 +111,115 @@ def _get_or_create_dm_chat(sender_aad_id: str, recipient_aad_id: str, token: str
     return None
 
 
-def _send_teams_chat_message(chat_id: str, html_body: str, token: str) -> bool:
-    """Envia mensagem HTML num chat Teams. Retorna True se bem-sucedido."""
+def _build_adaptive_card(usuario: Usuario, eventos: list) -> dict:
+    """
+    Constrói um Adaptive Card (v1.2) com o resumo de pendências do usuário.
+    Compatível com Teams via Graph API chatMessage attachments.
+    """
+    import uuid as _uuid
+    base = _app_base_url()
+    link = f"{base}/projecao-inscritos" if base else None
+    total_areas = sum(len(e["areas"]) for e in eventos)
+    plural_ev = "evento" if len(eventos) == 1 else "eventos"
+    primeiro_nome = (usuario.nome or "").split(" ")[0] if usuario.nome else ""
+    saudacao = f"Olá, {primeiro_nome}!" if primeiro_nome else "Olá!"
+
+    # Bloco de fatos por evento
+    event_blocks: list[dict] = []
+    for e in eventos:
+        areas_str = ", ".join(e["areas"])
+        data_ev = _fmt_data_br(e["data_evento"])
+        data_corte = _fmt_data_br(e["cutoff_data"])
+        event_blocks.append({
+            "type": "Container",
+            "style": "emphasis",
+            "spacing": "Small",
+            "items": [
+                {
+                    "type": "TextBlock",
+                    "text": e["nome"],
+                    "weight": "Bolder",
+                    "size": "Small",
+                    "wrap": True,
+                },
+                {
+                    "type": "FactSet",
+                    "facts": [
+                        {"title": "Evento:", "value": data_ev},
+                        {"title": "Corte Envio:", "value": data_corte},
+                        {"title": "Áreas pendentes:", "value": areas_str},
+                    ],
+                },
+            ],
+        })
+
+    body: list[dict] = [
+        {
+            "type": "TextBlock",
+            "text": "Norte One — Projeção de Inscritos",
+            "weight": "Bolder",
+            "size": "Medium",
+            "color": "Accent",
+        },
+        {
+            "type": "TextBlock",
+            "text": saudacao,
+            "spacing": "Small",
+            "wrap": True,
+        },
+        {
+            "type": "TextBlock",
+            "text": (
+                f"Você tem **{len(eventos)} {plural_ev}** com projeção pendente "
+                f"em **{total_areas} área(s)** que atingiram o ponto de corte hoje."
+            ),
+            "wrap": True,
+            "spacing": "Small",
+        },
+        {"type": "Separator"},
+        *event_blocks,
+    ]
+
+    actions: list[dict] = []
+    if link:
+        actions.append({
+            "type": "Action.OpenUrl",
+            "title": "Abrir Projeção de Inscritos",
+            "url": link,
+        })
+
+    card = {
+        "type": "AdaptiveCard",
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "version": "1.2",
+        "body": body,
+        "actions": actions,
+    }
+    return card
+
+
+def _send_teams_chat_message(chat_id: str, card: dict, token: str) -> bool:
+    """Envia Adaptive Card como mensagem num chat Teams 1:1. Retorna True se bem-sucedido."""
+    import json as _json
+    import uuid as _uuid
+    attachment_id = _uuid.uuid4().hex
+    payload = {
+        "body": {
+            "contentType": "html",
+            "content": f'<attachment id="{attachment_id}"></attachment>',
+        },
+        "attachments": [
+            {
+                "id": attachment_id,
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": _json.dumps(card),
+            }
+        ],
+    }
     try:
         resp = requests.post(
             f"{_GRAPH_BASE}/chats/{chat_id}/messages",
-            json={"body": {"contentType": "html", "content": html_body}},
+            json=payload,
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
             timeout=15,
         )
@@ -126,35 +229,6 @@ def _send_teams_chat_message(chat_id: str, html_body: str, token: str) -> bool:
     except Exception as exc:
         logger.warning("[TeamsNotif] Erro ao enviar mensagem Teams: %s", exc)
     return False
-
-
-def _render_teams_html(usuario: Usuario, eventos: list) -> str:
-    """Mensagem HTML compacta para o Teams (sem cabeçalhos externos)."""
-    base = _app_base_url()
-    link = f"{base}/projecao-inscritos" if base else "/projecao-inscritos"
-    total_areas = sum(len(e["areas"]) for e in eventos)
-    plural_ev = "evento" if len(eventos) == 1 else "eventos"
-    primeiro_nome = (usuario.nome or "").split(" ")[0] if usuario.nome else ""
-    saudacao = f"Olá, {primeiro_nome}!" if primeiro_nome else "Olá!"
-
-    linhas = []
-    for e in eventos:
-        areas = ", ".join(e["areas"])
-        data_ev = _fmt_data_br(e["data_evento"])
-        data_corte = _fmt_data_br(e["cutoff_data"])
-        linhas.append(
-            f"<li><b>{e['nome']}</b> — Evento: {data_ev} | Corte Envio: {data_corte}<br>"
-            f"<span style='color:#b91c1c;'>Áreas pendentes: {areas}</span></li>"
-        )
-
-    return (
-        f"<p>{saudacao}</p>"
-        f"<p>Você tem <b>{len(eventos)} {plural_ev}</b> com projeção pendente em "
-        f"<b>{total_areas} área(s)</b> que atingiram o ponto de corte hoje.</p>"
-        f"<ul>{''.join(linhas)}</ul>"
-        f"<p><a href='{link}'>Abrir Projeção de Inscritos no Norte One</a></p>"
-        f"<p><small>Você recebeu esta mensagem porque é responsável por uma ou mais áreas no Norte One.</small></p>"
-    )
 
 
 def send_teams_dm_per_user(grupos: list) -> dict:
@@ -211,8 +285,8 @@ def send_teams_dm_per_user(grupos: list) -> dict:
             erros.append(f"{u.email}: falha ao criar/obter chat 1:1")
             continue
 
-        html_body = _render_teams_html(u, g["eventos"])
-        ok = _send_teams_chat_message(chat_id, html_body, token)
+        card = _build_adaptive_card(u, g["eventos"])
+        ok = _send_teams_chat_message(chat_id, card, token)
         if ok:
             enviados += 1
             destinatarios.append(u.email)

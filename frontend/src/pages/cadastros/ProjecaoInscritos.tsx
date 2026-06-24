@@ -3170,8 +3170,42 @@ const ProjecaoInscritos: React.FC = () => {
                   </div>
                 )}
 
-                {/* Toggle + Hora (sempre visíveis — controlam quando enviar, independente do canal) */}
-                <div className="flex flex-wrap items-end gap-4">
+                {/* Toggle + Hora — visíveis apenas quando canal inclui e-mail (email ou ambos) */}
+                {(notifDraft.canal === 'email' || notifDraft.canal === 'ambos') && (
+                  <div className="flex flex-wrap items-end gap-4">
+                    <div>
+                      <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                        Enviar resumo diário
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setNotifDraft(d => ({ ...d, ativo: !d.ativo }))}
+                        className={`relative inline-flex h-10 w-20 items-center rounded-xl transition-colors ${notifDraft.ativo ? 'bg-emerald-500' : (isDark ? 'bg-gray-700' : 'bg-gray-300')}`}
+                      >
+                        <span className={`inline-block h-8 w-8 transform rounded-lg bg-white shadow transition-transform ${notifDraft.ativo ? 'translate-x-11' : 'translate-x-1'}`} />
+                      </button>
+                    </div>
+                    <div>
+                      <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                        Horário do envio (BRT)
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min={0}
+                          max={23}
+                          value={notifDraft.hora}
+                          onChange={e => setNotifDraft(d => ({ ...d, hora: e.target.value }))}
+                          className={`w-28 h-10 px-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 ${isDark ? 'bg-gray-900 border-gray-700 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'}`}
+                        />
+                        <span className={`text-sm font-mono ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>:00</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Teams puro: apenas toggle ativo (sem campo de hora — envio é acionado pelo scheduler) */}
+                {notifDraft.canal === 'teams' && (
                   <div>
                     <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
                       Enviar resumo diário
@@ -3184,23 +3218,7 @@ const ProjecaoInscritos: React.FC = () => {
                       <span className={`inline-block h-8 w-8 transform rounded-lg bg-white shadow transition-transform ${notifDraft.ativo ? 'translate-x-11' : 'translate-x-1'}`} />
                     </button>
                   </div>
-                  <div>
-                    <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                      Horário do envio (BRT)
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        min={0}
-                        max={23}
-                        value={notifDraft.hora}
-                        onChange={e => setNotifDraft(d => ({ ...d, hora: e.target.value }))}
-                        className={`w-28 h-10 px-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 ${isDark ? 'bg-gray-900 border-gray-700 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'}`}
-                      />
-                      <span className={`text-sm font-mono ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>:00</span>
-                    </div>
-                  </div>
-                </div>
+                )}
 
                 {/* Botões Salvar + Teste */}
                 <div className="flex flex-wrap gap-3 pt-1">
