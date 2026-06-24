@@ -313,6 +313,7 @@ class CorteConfigResponse(BaseModel):
     dias_alerta_envio: int = 30
     notif_email_ativo: bool = False
     notif_email_hora: int = 8
+    notif_canal: str = 'email'
     ativo: bool
     updated_by_nome: Optional[str] = None
     updated_at: Optional[datetime] = None
@@ -328,6 +329,7 @@ class AlertaConfigUpdate(BaseModel):
 class NotifConfigUpdate(BaseModel):
     notif_email_ativo: bool
     notif_email_hora: int
+    notif_canal: str = 'email'
 
 
 class CorteSnapshotResponse(BaseModel):

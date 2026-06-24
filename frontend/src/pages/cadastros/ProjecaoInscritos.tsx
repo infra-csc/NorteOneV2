@@ -536,12 +536,12 @@ const ProjecaoInscritos: React.FC = () => {
   const [autoLockDraft, setAutoLockDraft] = useState<{ dias: string; hora: string; ativo: boolean }>({ dias: '0', hora: '00:00', ativo: false });
   const [savingAutoLock, setSavingAutoLock] = useState(false);
 
-  const [corteConfig, setCorteConfig] = useState<{ dias_corte_1: number; dias_corte_2: number; dias_alerta_envio: number; notif_email_ativo?: boolean; notif_email_hora?: number; ativo: boolean; updated_by_nome?: string | null }>({ dias_corte_1: 30, dias_corte_2: 7, dias_alerta_envio: 30, notif_email_ativo: false, notif_email_hora: 8, ativo: false });
+  const [corteConfig, setCorteConfig] = useState<{ dias_corte_1: number; dias_corte_2: number; dias_alerta_envio: number; notif_email_ativo?: boolean; notif_email_hora?: number; notif_canal?: string; ativo: boolean; updated_by_nome?: string | null }>({ dias_corte_1: 30, dias_corte_2: 7, dias_alerta_envio: 30, notif_email_ativo: false, notif_email_hora: 8, notif_canal: 'email', ativo: false });
   const [corteDraft, setCorteDraft] = useState<{ dias1: string; dias2: string; ativo: boolean }>({ dias1: '30', dias2: '7', ativo: false });
   const [savingCorte, setSavingCorte] = useState(false);
   const [corteActionBusy, setCorteActionBusy] = useState<string | null>(null);
 
-  const [notifDraft, setNotifDraft] = useState<{ ativo: boolean; hora: string }>({ ativo: false, hora: '8' });
+  const [notifDraft, setNotifDraft] = useState<{ ativo: boolean; hora: string; canal: string }>({ ativo: false, hora: '8', canal: 'email' });
   const [savingNotif, setSavingNotif] = useState(false);
   const [sendingNotifTest, setSendingNotifTest] = useState(false);
 
@@ -743,7 +743,7 @@ const ProjecaoInscritos: React.FC = () => {
       setCorteConfig(data);
       setCorteDraft({ dias1: String(data.dias_corte_1), dias2: String(data.dias_corte_2), ativo: data.ativo });
       setAlertaDraft(String(data.dias_alerta_envio ?? 30));
-      setNotifDraft({ ativo: !!data.notif_email_ativo, hora: String(data.notif_email_hora ?? 8) });
+      setNotifDraft({ ativo: !!data.notif_email_ativo, hora: String(data.notif_email_hora ?? 8), canal: data.notif_canal ?? 'email' });
     } catch {
       // silently ignore — config pode não existir ainda
     }
@@ -775,14 +775,15 @@ const ProjecaoInscritos: React.FC = () => {
       showToast('Hora deve ser um número entre 0 e 23');
       return;
     }
+    const canal = notifDraft.canal || 'email';
     setSavingNotif(true);
     try {
-      const updated = await projecaoService.updateNotifConfig({ notif_email_ativo: notifDraft.ativo, notif_email_hora: hora });
+      const updated = await projecaoService.updateNotifConfig({ notif_email_ativo: notifDraft.ativo, notif_email_hora: hora, notif_canal: canal });
       setCorteConfig(updated);
-      setNotifDraft({ ativo: !!updated.notif_email_ativo, hora: String(updated.notif_email_hora ?? 8) });
-      showToast('Notificação por e-mail atualizada', 'success');
+      setNotifDraft({ ativo: !!updated.notif_email_ativo, hora: String(updated.notif_email_hora ?? 8), canal: updated.notif_canal ?? 'email' });
+      showToast('Canal de notificação atualizado', 'success');
     } catch (err: any) {
-      showToast(err?.response?.data?.detail || 'Erro ao salvar notificação por e-mail');
+      showToast(err?.response?.data?.detail || 'Erro ao salvar configuração de notificação');
     } finally {
       setSavingNotif(false);
     }
@@ -3113,19 +3114,63 @@ const ProjecaoInscritos: React.FC = () => {
               </div>
             </div>
 
-            {/* ── Resumo diário por e-mail das pendências ── */}
+            {/* ── Canal de Notificação ── */}
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <Mail className={`w-5 h-5 ${isDark ? 'text-violet-400' : 'text-violet-600'}`} />
                 <div>
-                  <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Notificação por E-mail</h2>
+                  <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Canal de Notificação</h2>
                   <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                    Envia um resumo diário por e-mail para os responsáveis de cada área que tiverem projeção pendente no dia (mesma regra do alerta acima). Cada pessoa recebe apenas as suas áreas. Use o botão de teste para enviar agora, independente do horário.
+                    Envio diário do resumo de pendências para os responsáveis de cada área. Escolha o canal: cada pessoa recebe apenas as suas áreas pendentes.
                   </p>
                 </div>
               </div>
 
-              <div className={`rounded-2xl p-4 border ${isDark ? 'bg-gray-800/50 border-gray-700/50' : 'bg-white border-gray-200'}`}>
+              <div className={`rounded-2xl p-4 border space-y-4 ${isDark ? 'bg-gray-800/50 border-gray-700/50' : 'bg-white border-gray-200'}`}>
+
+                {/* Seletor de canal */}
+                <div>
+                  <label className={`block text-xs font-bold uppercase tracking-wide mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Canal de envio
+                  </label>
+                  <div className={`inline-flex rounded-xl border overflow-hidden ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                    {(['email', 'teams', 'ambos'] as const).map(opt => {
+                      const labels: Record<string, string> = { email: 'E-mail', teams: 'Teams', ambos: 'Ambos' };
+                      const active = notifDraft.canal === opt;
+                      return (
+                        <button
+                          key={opt}
+                          type="button"
+                          onClick={() => setNotifDraft(d => ({ ...d, canal: opt }))}
+                          className={`px-4 h-10 text-sm font-semibold transition-colors ${active
+                            ? 'bg-violet-600 text-white'
+                            : (isDark ? 'bg-gray-900 text-gray-300 hover:bg-gray-700' : 'bg-gray-50 text-gray-600 hover:bg-gray-100')
+                          }`}
+                        >
+                          {labels[opt]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Aviso permissões Teams */}
+                {(notifDraft.canal === 'teams' || notifDraft.canal === 'ambos') && (
+                  <div className={`flex gap-3 p-3 rounded-xl text-xs ${isDark ? 'bg-blue-900/30 border border-blue-700/40 text-blue-300' : 'bg-blue-50 border border-blue-200 text-blue-700'}`}>
+                    <span className="text-base leading-none mt-0.5">ℹ️</span>
+                    <div>
+                      <p className="font-semibold mb-1">Permissões necessárias no App Registration do Azure</p>
+                      <p>Para enviar mensagens diretas (DM) no Teams, o App Registration precisa ter as seguintes permissões de aplicativo habilitadas no Azure Portal:</p>
+                      <ul className="mt-1.5 space-y-0.5 font-mono">
+                        <li>• <strong>User.Read.All</strong> — localizar usuários pelo e-mail</li>
+                        <li>• <strong>Chat.Create</strong> — criar o chat 1:1</li>
+                        <li>• <strong>ChatMessage.Send</strong> — enviar a mensagem</li>
+                      </ul>
+                    </div>
+                  </div>
+                )}
+
+                {/* Toggle + Hora (sempre visíveis — controlam quando enviar, independente do canal) */}
                 <div className="flex flex-wrap items-end gap-4">
                   <div>
                     <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
@@ -3155,6 +3200,10 @@ const ProjecaoInscritos: React.FC = () => {
                       <span className={`text-sm font-mono ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>:00</span>
                     </div>
                   </div>
+                </div>
+
+                {/* Botões Salvar + Teste */}
+                <div className="flex flex-wrap gap-3 pt-1">
                   <button
                     onClick={saveNotifConfig}
                     disabled={savingNotif}
@@ -3171,10 +3220,11 @@ const ProjecaoInscritos: React.FC = () => {
                     {sendingNotifTest ? 'Enviando…' : 'Enviar agora (teste)'}
                   </button>
                 </div>
-                <p className={`text-xs mt-3 ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
+
+                <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
                   {corteConfig.notif_email_ativo
-                    ? `Resumo diário ativo — envio às ${corteConfig.notif_email_hora ?? 8}h (BRT).`
-                    : 'Resumo diário por e-mail desativado.'}
+                    ? `Resumo diário ativo — canal: ${corteConfig.notif_canal ?? 'email'} — envio às ${corteConfig.notif_email_hora ?? 8}h (BRT).`
+                    : 'Resumo diário desativado.'}
                 </p>
               </div>
             </div>

@@ -1,17 +1,25 @@
 """
-Resumo diário por e-mail das pendências de Projeção de Inscritos.
+Resumo diário das pendências de Projeção de Inscritos por E-mail e/ou Teams DM.
 
 Reaproveita exatamente a mesma regra do alerta in-app (`get_pendencias`):
 o alerta dispara no dia em que `hoje == Data de corte Envio - dias_alerta_envio`,
 para eventos 'Em andamento' sem projeção registrada em alguma área. Aqui as
 pendências são agrupadas POR USUÁRIO responsável da área (via
 `area_projecao_usuario`); cada responsável recebe apenas as suas áreas.
+
+Canais suportados (config.notif_canal):
+  'email'  → Microsoft Graph sendMail (MS_SENDER_EMAIL)
+  'teams'  → Microsoft Graph Chat 1:1 (Chat.Create + ChatMessage.Send + User.Read.All)
+  'ambos'  → e-mail E Teams DM; erros de um canal não bloqueiam o outro
 """
 import logging
+import os
 from collections import defaultdict
 from datetime import datetime, date
+from typing import Optional
 from zoneinfo import ZoneInfo
 
+import requests
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -24,15 +32,15 @@ from ..models.projecao import (
 )
 from ..models.cadastro_evento import CadastroEvento
 from ..models.user import Usuario
-from .email_service import send_email, EmailError
+from .email_service import send_email, EmailError, _acquire_token
 
 logger = logging.getLogger(__name__)
 
 _BRT = ZoneInfo("America/Sao_Paulo")
+_GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
 
 def _app_base_url() -> str:
-    import os
     base = os.environ.get("APP_BASE_URL")
     if base:
         return base.rstrip("/")
@@ -41,6 +49,183 @@ def _app_base_url() -> str:
         return f"https://{dev}"
     return ""
 
+
+# ── Caches leves de session para Graph IDs (evita lookup duplo na mesma execução) ──
+_aad_id_cache: dict[str, Optional[str]] = {}
+_sender_aad_id_cache: Optional[str] = None
+
+
+def _get_aad_user_id(email: str, token: str) -> Optional[str]:
+    """Retorna o AAD object ID do usuário pelo e-mail. None se não encontrado."""
+    global _aad_id_cache
+    if email in _aad_id_cache:
+        return _aad_id_cache[email]
+    try:
+        resp = requests.get(
+            f"{_GRAPH_BASE}/users",
+            params={"$filter": f"mail eq '{email}'", "$select": "id,mail"},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            values = resp.json().get("value", [])
+            uid = values[0]["id"] if values else None
+            _aad_id_cache[email] = uid
+            return uid
+        logger.warning("[TeamsNotif] Falha ao buscar AAD ID de %s: %s", email, resp.status_code)
+    except Exception as exc:
+        logger.warning("[TeamsNotif] Erro ao buscar AAD ID de %s: %s", email, exc)
+    _aad_id_cache[email] = None
+    return None
+
+
+def _get_or_create_dm_chat(sender_aad_id: str, recipient_aad_id: str, token: str) -> Optional[str]:
+    """Cria (ou recupera) um chat 1:1 entre o remetente e o destinatário. Retorna chatId."""
+    try:
+        payload = {
+            "chatType": "oneOnOne",
+            "members": [
+                {
+                    "@odata.type": "#microsoft.graph.aadUserConversationMember",
+                    "roles": ["owner"],
+                    "user@odata.bind": f"{_GRAPH_BASE}/users('{sender_aad_id}')",
+                },
+                {
+                    "@odata.type": "#microsoft.graph.aadUserConversationMember",
+                    "roles": ["owner"],
+                    "user@odata.bind": f"{_GRAPH_BASE}/users('{recipient_aad_id}')",
+                },
+            ],
+        }
+        resp = requests.post(
+            f"{_GRAPH_BASE}/chats",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            timeout=15,
+        )
+        if resp.status_code in (200, 201):
+            return resp.json().get("id")
+        logger.warning("[TeamsNotif] Falha ao criar chat 1:1: %s — %s", resp.status_code, resp.text[:300])
+    except Exception as exc:
+        logger.warning("[TeamsNotif] Erro ao criar chat: %s", exc)
+    return None
+
+
+def _send_teams_chat_message(chat_id: str, html_body: str, token: str) -> bool:
+    """Envia mensagem HTML num chat Teams. Retorna True se bem-sucedido."""
+    try:
+        resp = requests.post(
+            f"{_GRAPH_BASE}/chats/{chat_id}/messages",
+            json={"body": {"contentType": "html", "content": html_body}},
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            timeout=15,
+        )
+        if resp.status_code in (200, 201):
+            return True
+        logger.warning("[TeamsNotif] Falha ao enviar mensagem: %s — %s", resp.status_code, resp.text[:300])
+    except Exception as exc:
+        logger.warning("[TeamsNotif] Erro ao enviar mensagem Teams: %s", exc)
+    return False
+
+
+def _render_teams_html(usuario: Usuario, eventos: list) -> str:
+    """Mensagem HTML compacta para o Teams (sem cabeçalhos externos)."""
+    base = _app_base_url()
+    link = f"{base}/projecao-inscritos" if base else "/projecao-inscritos"
+    total_areas = sum(len(e["areas"]) for e in eventos)
+    plural_ev = "evento" if len(eventos) == 1 else "eventos"
+    primeiro_nome = (usuario.nome or "").split(" ")[0] if usuario.nome else ""
+    saudacao = f"Olá, {primeiro_nome}!" if primeiro_nome else "Olá!"
+
+    linhas = []
+    for e in eventos:
+        areas = ", ".join(e["areas"])
+        data_ev = _fmt_data_br(e["data_evento"])
+        data_corte = _fmt_data_br(e["cutoff_data"])
+        linhas.append(
+            f"<li><b>{e['nome']}</b> — Evento: {data_ev} | Corte Envio: {data_corte}<br>"
+            f"<span style='color:#b91c1c;'>Áreas pendentes: {areas}</span></li>"
+        )
+
+    return (
+        f"<p>{saudacao}</p>"
+        f"<p>Você tem <b>{len(eventos)} {plural_ev}</b> com projeção pendente em "
+        f"<b>{total_areas} área(s)</b> que atingiram o ponto de corte hoje.</p>"
+        f"<ul>{''.join(linhas)}</ul>"
+        f"<p><a href='{link}'>Abrir Projeção de Inscritos no Norte One</a></p>"
+        f"<p><small>Você recebeu esta mensagem porque é responsável por uma ou mais áreas no Norte One.</small></p>"
+    )
+
+
+def send_teams_dm_per_user(grupos: list) -> dict:
+    """
+    Envia DM individual no Teams para cada responsável de área com pendências.
+    Usa Chat.Create + ChatMessage.Send + User.Read.All via Graph API.
+    Retorna sumário { enviados, falhas, destinatarios, erros }.
+    """
+    global _sender_aad_id_cache
+    enviados = 0
+    falhas = 0
+    destinatarios: list[str] = []
+    erros: list[str] = []
+
+    sender_email = os.environ.get("MS_SENDER_EMAIL", "").strip()
+    if not sender_email:
+        return {"enviados": 0, "falhas": len(grupos), "destinatarios": [], "erros": ["MS_SENDER_EMAIL ausente"]}
+
+    try:
+        token = _acquire_token()
+    except Exception as exc:
+        return {"enviados": 0, "falhas": len(grupos), "destinatarios": [], "erros": [f"Token Graph falhou: {exc}"]}
+
+    # Busca AAD ID do remetente uma vez
+    if _sender_aad_id_cache is None:
+        _sender_aad_id_cache = _get_aad_user_id(sender_email, token)
+    sender_aad_id = _sender_aad_id_cache
+
+    if not sender_aad_id:
+        return {
+            "enviados": 0,
+            "falhas": len(grupos),
+            "destinatarios": [],
+            "erros": [f"Remetente '{sender_email}' não encontrado no Azure AD. Verifique o MS_SENDER_EMAIL."],
+        }
+
+    for g in grupos:
+        u: Usuario = g["usuario"]
+        if not (u.email or "").strip():
+            falhas += 1
+            erros.append(f"(id={u.id}): sem e-mail cadastrado")
+            continue
+
+        recipient_aad_id = _get_aad_user_id(u.email, token)
+        if not recipient_aad_id:
+            falhas += 1
+            erros.append(f"{u.email}: usuário não encontrado no Azure AD")
+            logger.warning("[TeamsNotif] Usuário não encontrado no AAD: %s", u.email)
+            continue
+
+        chat_id = _get_or_create_dm_chat(sender_aad_id, recipient_aad_id, token)
+        if not chat_id:
+            falhas += 1
+            erros.append(f"{u.email}: falha ao criar/obter chat 1:1")
+            continue
+
+        html_body = _render_teams_html(u, g["eventos"])
+        ok = _send_teams_chat_message(chat_id, html_body, token)
+        if ok:
+            enviados += 1
+            destinatarios.append(u.email)
+            logger.info("[TeamsNotif] DM enviada para %s (chat %s)", u.email, chat_id)
+        else:
+            falhas += 1
+            erros.append(f"{u.email}: falha ao enviar mensagem Teams")
+
+    logger.info("[TeamsNotif] DMs: %d enviada(s), %d falha(s)", enviados, falhas)
+    return {"enviados": enviados, "falhas": falhas, "destinatarios": destinatarios, "erros": erros}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 def computar_pendencias_por_usuario(db: Session):
     """
@@ -61,8 +246,6 @@ def computar_pendencias_por_usuario(db: Session):
     areas_nome_by_id = {a.id: a.nome for a in areas}
     all_areas_ids = set(areas_nome_by_id.keys())
 
-    # "Data de corte Envio" por evento = a MAIS ANTIGA entre as áreas (mesma
-    # âncora do congelamento do Corte 1 e do alerta in-app).
     cesb_rows = (
         db.query(
             ProjecaoCutoffEventoArea.evento_id,
@@ -106,7 +289,6 @@ def computar_pendencias_por_usuario(db: Session):
     )
     existentes = {(p.evento_id, p.area_projecao_id) for p in projs}
 
-    # Responsáveis por área
     vinc = (
         db.query(AreaProjecaoUsuario)
         .filter(AreaProjecaoUsuario.area_projecao_id.in_(all_areas_ids))
@@ -116,7 +298,6 @@ def computar_pendencias_por_usuario(db: Session):
     for v in vinc:
         users_by_area[v.area_projecao_id].add(v.usuario_id)
 
-    # Monta: usuario_id -> evento_id -> [nomes de áreas pendentes]
     per_user = defaultdict(lambda: defaultdict(list))
     for ev in evs:
         for aid in all_areas_ids:
@@ -241,16 +422,21 @@ def _render_email(usuario: Usuario, eventos: list) -> tuple[str, str]:
 
 def enviar_resumo_diario(db: Session, *, force: bool = False) -> dict:
     """
-    Envia o resumo diário. Quando `force=False` respeita `notif_email_ativo`.
-    Retorna um sumário { ativo, enviados, falhas, destinatarios, erros, total_eventos }.
+    Envia o resumo diário pelo(s) canal(is) configurado(s).
+    Quando `force=False` respeita `notif_email_ativo`.
+    Retorna sumário { ativo, canal, enviados_email, enviados_teams, falhas, destinatarios, erros, total_eventos }.
     """
     config = db.query(ProjecaoCorteConfig).first()
     ativo = bool(config and config.notif_email_ativo)
+    canal = (getattr(config, 'notif_canal', None) or 'email').strip().lower()
 
     if not force and not ativo:
         return {
             "ativo": ativo,
+            "canal": canal,
             "enviados": 0,
+            "enviados_email": 0,
+            "enviados_teams": 0,
             "falhas": 0,
             "destinatarios": [],
             "erros": [],
@@ -262,49 +448,62 @@ def enviar_resumo_diario(db: Session, *, force: bool = False) -> dict:
     if not grupos:
         return {
             "ativo": ativo,
+            "canal": canal,
             "enviados": 0,
+            "enviados_email": 0,
+            "enviados_teams": 0,
             "falhas": 0,
             "destinatarios": [],
             "erros": [],
             "total_eventos": 0,
         }
 
-    enviados = 0
-    falhas = 0
-    destinatarios = []
-    erros = []
-    for g in grupos:
-        u = g["usuario"]
-        html, txt = _render_email(u, g["eventos"])
-        n_ev = len(g["eventos"])
-        subject = (
-            f"[Norte One] {n_ev} evento(s) com projeção pendente"
-            if n_ev != 1 else
-            "[Norte One] 1 evento com projeção pendente"
-        )
-        try:
-            send_email(
-                u.email,
-                subject,
-                html=html,
-                text=txt,
-                to_name=u.nome,
-            )
-            enviados += 1
-            destinatarios.append(u.email)
-        except EmailError as exc:
-            falhas += 1
-            erros.append(f"{u.email}: {exc}")
-            logger.warning(f"[ProjecaoNotif] Falha ao enviar para {u.email}: {exc}")
+    result_email = {"enviados": 0, "falhas": 0, "destinatarios": [], "erros": []}
+    result_teams = {"enviados": 0, "falhas": 0, "destinatarios": [], "erros": []}
 
-    logger.info(
-        f"[ProjecaoNotif] Resumo diário: {enviados} enviado(s), {falhas} falha(s)."
-    )
+    # ── E-mail ──────────────────────────────────────────────────────────────
+    if canal in ('email', 'ambos'):
+        e_env = 0
+        e_falh = 0
+        e_dest: list[str] = []
+        e_errs: list[str] = []
+        for g in grupos:
+            u = g["usuario"]
+            html, txt = _render_email(u, g["eventos"])
+            n_ev = len(g["eventos"])
+            subject = (
+                f"[Norte One] {n_ev} evento(s) com projeção pendente"
+                if n_ev != 1 else
+                "[Norte One] 1 evento com projeção pendente"
+            )
+            try:
+                send_email(u.email, subject, html=html, text=txt, to_name=u.nome)
+                e_env += 1
+                e_dest.append(u.email)
+            except EmailError as exc:
+                e_falh += 1
+                e_errs.append(f"{u.email}: {exc}")
+                logger.warning("[ProjecaoNotif] Falha e-mail para %s: %s", u.email, exc)
+        result_email = {"enviados": e_env, "falhas": e_falh, "destinatarios": e_dest, "erros": e_errs}
+        logger.info("[ProjecaoNotif] E-mail: %d enviado(s), %d falha(s)", e_env, e_falh)
+
+    # ── Teams DM ────────────────────────────────────────────────────────────
+    if canal in ('teams', 'ambos'):
+        result_teams = send_teams_dm_per_user(grupos)
+
+    enviados_total = result_email["enviados"] + result_teams["enviados"]
+    falhas_total = result_email["falhas"] + result_teams["falhas"]
+    destinatarios_all = list(dict.fromkeys(result_email["destinatarios"] + result_teams["destinatarios"]))
+    erros_all = result_email["erros"] + result_teams["erros"]
+
     return {
         "ativo": ativo,
-        "enviados": enviados,
-        "falhas": falhas,
-        "destinatarios": destinatarios,
-        "erros": erros,
+        "canal": canal,
+        "enviados": enviados_total,
+        "enviados_email": result_email["enviados"],
+        "enviados_teams": result_teams["enviados"],
+        "falhas": falhas_total,
+        "destinatarios": destinatarios_all,
+        "erros": erros_all,
         "total_eventos": sum(len(g["eventos"]) for g in grupos),
     }

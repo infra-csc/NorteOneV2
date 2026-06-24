@@ -722,7 +722,7 @@ def get_corte_config(
     config = _get_corte_config(db)
     if config is None:
         # Defaults sugeridos (ainda inativo até admin salvar).
-        return CorteConfigResponse(dias_corte_1=30, dias_corte_2=7, dias_alerta_envio=30, notif_email_ativo=False, notif_email_hora=8, ativo=False)
+        return CorteConfigResponse(dias_corte_1=30, dias_corte_2=7, dias_alerta_envio=30, notif_email_ativo=False, notif_email_hora=8, notif_canal='email', ativo=False)
     editor = db.query(Usuario).filter(Usuario.id == config.updated_by).first() if config.updated_by else None
     return CorteConfigResponse(
         dias_corte_1=config.dias_corte_1,
@@ -730,6 +730,7 @@ def get_corte_config(
         dias_alerta_envio=config.dias_alerta_envio,
         notif_email_ativo=config.notif_email_ativo,
         notif_email_hora=config.notif_email_hora,
+        notif_canal=getattr(config, 'notif_canal', 'email') or 'email',
         ativo=config.ativo,
         updated_by_nome=editor.nome if editor else None,
         updated_at=config.updated_at,
@@ -771,6 +772,7 @@ def update_corte_config(
         dias_alerta_envio=config.dias_alerta_envio,
         notif_email_ativo=config.notif_email_ativo,
         notif_email_hora=config.notif_email_hora,
+        notif_canal=getattr(config, 'notif_canal', 'email') or 'email',
         ativo=config.ativo,
         updated_by_nome=current_user.nome,
         updated_at=config.updated_at,
@@ -811,10 +813,14 @@ def update_alerta_config(
         dias_alerta_envio=config.dias_alerta_envio,
         notif_email_ativo=config.notif_email_ativo,
         notif_email_hora=config.notif_email_hora,
+        notif_canal=getattr(config, 'notif_canal', 'email') or 'email',
         ativo=config.ativo,
         updated_by_nome=current_user.nome,
         updated_at=config.updated_at,
     )
+
+
+_CANAIS_VALIDOS = {'email', 'teams', 'ambos'}
 
 
 @router.put("/notif-config", response_model=CorteConfigResponse)
@@ -824,25 +830,30 @@ def update_notif_config(
     current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
 ):
     """
-    Ativa/desativa o resumo diário por e-mail das pendências e define a hora (BRT)
-    do envio. Apenas administradores. Não toca nas demais configs.
+    Ativa/desativa o resumo diário das pendências, define hora (BRT) e canal
+    (email | teams | ambos). Apenas administradores. Não toca nas demais configs.
     """
     if not is_user_admin(current_user):
-        raise HTTPException(status_code=403, detail="Apenas administradores podem alterar a notificação por e-mail")
+        raise HTTPException(status_code=403, detail="Apenas administradores podem alterar a notificação")
     if data.notif_email_hora < 0 or data.notif_email_hora > 23:
         raise HTTPException(status_code=400, detail="Hora deve estar entre 0 e 23")
+    canal = (data.notif_canal or 'email').strip().lower()
+    if canal not in _CANAIS_VALIDOS:
+        raise HTTPException(status_code=400, detail=f"Canal inválido '{canal}'. Use: email, teams ou ambos")
 
     config = _get_corte_config(db)
     if config is None:
         config = ProjecaoCorteConfig(
             notif_email_ativo=data.notif_email_ativo,
             notif_email_hora=data.notif_email_hora,
+            notif_canal=canal,
             updated_by=current_user.id,
         )
         db.add(config)
     else:
         config.notif_email_ativo = data.notif_email_ativo
         config.notif_email_hora = data.notif_email_hora
+        config.notif_canal = canal
         config.updated_by = current_user.id
     db.commit()
     db.refresh(config)
@@ -852,6 +863,7 @@ def update_notif_config(
         dias_alerta_envio=config.dias_alerta_envio,
         notif_email_ativo=config.notif_email_ativo,
         notif_email_hora=config.notif_email_hora,
+        notif_canal=getattr(config, 'notif_canal', 'email') or 'email',
         ativo=config.ativo,
         updated_by_nome=current_user.nome,
         updated_at=config.updated_at,

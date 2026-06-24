@@ -1752,7 +1752,7 @@ export const projecaoService = {
     const response = await api.put('/projecao/alerta-config', data);
     return response.data;
   },
-  updateNotifConfig: async (data: { notif_email_ativo: boolean; notif_email_hora: number }) => {
+  updateNotifConfig: async (data: { notif_email_ativo: boolean; notif_email_hora: number; notif_canal: string }) => {
     const response = await api.put('/projecao/notif-config', data);
     return response.data;
   },

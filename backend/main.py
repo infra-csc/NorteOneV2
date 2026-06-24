@@ -1300,6 +1300,7 @@ def _run_column_migrations():
             "ALTER TABLE projecao_corte_config ADD COLUMN IF NOT EXISTS notif_email_ativo BOOLEAN DEFAULT FALSE NOT NULL",
             "ALTER TABLE projecao_corte_config ADD COLUMN IF NOT EXISTS notif_email_hora INTEGER DEFAULT 8 NOT NULL",
             "ALTER TABLE projecao_corte_config ADD COLUMN IF NOT EXISTS notif_email_last_sent DATE",
+            "ALTER TABLE projecao_corte_config ADD COLUMN IF NOT EXISTS notif_canal VARCHAR(20) DEFAULT 'email' NOT NULL",
             "ALTER TABLE cadastro_evento ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP",
             "ALTER TABLE kit_config ADD COLUMN IF NOT EXISTS tipo_kit VARCHAR(100)",
             "ALTER TABLE kit_config ADD COLUMN IF NOT EXISTS custo_kit DECIMAL(10,2)",
