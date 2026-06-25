@@ -3352,31 +3352,106 @@ def get_margem_por_kit(
             # :skip_cortesia_filter = True  → OR short-circuits, clause is skipped
             # :skip_cortesia_filter = False → the filter condition is enforced
             # OTIMIZAÇÃO (broad fix): lidera com sales_order_item.product_id IN.
-            _sql_count = (
-                "SELECT /*+ MAX_EXECUTION_TIME(20000) */ STRAIGHT_JOIN\n"
-                "    soi_parent.product_id                  AS bundle_entity_id,\n"
-                "    COUNT(DISTINCT soi_parent.item_id)     AS qtd\n"
-                "FROM sales_order_item soi_parent\n"
-                "INNER JOIN sales_order so\n"
-                "       ON so.entity_id = soi_parent.order_id\n"
-                "WHERE\n"
-                "    soi_parent.product_type = 'bundle'\n"
-                "AND soi_parent.product_id   IN :bundle_ids\n"
-                "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 15 MONTH)\n"
-                "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
-                "AND so.state != 'canceled'\n"
-                "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
-                "AND (:skip_cortesia_filter OR NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50))\n"
-                "AND so.created_at < CURDATE() + INTERVAL 1 DAY\n"
-                "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
-                "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
-                "AND so.increment_id NOT REGEXP '-[0-9]'\n"
-                "GROUP BY soi_parent.product_id"
-            )
-            magento_count_query = text(_sql_count).bindparams(
-                bindparam("bundle_ids", expanding=True),
-                skip_cortesia_filter=_skip_cortesia_filter,
-            )
+            # Monta mapa bundle_entity_id → id_evento para o JOIN de escopo.
+            # Necessário para isolar pedidos do evento correto quando o mesmo
+            # bundle_entity_id foi reaproveitado em edições anteriores dentro
+            # da janela de 15 meses (ex.: "Troféu Brasil - 1ª Etapa" + "2ª Etapa").
+            # Sem esse filtro a COUNT soma pedidos das duas edições.
+            _bid_to_evento_id: dict = {}
+            for pid_bev in projeto_ids:
+                for sm_bev in _get_sku_maps(pid_bev, 'MAGENTO'):
+                    if not sm_bev.id_externo:
+                        continue
+                    try:
+                        _ev_id_bev = int(sm_bev.id_externo)
+                    except (ValueError, TypeError):
+                        continue
+                    _bundles_bev = db.query(KitConfig).filter(
+                        KitConfig.id_evento == _ev_id_bev,
+                        KitConfig.tipo_kit.isnot(None),
+                        KitConfig.ignorado == False,
+                    ).all()
+                    for _b_bev in _bundles_bev:
+                        if _b_bev.bundle_entity_id not in _bid_to_evento_id:
+                            _bid_to_evento_id[_b_bev.bundle_entity_id] = _ev_id_bev
+
+            # Cria tabela temporária inline (subquery VALUES) com o mapa bid→evento_id
+            # para filtrar a query de contagem. Se não houver mapa (fallback), a query
+            # cai no comportamento antigo (sem filtro de evento).
+            _bid_evento_pairs = [
+                (bid, _bid_to_evento_id[bid])
+                for bid in bundle_ids
+                if bid in _bid_to_evento_id
+            ]
+
+            if _bid_evento_pairs:
+                _pairs_placeholder = ", ".join(
+                    f"(:cnt_bid_{i}, :cnt_evid_{i})" for i in range(len(_bid_evento_pairs))
+                )
+                _cnt_bid_params = {f"cnt_bid_{i}": p[0] for i, p in enumerate(_bid_evento_pairs)}
+                _cnt_evid_params = {f"cnt_evid_{i}": p[1] for i, p in enumerate(_bid_evento_pairs)}
+                _cnt_extra_params = {**_cnt_bid_params, **_cnt_evid_params}
+
+                _sql_count = (
+                    "SELECT /*+ MAX_EXECUTION_TIME(20000) */ STRAIGHT_JOIN\n"
+                    "    soi_parent.product_id                  AS bundle_entity_id,\n"
+                    "    COUNT(DISTINCT soi_parent.item_id)     AS qtd\n"
+                    "FROM sales_order_item soi_parent\n"
+                    "INNER JOIN sales_order so\n"
+                    "       ON so.entity_id = soi_parent.order_id\n"
+                    "INNER JOIN (\n"
+                    "    SELECT t.bid AS product_id, t.evento_id\n"
+                    f"    FROM (VALUES {_pairs_placeholder}) AS t (bid, evento_id)\n"
+                    ") AS ev_scope ON ev_scope.product_id = soi_parent.product_id\n"
+                    "INNER JOIN catalog_product_entity_varchar cpev_scope\n"
+                    "       ON cpev_scope.entity_id    = soi_parent.product_id\n"
+                    "      AND cpev_scope.attribute_id = 321\n"
+                    "      AND cpev_scope.store_id     = 0\n"
+                    "      AND cpev_scope.value        = ev_scope.evento_id\n"
+                    "WHERE\n"
+                    "    soi_parent.product_type = 'bundle'\n"
+                    "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 15 MONTH)\n"
+                    "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
+                    "AND so.state != 'canceled'\n"
+                    "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
+                    "AND (:skip_cortesia_filter OR NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50))\n"
+                    "AND so.created_at < CURDATE() + INTERVAL 1 DAY\n"
+                    "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
+                    "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
+                    "AND so.increment_id NOT REGEXP '-[0-9]'\n"
+                    "GROUP BY soi_parent.product_id"
+                )
+                magento_count_query = text(_sql_count).bindparams(
+                    skip_cortesia_filter=_skip_cortesia_filter,
+                    **_cnt_extra_params,
+                )
+            else:
+                # Fallback: sem mapa bid→evento (bundles sem KitConfig.id_evento)
+                _sql_count = (
+                    "SELECT /*+ MAX_EXECUTION_TIME(20000) */ STRAIGHT_JOIN\n"
+                    "    soi_parent.product_id                  AS bundle_entity_id,\n"
+                    "    COUNT(DISTINCT soi_parent.item_id)     AS qtd\n"
+                    "FROM sales_order_item soi_parent\n"
+                    "INNER JOIN sales_order so\n"
+                    "       ON so.entity_id = soi_parent.order_id\n"
+                    "WHERE\n"
+                    "    soi_parent.product_type = 'bundle'\n"
+                    "AND soi_parent.product_id   IN :bundle_ids\n"
+                    "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 15 MONTH)\n"
+                    "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
+                    "AND so.state != 'canceled'\n"
+                    "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
+                    "AND (:skip_cortesia_filter OR NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50))\n"
+                    "AND so.created_at < CURDATE() + INTERVAL 1 DAY\n"
+                    "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
+                    "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
+                    "AND so.increment_id NOT REGEXP '-[0-9]'\n"
+                    "GROUP BY soi_parent.product_id"
+                )
+                magento_count_query = text(_sql_count).bindparams(
+                    bindparam("bundle_ids", expanding=True),
+                    skip_cortesia_filter=_skip_cortesia_filter,
+                )
 
             # Query 2: receita — mesmo padrão de partida (sales_order com índice created_at)
             # + join filho para valor da distância/modalidade.

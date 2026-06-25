@@ -2056,12 +2056,18 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
     freeze_days = _freeze_after_days()
     active_event_ids, all_event_ids = _load_active_event_magento_ids(db, freeze_days)
     bundle_ids_all = []
+    # Mapa bid → id_evento para filtrar pedidos pelo evento correto na count_query.
+    # Evita contagem de pedidos de edições anteriores que compartilham o mesmo bundle
+    # dentro da janela de 15 meses (ex.: "Troféu Brasil 1ª Etapa" + "2ª Etapa").
+    bid_to_evento_id: dict = {}
     skipped_frozen = 0
     for bid, evt_id in bundle_rows:
         if evt_id is not None and evt_id in all_event_ids and evt_id not in active_event_ids:
             skipped_frozen += 1
             continue
         bundle_ids_all.append(bid)
+        if evt_id is not None:
+            bid_to_evento_id[bid] = evt_id
     if skipped_frozen:
         logger.info(
             f"[MargemRevSync] {skipped_frozen} bundles pulados (eventos finalizados há > {freeze_days} dias)"
@@ -2157,37 +2163,90 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
     rev_query_normal = _build_rev_query(False)
     rev_query_cortesia = _build_rev_query(True) if cortesia_bundle_set else None
 
-    def _build_cnt_query(include_cortesias: bool):
-        # Mesma lógica do count_query inline em get_margem_por_kit, com timeout
-        # elevado para 5 min (background). Retorna {bundle_entity_id: qtd}.
-        # OTIMIZAÇÃO (broad fix): mesma reordem da rev_query.
-        return text(
-            "SELECT /*+ MAX_EXECUTION_TIME(300000) */ STRAIGHT_JOIN\n"
-            "    soi_parent.product_id                  AS bundle_entity_id,\n"
-            "    COUNT(DISTINCT soi_parent.item_id)     AS qtd\n"
-            "FROM sales_order_item soi_parent\n"
-            "INNER JOIN sales_order so\n"
-            "       ON so.entity_id = soi_parent.order_id\n"
-            "WHERE\n"
-            "    soi_parent.product_type = 'bundle'\n"
-            "AND soi_parent.product_id   IN :bundle_ids\n"
-            "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 15 MONTH)\n"
-            "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
-            "AND so.state != 'canceled'\n"
-            "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
-            "AND (:skip_cortesia_filter OR NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50))\n"
-            "AND so.created_at < CURDATE() + INTERVAL 1 DAY\n"
-            "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
-            "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
-            "AND so.increment_id NOT REGEXP '-[0-9]'\n"
-            "GROUP BY soi_parent.product_id"
-        ).bindparams(
-            bindparam("bundle_ids", expanding=True),
-            skip_cortesia_filter=bool(include_cortesias),
-        )
+    def _build_cnt_query_for_batch(batch_bids: list, include_cortesias: bool):
+        """Constrói a query de contagem para um lote de bundle_ids.
 
-    cnt_query_normal = _build_cnt_query(False)
-    cnt_query_cortesia = _build_cnt_query(True) if cortesia_bundle_set else None
+        Quando o mapa bid_to_evento_id tem cobertura para todos os bundles do
+        lote, filtra por id_evento via JOIN para evitar contaminação entre
+        edições do mesmo evento dentro da janela de 15 meses.
+        Bundles sem id_evento no mapa caem no fallback sem filtro de evento.
+        """
+        pairs = [(bid, bid_to_evento_id[bid]) for bid in batch_bids if bid in bid_to_evento_id]
+        no_map = [bid for bid in batch_bids if bid not in bid_to_evento_id]
+
+        results_parts = []
+
+        if pairs:
+            _ph = ", ".join(
+                f"(:cnt_bid_{i}, :cnt_evid_{i})" for i in range(len(pairs))
+            )
+            _params = {f"cnt_bid_{i}": p[0] for i, p in enumerate(pairs)}
+            _params.update({f"cnt_evid_{i}": p[1] for i, p in enumerate(pairs)})
+            _params["skip_cortesia_filter"] = bool(include_cortesias)
+            _sql = (
+                "SELECT /*+ MAX_EXECUTION_TIME(300000) */ STRAIGHT_JOIN\n"
+                "    soi_parent.product_id                  AS bundle_entity_id,\n"
+                "    COUNT(DISTINCT soi_parent.item_id)     AS qtd\n"
+                "FROM sales_order_item soi_parent\n"
+                "INNER JOIN sales_order so\n"
+                "       ON so.entity_id = soi_parent.order_id\n"
+                "INNER JOIN (\n"
+                "    SELECT t.bid AS product_id, t.evento_id\n"
+                f"    FROM (VALUES {_ph}) AS t (bid, evento_id)\n"
+                ") AS ev_scope ON ev_scope.product_id = soi_parent.product_id\n"
+                "INNER JOIN catalog_product_entity_varchar cpev_scope\n"
+                "       ON cpev_scope.entity_id    = soi_parent.product_id\n"
+                "      AND cpev_scope.attribute_id = 321\n"
+                "      AND cpev_scope.store_id     = 0\n"
+                "      AND cpev_scope.value        = ev_scope.evento_id\n"
+                "WHERE\n"
+                "    soi_parent.product_type = 'bundle'\n"
+                "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 15 MONTH)\n"
+                "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
+                "AND so.state != 'canceled'\n"
+                "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
+                "AND (:skip_cortesia_filter OR NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50))\n"
+                "AND so.created_at < CURDATE() + INTERVAL 1 DAY\n"
+                "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
+                "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
+                "AND so.increment_id NOT REGEXP '-[0-9]'\n"
+                "GROUP BY soi_parent.product_id"
+            )
+            results_parts.append((text(_sql).bindparams(**_params), None))
+
+        if no_map:
+            # Fallback para bundles sem id_evento mapeado (legado/sem cadastro)
+            _params_fb = {"skip_cortesia_filter": bool(include_cortesias)}
+            _sql_fb = (
+                "SELECT /*+ MAX_EXECUTION_TIME(300000) */ STRAIGHT_JOIN\n"
+                "    soi_parent.product_id                  AS bundle_entity_id,\n"
+                "    COUNT(DISTINCT soi_parent.item_id)     AS qtd\n"
+                "FROM sales_order_item soi_parent\n"
+                "INNER JOIN sales_order so\n"
+                "       ON so.entity_id = soi_parent.order_id\n"
+                "WHERE\n"
+                "    soi_parent.product_type = 'bundle'\n"
+                "AND soi_parent.product_id   IN :bundle_ids_fb\n"
+                "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 15 MONTH)\n"
+                "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
+                "AND so.state != 'canceled'\n"
+                "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
+                "AND (:skip_cortesia_filter OR NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50))\n"
+                "AND so.created_at < CURDATE() + INTERVAL 1 DAY\n"
+                "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
+                "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
+                "AND so.increment_id NOT REGEXP '-[0-9]'\n"
+                "GROUP BY soi_parent.product_id"
+            )
+            results_parts.append((
+                text(_sql_fb).bindparams(
+                    bindparam("bundle_ids_fb", expanding=True),
+                    skip_cortesia_filter=bool(include_cortesias),
+                ),
+                no_map,
+            ))
+
+        return results_parts
 
     rev_by_bid: dict = {}
     qtd_by_bid: dict = {}
@@ -2217,9 +2276,14 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
         queries pesadas no Magento rodavam. Em caso de falha de persistência,
         loga e segue (próximo batch tenta de novo, sem perder os já gravados).
         Faz upsert para todos os bundles que apareceram em receita OU contagem.
-        Usa GREATEST() para nunca rebaixar receita ou qtd já gravadas — o sync
-        é piso de segurança contra Magento parcial, não fonte de variações
-        negativas (essas vêm via sincronizar_hoje no vendas_diaria_snapshot).
+
+        Estratégia de upsert por tipo de bundle:
+        - Bundles COM id_evento mapeado (bid_to_evento_id): usam substituição
+          direta (EXCLUDED.valor). A query de count já está filtrada pelo evento
+          correto, então o resultado é confiável — GREATEST() aqui preservaria
+          valores inflados de edições anteriores (cross-event contamination).
+        - Bundles SEM id_evento mapeado (legado): usam GREATEST() como antes,
+          pois a query ainda é janela livre e pode retornar resposta parcial.
         """
         from sqlalchemy import func as _sa_func
         all_bids = set(rev_rows.keys()) | set(cnt_rows.keys())
@@ -2238,30 +2302,37 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
                     qtd_inscricoes=qtd,
                     calculado_em=agora_utc,
                 )
-                # SAFEGUARD: nunca sobrescrever um valor positivo já gravado
-                # com 0. Cenário: Magento devolve resposta parcial para alguns
-                # bundles (sem lançar exceção), o sync gravaria 0 e o snapshot
-                # viraria piso baixo. GREATEST() preserva o maior valor entre
-                # o que já está gravado e o que está chegando agora.
-                # Receita e qtd têm o mesmo tratamento — ambas só "crescem".
-                # Cancelamentos e refunds reais aparecem via sincronizar_hoje
-                # (que atualiza vendas_diaria_snapshot, não este snapshot por
-                # bundle). Este snapshot é piso de segurança contra falha do
-                # Magento, não fonte primária de variações negativas.
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=["bundle_entity_id"],
-                    set_={
-                        "receita_liquida": _sa_func.greatest(
-                            stmt.excluded.receita_liquida,
-                            MargemBundleRevSnapshot.receita_liquida,
-                        ),
-                        "qtd_inscricoes": _sa_func.greatest(
-                            stmt.excluded.qtd_inscricoes,
-                            MargemBundleRevSnapshot.qtd_inscricoes,
-                        ),
-                        "calculado_em": agora_utc,
-                    },
-                )
+                if bid in bid_to_evento_id:
+                    # Bundle com escopo de evento confiável: substitui direto.
+                    # A count_query já filtrou pelo id_evento correto — o valor
+                    # reflete apenas pedidos deste evento. GREATEST() seria
+                    # perigoso aqui pois preservaria contagens infladas por
+                    # edições anteriores gravadas antes deste fix.
+                    stmt = stmt.on_conflict_do_update(
+                        index_elements=["bundle_entity_id"],
+                        set_={
+                            "receita_liquida": stmt.excluded.receita_liquida,
+                            "qtd_inscricoes": stmt.excluded.qtd_inscricoes,
+                            "calculado_em": agora_utc,
+                        },
+                    )
+                else:
+                    # Bundle legado sem id_evento: mantém GREATEST() como piso
+                    # de segurança contra resposta parcial do Magento.
+                    stmt = stmt.on_conflict_do_update(
+                        index_elements=["bundle_entity_id"],
+                        set_={
+                            "receita_liquida": _sa_func.greatest(
+                                stmt.excluded.receita_liquida,
+                                MargemBundleRevSnapshot.receita_liquida,
+                            ),
+                            "qtd_inscricoes": _sa_func.greatest(
+                                stmt.excluded.qtd_inscricoes,
+                                MargemBundleRevSnapshot.qtd_inscricoes,
+                            ),
+                            "calculado_em": agora_utc,
+                        },
+                    )
                 _s.execute(stmt)
                 count += 1
             _s.commit()
@@ -2309,21 +2380,22 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
                     batch_rev_rows[int(row[0])] = val
                     rev_by_bid[int(row[0])] = val
                 collected_rev += len(_rows_c)
-            # Contagem (rápida — só sales_order_item parent)
-            if normal_batch:
-                _rows_cn = conn.execute(cnt_query_normal, {"bundle_ids": normal_batch}).fetchall()
-                for row in _rows_cn:
-                    val = int(row[1] or 0)
-                    batch_cnt_rows[int(row[0])] = val
-                    qtd_by_bid[int(row[0])] = val
-                collected_cnt += len(_rows_cn)
-            if cortesia_batch and cnt_query_cortesia:
-                _rows_cc = conn.execute(cnt_query_cortesia, {"bundle_ids": cortesia_batch}).fetchall()
-                for row in _rows_cc:
-                    val = int(row[1] or 0)
-                    batch_cnt_rows[int(row[0])] = val
-                    qtd_by_bid[int(row[0])] = val
-                collected_cnt += len(_rows_cc)
+            # Contagem (rápida — filtrada por id_evento para evitar cross-event)
+            for cnt_bids_part, include_cort in [
+                (normal_batch, False),
+                (cortesia_batch if cortesia_batch else [], True),
+            ]:
+                if not cnt_bids_part:
+                    continue
+                cnt_parts = _build_cnt_query_for_batch(cnt_bids_part, include_cort)
+                for cnt_q, fallback_ids in cnt_parts:
+                    _exec_params = {"bundle_ids_fb": fallback_ids} if fallback_ids is not None else {}
+                    _rows_cnt_part = conn.execute(cnt_q, _exec_params).fetchall()
+                    for row in _rows_cnt_part:
+                        val = int(row[1] or 0)
+                        batch_cnt_rows[int(row[0])] = val
+                        qtd_by_bid[int(row[0])] = val
+                    collected_cnt += len(_rows_cnt_part)
             return collected_rev, collected_cnt
 
         try:
