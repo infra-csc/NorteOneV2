@@ -8318,45 +8318,30 @@ def _fetch_daily_sales_ativo_by_ids(id_eventos: list, raise_on_error: bool = Fal
             return []
         query = text(f"""
 SELECT /*+ MAX_EXECUTION_TIME(90000) */
-    sub.dia,
-    SUM(sub.qtd)     AS qtd,
-    SUM(sub.receita) AS receita
-FROM (
-    SELECT
-        DATE(c.dt_pedido) AS dia,
-        CASE
-            WHEN a.nr_preco = 0                                        THEN 'Cortesia'
-            WHEN cupom.en_cupom_classificacao = 'Grupos'               THEN 'Grupos/B2B'
-            WHEN h.ds_categoria LIKE '%%Grup%%'                        THEN 'Grupos/B2B'
-            ELSE                                                           'Site'
-        END AS canal,
-        COUNT(DISTINCT a.id_pedido_evento) AS qtd,
-        SUM(GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0), 0)) AS receita
-    FROM sa_pedido_evento AS a
-    INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
-    INNER JOIN sa_pedido AS c
-        ON c.id_pedido = a.id_pedido
-       AND c.id_pedido_status IN (2)
-    LEFT JOIN sa_modalidade_categoria AS h ON h.id_categoria = a.id_categoria
-    LEFT JOIN (
-        SELECT e.id_cupom_desconto_item, f.en_cupom_classificacao
-        FROM sa_cupom_desconto_item AS e
-        INNER JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
-    ) AS cupom ON cupom.id_cupom_desconto_item = a.id_cupom_individual
-    WHERE
-        b.id_evento IN :id_eventos
-        AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
-        AND c.dt_pedido < CURDATE() + INTERVAL 1 DAY
-        {('AND c.dt_pedido >= :data_floor' if data_floor else '')}
-    GROUP BY DATE(c.dt_pedido),
-             CASE WHEN a.nr_preco = 0 THEN 'Cortesia'
-                  WHEN cupom.en_cupom_classificacao = 'Grupos' THEN 'Grupos/B2B'
-                  WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
-                  ELSE 'Site' END
-) AS sub
-WHERE sub.canal = 'Site'
-GROUP BY sub.dia
-ORDER BY sub.dia
+    DATE(c.dt_pedido)                                                          AS dia,
+    COUNT(DISTINCT a.id_pedido_evento)                                         AS qtd,
+    SUM(IF(a.nr_preco - IF(a.nr_desconto_individual IS NULL, 0, a.nr_desconto_individual)
+           - IF(h.vl_kit IS NULL, 0, h.vl_kit) < 0, 0,
+           a.nr_preco - IF(a.nr_desconto_individual IS NULL, 0, a.nr_desconto_individual)
+           - IF(h.vl_kit IS NULL, 0, h.vl_kit)))                              AS receita
+FROM sa_pedido_evento AS a
+INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
+INNER JOIN sa_pedido AS c
+    ON c.id_pedido = a.id_pedido
+   AND c.id_pedido_status IN (2)
+LEFT JOIN sa_modalidade_categoria AS h ON h.id_categoria = a.id_categoria
+LEFT JOIN (
+    SELECT e.id_cupom_desconto_item, f.en_cupom_classificacao
+    FROM sa_cupom_desconto_item AS e
+    INNER JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
+) AS cupom ON cupom.id_cupom_desconto_item = a.id_cupom_individual
+WHERE
+    b.id_evento IN :id_eventos
+    AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
+    AND c.dt_pedido < CURDATE() + INTERVAL 1 DAY
+    {('AND c.dt_pedido >= :data_floor' if data_floor else '')}
+GROUP BY DATE(c.dt_pedido)
+ORDER BY dia
 """).bindparams(bindparam("id_eventos", expanding=True))
         ativo_params = {"id_eventos": safe_ids}
         if data_floor:
@@ -8380,42 +8365,25 @@ def _fetch_today_sales_ativo_by_ids(id_eventos: list) -> dict:
             return {}
         query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(30000) */
-    sub.dia,
-    SUM(sub.qtd) AS qtd
-FROM (
-    SELECT
-        DATE(c.dt_pedido) AS dia,
-        CASE
-            WHEN a.nr_preco = 0                                        THEN 'Cortesia'
-            WHEN cupom.en_cupom_classificacao = 'Grupos'               THEN 'Grupos/B2B'
-            WHEN h.ds_categoria LIKE '%%Grup%%'                        THEN 'Grupos/B2B'
-            ELSE                                                           'Site'
-        END AS canal,
-        COUNT(DISTINCT a.id_pedido_evento) AS qtd
-    FROM sa_pedido_evento AS a
-    INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
-    INNER JOIN sa_pedido AS c
-        ON c.id_pedido = a.id_pedido
-       AND c.id_pedido_status IN (2)
-    LEFT JOIN sa_modalidade_categoria AS h ON h.id_categoria = a.id_categoria
-    LEFT JOIN (
-        SELECT e.id_cupom_desconto_item, f.en_cupom_classificacao
-        FROM sa_cupom_desconto_item AS e
-        INNER JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
-    ) AS cupom ON cupom.id_cupom_desconto_item = a.id_cupom_individual
-    WHERE
-        b.id_evento IN :id_eventos
-        AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
-        AND c.dt_pedido >= CURDATE()
-        AND c.dt_pedido <  CURDATE() + INTERVAL 1 DAY
-    GROUP BY DATE(c.dt_pedido),
-             CASE WHEN a.nr_preco = 0 THEN 'Cortesia'
-                  WHEN cupom.en_cupom_classificacao = 'Grupos' THEN 'Grupos/B2B'
-                  WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
-                  ELSE 'Site' END
-) AS sub
-WHERE sub.canal = 'Site'
-GROUP BY sub.dia
+    DATE(c.dt_pedido)                  AS dia,
+    COUNT(DISTINCT a.id_pedido_evento) AS qtd
+FROM sa_pedido_evento AS a
+INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
+INNER JOIN sa_pedido AS c
+    ON c.id_pedido = a.id_pedido
+   AND c.id_pedido_status IN (2)
+LEFT JOIN sa_modalidade_categoria AS h ON h.id_categoria = a.id_categoria
+LEFT JOIN (
+    SELECT e.id_cupom_desconto_item, f.en_cupom_classificacao
+    FROM sa_cupom_desconto_item AS e
+    INNER JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
+) AS cupom ON cupom.id_cupom_desconto_item = a.id_cupom_individual
+WHERE
+    b.id_evento IN :id_eventos
+    AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
+    AND c.dt_pedido >= CURDATE()
+    AND c.dt_pedido <  CURDATE() + INTERVAL 1 DAY
+GROUP BY DATE(c.dt_pedido)
 """).bindparams(bindparam("id_eventos", expanding=True))
         with db_module.engine_ssh.connect() as conn:
             result = conn.execute(query, {"id_eventos": safe_ids})
@@ -8437,39 +8405,35 @@ def _fetch_today_sales_magento_by_ids(magento_event_ids: list, cortesia_magento_
         safe_ids = [str(int(i)) for i in magento_event_ids if str(i).isdigit()]
         if not safe_ids:
             return {}
-        cort_ids = cortesia_magento_ids or set()
-        if cort_ids:
-            safe_cort_ids = [str(int(i)) for i in cort_ids if str(i).isdigit()]
-            cort_str = ", ".join(safe_cort_ids)
-            _cort_cond = f"""CASE WHEN (cpev1.value IN ({cort_str})
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%'))
-        OR (so.base_grand_total > 0
-        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
-        AND soi.price > 0) THEN 1 END"""
-        else:
-            _cort_cond = """CASE WHEN so.base_grand_total > 0
-        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
-        AND soi.price > 0 THEN 1 END"""
-        query = text(f"""
+        query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(30000) */
-    DATE(so.created_at) AS dia,
-    COUNT({_cort_cond}) AS qtd
+    DATE(so.created_at)                    AS dia,
+    COUNT(DISTINCT soi_parent.item_id)     AS qtd
 FROM sales_order so
-INNER JOIN sales_order_item soi
-       ON soi.order_id = so.entity_id
-      AND soi.product_type = 'bundle'
+INNER JOIN sales_order_item soi_parent
+       ON soi_parent.order_id     = so.entity_id
+      AND soi_parent.product_type = 'bundle'
+INNER JOIN sales_order_item soi_child
+       ON soi_child.parent_item_id = soi_parent.item_id
+      AND soi_child.product_type   = 'simple'
+      AND (
+            soi_child.name LIKE '%%Distância%%'
+         OR soi_child.name LIKE '%%Distancia%%'
+         OR soi_child.name LIKE '%%Distâncias%%'
+         OR soi_child.name LIKE '%%Modalidade%%'
+         OR soi_child.name REGEXP '-[0-9]+[Kk]m$'
+         OR soi_child.name REGEXP '^[0-9]+[Kk]m?$'
+         OR soi_child.name LIKE 'Kit Participação%%'
+         OR soi_child.name LIKE 'Olímpico%%'
+         OR soi_child.name LIKE 'Yoga%%'
+      )
 INNER JOIN catalog_product_entity_varchar cpev1
-       ON cpev1.entity_id = soi.product_id
+       ON cpev1.entity_id    = soi_parent.product_id
       AND cpev1.attribute_id = 321
-      AND cpev1.store_id = 0
+      AND cpev1.store_id     = 0
 WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
-    AND so.state != 'canceled'
+    AND so.state NOT IN ('canceled')
     AND cpev1.value IN :magento_event_ids
     AND so.increment_id NOT REGEXP '-[0-9]'
     AND so.created_at >= CURDATE()
@@ -8509,44 +8473,29 @@ def _fetch_today_sales_ativo_grouped(id_eventos: list, raise_on_error: bool = Fa
             return {}
         query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(20000) */
-    sub.id_evento,
-    SUM(sub.qtd)     AS qtd,
-    SUM(sub.receita) AS receita
-FROM (
-    SELECT
-        b.id_evento,
-        CASE
-            WHEN a.nr_preco = 0                                        THEN 'Cortesia'
-            WHEN cupom.en_cupom_classificacao = 'Grupos'               THEN 'Grupos/B2B'
-            WHEN h.ds_categoria LIKE '%%Grup%%'                        THEN 'Grupos/B2B'
-            ELSE                                                           'Site'
-        END AS canal,
-        COUNT(DISTINCT a.id_pedido_evento) AS qtd,
-        SUM(GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0), 0)) AS receita
-    FROM sa_pedido_evento AS a
-    INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
-    INNER JOIN sa_pedido AS c
-        ON c.id_pedido = a.id_pedido
-       AND c.id_pedido_status IN (2)
-    LEFT JOIN sa_modalidade_categoria AS h ON h.id_categoria = a.id_categoria
-    LEFT JOIN (
-        SELECT e.id_cupom_desconto_item, f.en_cupom_classificacao
-        FROM sa_cupom_desconto_item AS e
-        INNER JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
-    ) AS cupom ON cupom.id_cupom_desconto_item = a.id_cupom_individual
-    WHERE
-        b.id_evento IN :id_eventos
-        AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
-        AND c.dt_pedido >= CURDATE()
-        AND c.dt_pedido <  CURDATE() + INTERVAL 1 DAY
-    GROUP BY b.id_evento,
-             CASE WHEN a.nr_preco = 0 THEN 'Cortesia'
-                  WHEN cupom.en_cupom_classificacao = 'Grupos' THEN 'Grupos/B2B'
-                  WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
-                  ELSE 'Site' END
-) AS sub
-WHERE sub.canal = 'Site'
-GROUP BY sub.id_evento
+    b.id_evento,
+    COUNT(DISTINCT a.id_pedido_evento)                                         AS qtd,
+    SUM(IF(a.nr_preco - IF(a.nr_desconto_individual IS NULL, 0, a.nr_desconto_individual)
+           - IF(h.vl_kit IS NULL, 0, h.vl_kit) < 0, 0,
+           a.nr_preco - IF(a.nr_desconto_individual IS NULL, 0, a.nr_desconto_individual)
+           - IF(h.vl_kit IS NULL, 0, h.vl_kit)))                              AS receita
+FROM sa_pedido_evento AS a
+INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
+INNER JOIN sa_pedido AS c
+    ON c.id_pedido = a.id_pedido
+   AND c.id_pedido_status IN (2)
+LEFT JOIN sa_modalidade_categoria AS h ON h.id_categoria = a.id_categoria
+LEFT JOIN (
+    SELECT e.id_cupom_desconto_item, f.en_cupom_classificacao
+    FROM sa_cupom_desconto_item AS e
+    INNER JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
+) AS cupom ON cupom.id_cupom_desconto_item = a.id_cupom_individual
+WHERE
+    b.id_evento IN :id_eventos
+    AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
+    AND c.dt_pedido >= CURDATE()
+    AND c.dt_pedido <  CURDATE() + INTERVAL 1 DAY
+GROUP BY b.id_evento
 """).bindparams(bindparam("id_eventos", expanding=True))
         with db_module.engine_ssh.connect() as conn:
             result = conn.execute(query, {"id_eventos": safe_ids})
@@ -8581,76 +8530,37 @@ def _fetch_today_sales_magento_grouped(magento_event_ids: list, cortesia_magento
         safe_ids = [str(int(i)) for i in magento_event_ids if str(i).isdigit()]
         if not safe_ids:
             return {}
-        cort_ids = cortesia_magento_ids or set()
-        if cort_ids:
-            safe_cort_ids = [str(int(i)) for i in cort_ids if str(i).isdigit()]
-            cort_str = ", ".join(safe_cort_ids)
-            cort_qtd_cond = f"""CASE WHEN (cpev1.value IN ({cort_str})
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%'))
-        OR (so.base_grand_total > 0
-        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
-        AND soi.price > 0) THEN 1 END"""
-            cort_rev_cond = f"""CASE WHEN (cpev1.value IN ({cort_str})
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%'))
-        OR (so.base_grand_total > 0
-        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
-        AND soi.price > 0) THEN"""
-        else:
-            cort_qtd_cond = """CASE WHEN so.base_grand_total > 0
-        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
-        AND soi.price > 0 THEN 1 END"""
-            cort_rev_cond = """CASE WHEN so.base_grand_total > 0
-        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
-        AND soi.price > 0 THEN"""
-        query = text(f"""
+        query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(12000) */
-    cpev1.value AS id_evento,
-    COUNT({cort_qtd_cond}) AS qtd,
-    SUM({cort_rev_cond}
-        soi.price
-        - CASE WHEN soi.price = 0 THEN 0
-            WHEN soi.name LIKE '%%plus%%' THEN 69.00
-            WHEN soi.name LIKE '%%super%%' THEN 269.00
-            WHEN soi.name LIKE '%%vip%%' THEN 199.99
-            ELSE 0 END
-        + COALESCE(so.base_discount_invoiced, 0) * (soi.price / NULLIF(so.base_subtotal, 1))
-        - CASE WHEN cg.customer_group_id = 4 THEN 0
-            WHEN cg.customer_group_id IN (0, 1, 2, 3, 5, 7) AND COALESCE(soi_persona.persona_price, 0) = 14.90 THEN 14.90
-            ELSE 0 END
-    ELSE 0 END) AS receita
+    cpev1.value                            AS id_evento,
+    COUNT(DISTINCT soi_parent.item_id)     AS qtd,
+    SUM(CASE WHEN so.base_grand_total = 0 THEN 0
+             ELSE soi_child.price - soi_child.discount_amount END) AS receita
 FROM sales_order so
-INNER JOIN sales_order_item soi
-       ON soi.order_id = so.entity_id
-      AND soi.product_type = 'bundle'
+INNER JOIN sales_order_item soi_parent
+       ON soi_parent.order_id     = so.entity_id
+      AND soi_parent.product_type = 'bundle'
+INNER JOIN sales_order_item soi_child
+       ON soi_child.parent_item_id = soi_parent.item_id
+      AND soi_child.product_type   = 'simple'
+      AND (
+            soi_child.name LIKE '%%Distância%%'
+         OR soi_child.name LIKE '%%Distancia%%'
+         OR soi_child.name LIKE '%%Distâncias%%'
+         OR soi_child.name LIKE '%%Modalidade%%'
+         OR soi_child.name REGEXP '-[0-9]+[Kk]m$'
+         OR soi_child.name REGEXP '^[0-9]+[Kk]m?$'
+         OR soi_child.name LIKE 'Kit Participação%%'
+         OR soi_child.name LIKE 'Olímpico%%'
+         OR soi_child.name LIKE 'Yoga%%'
+      )
 INNER JOIN catalog_product_entity_varchar cpev1
-       ON cpev1.entity_id = soi.product_id
+       ON cpev1.entity_id    = soi_parent.product_id
       AND cpev1.attribute_id = 321
-      AND cpev1.store_id = 0
-LEFT JOIN customer_group cg
-       ON cg.customer_group_id = so.customer_group_id
-LEFT JOIN (
-    SELECT soi_p.parent_item_id, MAX(soi_p.price) AS persona_price
-    FROM sales_order_item soi_p
-    INNER JOIN sales_order so_p
-           ON so_p.entity_id = soi_p.order_id
-    WHERE soi_p.name LIKE '%%persona%%'
-      AND so_p.created_at >= CURDATE()
-      AND so_p.created_at <  CURDATE() + INTERVAL 1 DAY
-    GROUP BY soi_p.parent_item_id
-) soi_persona ON soi_persona.parent_item_id = soi.item_id
+      AND cpev1.store_id     = 0
 WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
-    AND so.state != 'canceled'
+    AND so.state NOT IN ('canceled')
     AND cpev1.value IN :magento_event_ids
     AND so.increment_id NOT REGEXP '-[0-9]'
     AND so.created_at >= CURDATE()
@@ -8869,71 +8779,38 @@ def _fetch_daily_sales_magento_by_ids_impl(
         safe_ids = [str(int(i)) for i in magento_event_ids if str(i).isdigit()]
         if not safe_ids:
             return []
-        if cort_ids:
-            safe_cort_ids = [str(int(i)) for i in cort_ids if str(i).isdigit()]
-            _cort_qtd_cond = """CASE WHEN (cpev1.value IN :cort_ids
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%'))
-        OR (so.base_grand_total > 0
-        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
-        AND soi.price > 0) THEN 1 END"""
-            _cort_rev_cond = """CASE WHEN (cpev1.value IN :cort_ids
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%'))
-        OR (so.base_grand_total > 0
-        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
-        AND soi.price > 0) THEN"""
-        else:
-            _cort_qtd_cond = """CASE WHEN so.base_grand_total > 0
-        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
-        AND soi.price > 0 THEN 1 END"""
-            _cort_rev_cond = """CASE WHEN so.base_grand_total > 0
-        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
-        AND soi.price > 0 THEN"""
         query = text(f"""
-SELECT /*+ MAX_EXECUTION_TIME(25000) */
-    DATE(so.created_at) AS dia,
-    COUNT({_cort_qtd_cond}) AS qtd,
-    SUM({_cort_rev_cond}
-        soi.price
-        - CASE WHEN soi.price = 0 THEN 0
-            WHEN soi.name LIKE '%%plus%%' THEN 69.00
-            WHEN soi.name LIKE '%%super%%' THEN 269.00
-            WHEN soi.name LIKE '%%vip%%' THEN 199.99
-            ELSE 0 END
-        + COALESCE(so.base_discount_invoiced, 0) * (soi.price / NULLIF(so.base_subtotal, 1))
-        - CASE WHEN cg.customer_group_id = 4 THEN 0
-            WHEN cg.customer_group_id IN (0, 1, 2, 3, 5, 7) AND COALESCE(soi_persona.persona_price, 0) = 14.90 THEN 14.90
-            ELSE 0 END
-    ELSE 0 END) AS receita
-FROM sales_order so
-INNER JOIN sales_order_item soi
-       ON soi.order_id = so.entity_id
-      AND soi.product_type = 'bundle'
+SELECT /*+ MAX_EXECUTION_TIME(25000) */ STRAIGHT_JOIN
+    DATE(so.created_at)                    AS dia,
+    COUNT(DISTINCT soi_parent.item_id)     AS qtd,
+    SUM(CASE WHEN so.base_grand_total = 0 THEN 0
+             ELSE soi_child.price - soi_child.discount_amount END) AS receita
+FROM sales_order_item soi_parent
+INNER JOIN sales_order so
+       ON so.entity_id = soi_parent.order_id
+INNER JOIN sales_order_item soi_child
+       ON soi_child.parent_item_id = soi_parent.item_id
+      AND soi_child.product_type   = 'simple'
+      AND (
+            soi_child.name LIKE '%%Distância%%'
+         OR soi_child.name LIKE '%%Distancia%%'
+         OR soi_child.name LIKE '%%Distâncias%%'
+         OR soi_child.name LIKE '%%Modalidade%%'
+         OR soi_child.name REGEXP '-[0-9]+[Kk]m$'
+         OR soi_child.name REGEXP '^[0-9]+[Kk]m?$'
+         OR soi_child.name LIKE 'Kit Participação%%'
+         OR soi_child.name LIKE 'Olímpico%%'
+         OR soi_child.name LIKE 'Yoga%%'
+      )
 INNER JOIN catalog_product_entity_varchar cpev1
-       ON cpev1.entity_id = soi.product_id
+       ON cpev1.entity_id    = soi_parent.product_id
       AND cpev1.attribute_id = 321
-      AND cpev1.store_id = 0
-LEFT JOIN customer_group cg
-       ON cg.customer_group_id = so.customer_group_id
-LEFT JOIN (
-    SELECT parent_item_id, MAX(price) AS persona_price
-    FROM sales_order_item
-    WHERE name LIKE '%%persona%%'
-    GROUP BY parent_item_id
-) soi_persona ON soi_persona.parent_item_id = soi.item_id
+      AND cpev1.store_id     = 0
 WHERE
-    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
-    AND so.state != 'canceled'
+    soi_parent.product_type = 'bundle'
     AND cpev1.value IN :magento_event_ids
+    AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
+    AND so.state NOT IN ('canceled')
     AND so.increment_id NOT REGEXP '-[0-9]'
     AND so.created_at < CURDATE() + INTERVAL 1 DAY
     {('AND so.created_at >= :data_floor' if data_floor else '')}
@@ -8942,9 +8819,6 @@ ORDER BY dia
 """)
         bp = [bindparam("magento_event_ids", expanding=True)]
         params = {"magento_event_ids": safe_ids}
-        if cort_ids:
-            bp.append(bindparam("cort_ids", expanding=True))
-            params["cort_ids"] = safe_cort_ids
         if data_floor:
             params["data_floor"] = data_floor
         query = query.bindparams(*bp)
