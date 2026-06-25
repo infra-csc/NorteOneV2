@@ -5024,7 +5024,7 @@ _event_computing_lock = _threading_module.Lock()
 
 # Bump this when ISC calculation logic changes so old permanent cache entries
 # are automatically detected as stale and recomputed in background (SWR pattern).
-_DETAIL_CACHE_VERSION = "26"  # v26: pi_pai_min_price (índice Magento) bypass Regra B — ticket mostra min_price real do índice, não fallback EAV
+_DETAIL_CACHE_VERSION = "27"  # v27: contagem correta de inscrições — todas as origens (cortesias + grupos/B2B + site), sem filtro canal
 
 def build_query_isc_ativo(excluded_ids: Optional[list] = None) -> str:
     excl_clause = ""
@@ -5046,40 +5046,26 @@ FROM (
         b.id_evento,
         b.ds_evento,
         b.dt_evento,
-        SUM(CASE
-            WHEN a.nr_preco > 0
-             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%GRUPOS%%')
-            THEN 1 ELSE 0
-        END)                                                                 AS qtd_site,
+        COUNT(DISTINCT a.id_pedido_evento)                                   AS qtd_site,
 
         SUM(CASE
-            WHEN a.nr_preco > 0
-             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%GRUPOS%%')
-             AND c.dt_pedido >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+            WHEN c.dt_pedido >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
             THEN 1 ELSE 0
         END)                                                                 AS qtd_30d,
 
         SUM(CASE
-            WHEN a.nr_preco > 0
-             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%GRUPOS%%')
-             AND c.dt_pedido >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
+            WHEN c.dt_pedido >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
             THEN 1 ELSE 0
         END)                                                                 AS qtd_14d,
 
         SUM(CASE
-            WHEN a.nr_preco > 0
-             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%GRUPOS%%')
-             AND c.dt_pedido >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+            WHEN c.dt_pedido >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
             THEN 1 ELSE 0
         END)                                                                 AS qtd_7d,
 
-        SUM(CASE
-            WHEN a.nr_preco > 0
-             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%GRUPOS%%')
-            THEN
-                GREATEST(0, a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
-            ELSE 0
-        END)                                                                 AS inscricao_liquida
+        SUM(IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
+               a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0)))
+                                                                             AS inscricao_liquida
 
     FROM sa_evento AS b
 
@@ -5089,7 +5075,6 @@ FROM (
     INNER JOIN sa_pedido AS c
         ON c.id_pedido = a.id_pedido
        AND c.id_pedido_status IN (2)
-       AND c.nr_total > 0
 
     LEFT JOIN sa_modalidade_categoria AS h
         ON h.id_categoria = a.id_categoria
@@ -5104,15 +5089,9 @@ FROM (
     WHERE
         b.dt_evento >= MAKEDATE(YEAR(CURDATE()) - 1, 1)
         AND b.dt_evento <  MAKEDATE(YEAR(CURDATE()) + 1, 1)
-        AND c.nr_total > 0
 {excl_clause}
         AND (b.id_campanha_salesforce IS NULL
              OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
-
-        AND (cupom.en_cupom_classificacao IS NULL
-             OR cupom.en_cupom_classificacao NOT IN (
-                 'Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados'
-             ))
 
     GROUP BY
         b.id_evento,
@@ -5128,17 +5107,6 @@ def build_query_isc_magento(excluded_ids: Optional[list] = None, cortesia_magent
     if excluded_ids:
         ids_str = ", ".join(str(i) for i in excluded_ids)
         excl_clause = f"AND cpev1.value NOT IN ({ids_str})\n"
-    cort_ids = cortesia_magento_ids or set()
-    if cort_ids:
-        safe_cort_ids = [str(int(i)) for i in cort_ids if str(i).isdigit()]
-        cort_str = ", ".join(safe_cort_ids)
-        cort_child_price = f"AND (cpev1.value IN ({cort_str}) OR soi_child.price > 0)"
-        cort_grand_total = f"AND (cpev1.value IN ({cort_str}) OR so.base_grand_total > 0)"
-        cort_cortesia_desc = f"AND (cpev1.value IN ({cort_str}) OR NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50))"
-    else:
-        cort_child_price = "AND soi_child.price > 0"
-        cort_grand_total = "AND so.base_grand_total > 0"
-        cort_cortesia_desc = "AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)"
     return f"""
 SELECT /*+ MAX_EXECUTION_TIME(300000) */
     cpev1.value                                                              AS "ID Evento",
@@ -5146,10 +5114,13 @@ SELECT /*+ MAX_EXECUTION_TIME(300000) */
 
     COUNT(DISTINCT soi_parent.item_id)                                       AS "Qtd Site",
 
-    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)              AS "Inscrição Líquida",
+    ROUND(SUM(CASE WHEN so.base_grand_total = 0 THEN 0
+                   ELSE soi_child.price - soi_child.discount_amount END), 2) AS "Inscrição Líquida",
 
-    ROUND(SUM(soi_child.price - soi_child.discount_amount)
-          / NULLIF(COUNT(DISTINCT soi_parent.item_id), 0), 2)               AS "Ticket Médio",
+    ROUND(SUM(CASE WHEN so.base_grand_total = 0 THEN 0
+                   ELSE soi_child.price - soi_child.discount_amount END)
+          / NULLIF(COUNT(DISTINCT CASE WHEN so.base_grand_total = 0 THEN NULL
+                                       ELSE soi_parent.item_id END), 0), 2) AS "Ticket Médio",
 
     ROUND(COUNT(DISTINCT CASE
         WHEN so.created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
@@ -5200,12 +5171,7 @@ LEFT JOIN (
 WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
 AND so.state != 'canceled'
-{cort_child_price}
-{cort_grand_total}
-{cort_cortesia_desc}
 AND so.created_at < CURDATE() + INTERVAL 1 DAY
-AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
 AND so.increment_id NOT REGEXP '-[0-9]'
 AND cped.value BETWEEN MAKEDATE(YEAR(CURDATE()) - 1, 1) AND MAKEDATE(YEAR(CURDATE()) + 1, 1) - INTERVAL 1 DAY
 {excl_clause}
@@ -8211,10 +8177,17 @@ SELECT /*+ MAX_EXECUTION_TIME(90000) */
     cpev1.value                            AS id_evento,
     DATE(so.created_at)                    AS dia,
     COUNT(DISTINCT soi_parent.item_id)     AS qtd
-FROM sales_order so
+FROM catalog_product_entity_varchar cpev1
 INNER JOIN sales_order_item soi_parent
-       ON soi_parent.order_id     = so.entity_id
+       ON soi_parent.product_id   = cpev1.entity_id
       AND soi_parent.product_type = 'bundle'
+INNER JOIN sales_order so
+       ON so.entity_id = soi_parent.order_id
+      AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
+      AND so.state NOT IN ('canceled')
+      AND so.increment_id NOT REGEXP '-[0-9]'
+      AND so.created_at < CURDATE() + INTERVAL 1 DAY
+      {_floor_clause}
 INNER JOIN sales_order_item soi_child
        ON soi_child.parent_item_id = soi_parent.item_id
       AND soi_child.product_type   = 'simple'
@@ -8229,17 +8202,10 @@ INNER JOIN sales_order_item soi_child
          OR soi_child.name LIKE 'Olímpico%%'
          OR soi_child.name LIKE 'Yoga%%'
       )
-INNER JOIN catalog_product_entity_varchar cpev1
-       ON cpev1.entity_id    = soi_parent.product_id
-      AND cpev1.attribute_id = 321
-      AND cpev1.store_id     = 0
 WHERE
-    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
-    AND so.state NOT IN ('canceled')
+    cpev1.attribute_id = 321
+    AND cpev1.store_id = 0
     AND cpev1.value IN :magento_event_ids
-    AND so.increment_id NOT REGEXP '-[0-9]'
-    AND so.created_at < CURDATE() + INTERVAL 1 DAY
-    {_floor_clause}
 GROUP BY cpev1.value, DATE(so.created_at)
 ORDER BY cpev1.value, dia
 """)
@@ -8752,15 +8718,22 @@ def _fetch_daily_sales_magento_by_ids_impl(
         if not safe_ids:
             return []
         query = text(f"""
-SELECT /*+ MAX_EXECUTION_TIME(25000) */
+SELECT /*+ MAX_EXECUTION_TIME(90000) */
     DATE(so.created_at)                    AS dia,
     COUNT(DISTINCT soi_parent.item_id)     AS qtd,
     SUM(CASE WHEN so.base_grand_total = 0 THEN 0
              ELSE soi_child.price - soi_child.discount_amount END) AS receita
-FROM sales_order so
+FROM catalog_product_entity_varchar cpev1
 INNER JOIN sales_order_item soi_parent
-       ON soi_parent.order_id     = so.entity_id
+       ON soi_parent.product_id   = cpev1.entity_id
       AND soi_parent.product_type = 'bundle'
+INNER JOIN sales_order so
+       ON so.entity_id = soi_parent.order_id
+      AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
+      AND so.state NOT IN ('canceled')
+      AND so.increment_id NOT REGEXP '-[0-9]'
+      AND so.created_at < CURDATE() + INTERVAL 1 DAY
+      {('AND so.created_at >= :data_floor' if data_floor else '')}
 INNER JOIN sales_order_item soi_child
        ON soi_child.parent_item_id = soi_parent.item_id
       AND soi_child.product_type   = 'simple'
@@ -8775,17 +8748,10 @@ INNER JOIN sales_order_item soi_child
          OR soi_child.name LIKE 'Olímpico%%'
          OR soi_child.name LIKE 'Yoga%%'
       )
-INNER JOIN catalog_product_entity_varchar cpev1
-       ON cpev1.entity_id    = soi_parent.product_id
-      AND cpev1.attribute_id = 321
-      AND cpev1.store_id     = 0
 WHERE
-    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
-    AND so.state NOT IN ('canceled')
+    cpev1.attribute_id = 321
+    AND cpev1.store_id = 0
     AND cpev1.value IN :magento_event_ids
-    AND so.increment_id NOT REGEXP '-[0-9]'
-    AND so.created_at < CURDATE() + INTERVAL 1 DAY
-    {('AND so.created_at >= :data_floor' if data_floor else '')}
 GROUP BY DATE(so.created_at)
 ORDER BY dia
 """)
