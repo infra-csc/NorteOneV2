@@ -8752,14 +8752,15 @@ def _fetch_daily_sales_magento_by_ids_impl(
         if not safe_ids:
             return []
         query = text(f"""
-SELECT /*+ MAX_EXECUTION_TIME(25000) */ STRAIGHT_JOIN
+SELECT /*+ MAX_EXECUTION_TIME(25000) */
     DATE(so.created_at)                    AS dia,
     COUNT(DISTINCT soi_parent.item_id)     AS qtd,
     SUM(CASE WHEN so.base_grand_total = 0 THEN 0
              ELSE soi_child.price - soi_child.discount_amount END) AS receita
-FROM sales_order_item soi_parent
-INNER JOIN sales_order so
-       ON so.entity_id = soi_parent.order_id
+FROM sales_order so
+INNER JOIN sales_order_item soi_parent
+       ON soi_parent.order_id     = so.entity_id
+      AND soi_parent.product_type = 'bundle'
 INNER JOIN sales_order_item soi_child
        ON soi_child.parent_item_id = soi_parent.item_id
       AND soi_child.product_type   = 'simple'
@@ -8779,10 +8780,9 @@ INNER JOIN catalog_product_entity_varchar cpev1
       AND cpev1.attribute_id = 321
       AND cpev1.store_id     = 0
 WHERE
-    soi_parent.product_type = 'bundle'
-    AND cpev1.value IN :magento_event_ids
-    AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
+    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
     AND so.state NOT IN ('canceled')
+    AND cpev1.value IN :magento_event_ids
     AND so.increment_id NOT REGEXP '-[0-9]'
     AND so.created_at < CURDATE() + INTERVAL 1 DAY
     {('AND so.created_at >= :data_floor' if data_floor else '')}
