@@ -8146,44 +8146,26 @@ def _fetch_daily_sales_ativo_by_ids_grouped(id_eventos: list) -> dict:
             return {}
         query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(90000) */
-    sub.id_evento,
-    sub.dia,
-    SUM(sub.qtd) AS qtd
-FROM (
-    SELECT
-        b.id_evento,
-        DATE(c.dt_pedido) AS dia,
-        CASE
-            WHEN a.nr_preco = 0                                        THEN 'Cortesia'
-            WHEN cupom.en_cupom_classificacao = 'Grupos'               THEN 'Grupos/B2B'
-            WHEN h.ds_categoria LIKE '%%Grup%%'                        THEN 'Grupos/B2B'
-            ELSE                                                           'Site'
-        END AS canal,
-        COUNT(DISTINCT a.id_pedido_evento) AS qtd
-    FROM sa_pedido_evento AS a
-    INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
-    INNER JOIN sa_pedido AS c
-        ON c.id_pedido = a.id_pedido
-       AND c.id_pedido_status IN (2)
-    LEFT JOIN sa_modalidade_categoria AS h ON h.id_categoria = a.id_categoria
-    LEFT JOIN (
-        SELECT e.id_cupom_desconto_item, f.en_cupom_classificacao
-        FROM sa_cupom_desconto_item AS e
-        INNER JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
-    ) AS cupom ON cupom.id_cupom_desconto_item = a.id_cupom_individual
-    WHERE
-        (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
-        AND b.id_evento IN :id_eventos
-        AND c.dt_pedido < CURDATE() + INTERVAL 1 DAY
-    GROUP BY b.id_evento, DATE(c.dt_pedido),
-             CASE WHEN a.nr_preco = 0 THEN 'Cortesia'
-                  WHEN cupom.en_cupom_classificacao = 'Grupos' THEN 'Grupos/B2B'
-                  WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
-                  ELSE 'Site' END
-) AS sub
-WHERE sub.canal = 'Site'
-GROUP BY sub.id_evento, sub.dia
-ORDER BY sub.id_evento, sub.dia
+    b.id_evento,
+    DATE(c.dt_pedido)                  AS dia,
+    COUNT(DISTINCT a.id_pedido_evento) AS qtd
+FROM sa_pedido_evento AS a
+INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
+INNER JOIN sa_pedido AS c
+    ON c.id_pedido = a.id_pedido
+   AND c.id_pedido_status IN (2)
+LEFT JOIN sa_modalidade_categoria AS h ON h.id_categoria = a.id_categoria
+LEFT JOIN (
+    SELECT e.id_cupom_desconto_item, f.en_cupom_classificacao
+    FROM sa_cupom_desconto_item AS e
+    INNER JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
+) AS cupom ON cupom.id_cupom_desconto_item = a.id_cupom_individual
+WHERE
+    b.id_evento IN :id_eventos
+    AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
+    AND c.dt_pedido < CURDATE() + INTERVAL 1 DAY
+GROUP BY b.id_evento, DATE(c.dt_pedido)
+ORDER BY b.id_evento, dia
 """).bindparams(bindparam("id_eventos", expanding=True))
         with db_module.engine_ssh.connect() as conn:
             result = conn.execute(query, {"id_eventos": [int(i) for i in safe_ids]})
@@ -8223,40 +8205,37 @@ def _fetch_daily_sales_magento_by_ids_grouped(magento_event_ids: list, cortesia_
         safe_ids = [int(i) for i in magento_event_ids if str(i).isdigit()]
         if not safe_ids:
             return {}
-        if cort_ids:
-            safe_cort_ids = [int(i) for i in cort_ids if str(i).isdigit()]
-            _cort_cond = """CASE WHEN (cpev1.value IN :cort_ids
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%'))
-        OR (so.base_grand_total > 0
-        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%'))
-        THEN 1 END"""
-        else:
-            safe_cort_ids = None
-            _cort_cond = """CASE WHEN so.base_grand_total > 0
-        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
-        THEN 1 END"""
         _floor_clause = "AND so.created_at >= :data_floor" if data_floor else ""
         query = text(f"""
 SELECT /*+ MAX_EXECUTION_TIME(90000) */
-    cpev1.value AS id_evento,
-    DATE(so.created_at) AS dia,
-    COUNT({_cort_cond}) AS qtd
+    cpev1.value                            AS id_evento,
+    DATE(so.created_at)                    AS dia,
+    COUNT(DISTINCT soi_parent.item_id)     AS qtd
 FROM sales_order so
 INNER JOIN sales_order_item soi_parent
        ON soi_parent.order_id     = so.entity_id
       AND soi_parent.product_type = 'bundle'
+INNER JOIN sales_order_item soi_child
+       ON soi_child.parent_item_id = soi_parent.item_id
+      AND soi_child.product_type   = 'simple'
+      AND (
+            soi_child.name LIKE '%%Distância%%'
+         OR soi_child.name LIKE '%%Distancia%%'
+         OR soi_child.name LIKE '%%Distâncias%%'
+         OR soi_child.name LIKE '%%Modalidade%%'
+         OR soi_child.name REGEXP '-[0-9]+[Kk]m$'
+         OR soi_child.name REGEXP '^[0-9]+[Kk]m?$'
+         OR soi_child.name LIKE 'Kit Participação%%'
+         OR soi_child.name LIKE 'Olímpico%%'
+         OR soi_child.name LIKE 'Yoga%%'
+      )
 INNER JOIN catalog_product_entity_varchar cpev1
        ON cpev1.entity_id    = soi_parent.product_id
       AND cpev1.attribute_id = 321
       AND cpev1.store_id     = 0
 WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
-    AND so.state != 'canceled'
+    AND so.state NOT IN ('canceled')
     AND cpev1.value IN :magento_event_ids
     AND so.increment_id NOT REGEXP '-[0-9]'
     AND so.created_at < CURDATE() + INTERVAL 1 DAY
@@ -8264,15 +8243,8 @@ WHERE
 GROUP BY cpev1.value, DATE(so.created_at)
 ORDER BY cpev1.value, dia
 """)
-        if safe_cort_ids is not None:
-            query = query.bindparams(
-                bindparam("magento_event_ids", expanding=True),
-                bindparam("cort_ids", expanding=True),
-            )
-            exec_params = {"magento_event_ids": safe_ids, "cort_ids": safe_cort_ids}
-        else:
-            query = query.bindparams(bindparam("magento_event_ids", expanding=True))
-            exec_params = {"magento_event_ids": safe_ids}
+        query = query.bindparams(bindparam("magento_event_ids", expanding=True))
+        exec_params = {"magento_event_ids": safe_ids}
         if data_floor:
             exec_params["data_floor"] = data_floor
         def _daily_grouped_work(conn):
