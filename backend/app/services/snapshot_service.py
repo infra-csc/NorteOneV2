@@ -2166,23 +2166,21 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
     def _build_cnt_query_for_batch(batch_bids: list, include_cortesias: bool):
         """Constrói a query de contagem para um lote de bundle_ids.
 
-        Quando o mapa bid_to_evento_id tem cobertura para todos os bundles do
-        lote, filtra por id_evento via JOIN para evitar contaminação entre
-        edições do mesmo evento dentro da janela de 15 meses.
-        Bundles sem id_evento no mapa caem no fallback sem filtro de evento.
+        Usa a mesma estrutura da query externa de referência (Navicat):
+        - Filtra via JOIN em catalog_product_entity_varchar (attr 321 = id_evento)
+          para garantir que apenas bundles vinculados ao evento correto sejam contados.
+        - Sem janela de created_at (Navicat não usa essa restrição).
+        - Sem exclusão de GRUPOS (contados normalmente, apenas rotulados).
+        - Sem exclusão de cortesias do count (cortesias contam como inscritos).
+        Bundles sem id_evento mapeado caem no fallback legado (bundle_ids + janela).
         """
-        pairs = [(bid, bid_to_evento_id[bid]) for bid in batch_bids if bid in bid_to_evento_id]
+        mapped_bids = [bid for bid in batch_bids if bid in bid_to_evento_id]
         no_map = [bid for bid in batch_bids if bid not in bid_to_evento_id]
 
         results_parts = []
 
-        if pairs:
-            _ph = ", ".join(
-                f"(:cnt_bid_{i}, :cnt_evid_{i})" for i in range(len(pairs))
-            )
-            _params = {f"cnt_bid_{i}": p[0] for i, p in enumerate(pairs)}
-            _params.update({f"cnt_evid_{i}": p[1] for i, p in enumerate(pairs)})
-            _params["skip_cortesia_filter"] = bool(include_cortesias)
+        if mapped_bids:
+            id_eventos_batch = list({str(bid_to_evento_id[bid]) for bid in mapped_bids})
             _sql = (
                 "SELECT /*+ MAX_EXECUTION_TIME(300000) */ STRAIGHT_JOIN\n"
                 "    soi_parent.product_id                  AS bundle_entity_id,\n"
@@ -2191,32 +2189,35 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
                 "INNER JOIN sales_order so\n"
                 "       ON so.entity_id = soi_parent.order_id\n"
                 "INNER JOIN (\n"
-                "    SELECT t.bid AS product_id, t.evento_id\n"
-                f"    FROM (VALUES {_ph}) AS t (bid, evento_id)\n"
-                ") AS ev_scope ON ev_scope.product_id = soi_parent.product_id\n"
-                "INNER JOIN catalog_product_entity_varchar cpev_scope\n"
-                "       ON cpev_scope.entity_id    = soi_parent.product_id\n"
-                "      AND cpev_scope.attribute_id = 321\n"
-                "      AND cpev_scope.store_id     = 0\n"
-                "      AND cpev_scope.value        = ev_scope.evento_id\n"
+                "    SELECT cpev.entity_id\n"
+                "    FROM catalog_product_entity_varchar cpev\n"
+                "    INNER JOIN catalog_product_entity cpe\n"
+                "           ON cpe.entity_id = cpev.entity_id AND cpe.type_id = 'bundle'\n"
+                "    WHERE cpev.attribute_id = 321\n"
+                "      AND cpev.store_id     = 0\n"
+                "      AND cpev.value        IN :id_eventos_batch\n"
+                ") AS cpev1 ON cpev1.entity_id = soi_parent.product_id\n"
                 "WHERE\n"
                 "    soi_parent.product_type = 'bundle'\n"
-                "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 15 MONTH)\n"
+                "AND soi_parent.product_id   IN :bundle_ids_mapped\n"
                 "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
-                "AND so.state != 'canceled'\n"
-                "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
-                "AND (:skip_cortesia_filter OR NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50))\n"
-                "AND so.created_at < CURDATE() + INTERVAL 1 DAY\n"
-                "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
-                "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
+                "AND so.state NOT IN ('canceled')\n"
                 "AND so.increment_id NOT REGEXP '-[0-9]'\n"
                 "GROUP BY soi_parent.product_id"
             )
-            results_parts.append((text(_sql).bindparams(**_params), None))
+            results_parts.append((
+                text(_sql).bindparams(
+                    bindparam("id_eventos_batch", expanding=True),
+                    bindparam("bundle_ids_mapped", expanding=True),
+                ).bindparams(
+                    id_eventos_batch=id_eventos_batch,
+                    bundle_ids_mapped=mapped_bids,
+                ),
+                None,
+            ))
 
         if no_map:
             # Fallback para bundles sem id_evento mapeado (legado/sem cadastro)
-            _params_fb = {"skip_cortesia_filter": bool(include_cortesias)}
             _sql_fb = (
                 "SELECT /*+ MAX_EXECUTION_TIME(300000) */ STRAIGHT_JOIN\n"
                 "    soi_parent.product_id                  AS bundle_entity_id,\n"
@@ -2229,19 +2230,13 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
                 "AND soi_parent.product_id   IN :bundle_ids_fb\n"
                 "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 15 MONTH)\n"
                 "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
-                "AND so.state != 'canceled'\n"
-                "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
-                "AND (:skip_cortesia_filter OR NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50))\n"
-                "AND so.created_at < CURDATE() + INTERVAL 1 DAY\n"
-                "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
-                "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
+                "AND so.state NOT IN ('canceled')\n"
                 "AND so.increment_id NOT REGEXP '-[0-9]'\n"
                 "GROUP BY soi_parent.product_id"
             )
             results_parts.append((
                 text(_sql_fb).bindparams(
                     bindparam("bundle_ids_fb", expanding=True),
-                    skip_cortesia_filter=bool(include_cortesias),
                 ),
                 no_map,
             ))
@@ -2303,22 +2298,26 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
                     calculado_em=agora_utc,
                 )
                 if bid in bid_to_evento_id:
-                    # Bundle com escopo de evento confiável: substitui direto.
-                    # A count_query já filtrou pelo id_evento correto — o valor
-                    # reflete apenas pedidos deste evento. GREATEST() seria
-                    # perigoso aqui pois preservaria contagens infladas por
-                    # edições anteriores gravadas antes deste fix.
+                    # Bundle com escopo de evento confiável (query via cpev1):
+                    # qtd_inscricoes: substituição direta — query alinhada com
+                    #   referência externa, sem filtros que inflem/desinflam.
+                    # receita_liquida: GREATEST() — query de receita é mais
+                    #   lenta e sujeita a resposta parcial; preserva o maior
+                    #   valor já gravado como piso de segurança.
                     stmt = stmt.on_conflict_do_update(
                         index_elements=["bundle_entity_id"],
                         set_={
-                            "receita_liquida": stmt.excluded.receita_liquida,
+                            "receita_liquida": _sa_func.greatest(
+                                stmt.excluded.receita_liquida,
+                                MargemBundleRevSnapshot.receita_liquida,
+                            ),
                             "qtd_inscricoes": stmt.excluded.qtd_inscricoes,
                             "calculado_em": agora_utc,
                         },
                     )
                 else:
-                    # Bundle legado sem id_evento: mantém GREATEST() como piso
-                    # de segurança contra resposta parcial do Magento.
+                    # Bundle legado sem id_evento: mantém GREATEST() para ambos
+                    # como piso de segurança contra resposta parcial do Magento.
                     stmt = stmt.on_conflict_do_update(
                         index_elements=["bundle_entity_id"],
                         set_={

@@ -3346,52 +3346,29 @@ def get_margem_por_kit(
 
         if global_bundle_tipo_map and db_module.engine_magento is not None:
             bundle_ids = list(global_bundle_tipo_map.keys())
-            # Cortesia filters are expressed as SQL-level boolean parameters so the
-            # query strings remain static — no string concatenation or f-strings are
-            # used inside text(), following SQLAlchemy best practices.
-            # :skip_cortesia_filter = True  → OR short-circuits, clause is skipped
-            # :skip_cortesia_filter = False → the filter condition is enforced
-            # OTIMIZAÇÃO (broad fix): lidera com sales_order_item.product_id IN.
-            # Monta mapa bundle_entity_id → id_evento para o JOIN de escopo.
-            # Necessário para isolar pedidos do evento correto quando o mesmo
-            # bundle_entity_id foi reaproveitado em edições anteriores dentro
-            # da janela de 15 meses (ex.: "Troféu Brasil - 1ª Etapa" + "2ª Etapa").
-            # Sem esse filtro a COUNT soma pedidos das duas edições.
-            _bid_to_evento_id: dict = {}
-            for pid_bev in projeto_ids:
-                for sm_bev in _get_sku_maps(pid_bev, 'MAGENTO'):
-                    if not sm_bev.id_externo:
-                        continue
-                    try:
-                        _ev_id_bev = int(sm_bev.id_externo)
-                    except (ValueError, TypeError):
-                        continue
-                    _bundles_bev = db.query(KitConfig).filter(
-                        KitConfig.id_evento == _ev_id_bev,
-                        KitConfig.tipo_kit.isnot(None),
-                        KitConfig.ignorado == False,
-                    ).all()
-                    for _b_bev in _bundles_bev:
-                        if _b_bev.bundle_entity_id not in _bid_to_evento_id:
-                            _bid_to_evento_id[_b_bev.bundle_entity_id] = _ev_id_bev
 
-            # Cria tabela temporária inline (subquery VALUES) com o mapa bid→evento_id
-            # para filtrar a query de contagem. Se não houver mapa (fallback), a query
-            # cai no comportamento antigo (sem filtro de evento).
-            _bid_evento_pairs = [
-                (bid, _bid_to_evento_id[bid])
-                for bid in bundle_ids
-                if bid in _bid_to_evento_id
+            # Coleta os id_evento Magento para este grupo de projetos.
+            # A query de contagem usa a mesma estrutura da query de referência
+            # externa (Navicat): filtra via JOIN a catalog_product_entity_varchar
+            # (attribute_id=321 = id_evento do bundle) para garantir que apenas
+            # bundles vinculados ao evento correto sejam contados.
+            # Alinhamentos com a query externa:
+            #   - Sem janela de created_at (Navicat não usa essa restrição)
+            #   - Sem exclusão de GRUPOS do count (GRUPOS são contados normalmente)
+            #   - Sem exclusão de cortesias do count (cortesias contam como inscritos)
+            _id_eventos_cnt: list = [
+                sm.id_externo
+                for pid in projeto_ids
+                for sm in _get_sku_maps(pid, 'MAGENTO')
+                if sm.id_externo
             ]
 
-            if _bid_evento_pairs:
-                _pairs_placeholder = ", ".join(
-                    f"(:cnt_bid_{i}, :cnt_evid_{i})" for i in range(len(_bid_evento_pairs))
-                )
-                _cnt_bid_params = {f"cnt_bid_{i}": p[0] for i, p in enumerate(_bid_evento_pairs)}
-                _cnt_evid_params = {f"cnt_evid_{i}": p[1] for i, p in enumerate(_bid_evento_pairs)}
-                _cnt_extra_params = {**_cnt_bid_params, **_cnt_evid_params}
-
+            if _id_eventos_cnt:
+                # Mantém bundle_ids IN como restrição de escopo (desempenho +
+                # evita retornar bundles do evento fora do KitConfig).
+                # O JOIN cpev1 valida que cada bundle pertence ao evento correto,
+                # sem janela de created_at e sem exclusão de GRUPOS/cortesias
+                # — alinhado com a query de referência externa (Navicat).
                 _sql_count = (
                     "SELECT /*+ MAX_EXECUTION_TIME(20000) */ STRAIGHT_JOIN\n"
                     "    soi_parent.product_id                  AS bundle_entity_id,\n"
@@ -3400,33 +3377,29 @@ def get_margem_por_kit(
                     "INNER JOIN sales_order so\n"
                     "       ON so.entity_id = soi_parent.order_id\n"
                     "INNER JOIN (\n"
-                    "    SELECT t.bid AS product_id, t.evento_id\n"
-                    f"    FROM (VALUES {_pairs_placeholder}) AS t (bid, evento_id)\n"
-                    ") AS ev_scope ON ev_scope.product_id = soi_parent.product_id\n"
-                    "INNER JOIN catalog_product_entity_varchar cpev_scope\n"
-                    "       ON cpev_scope.entity_id    = soi_parent.product_id\n"
-                    "      AND cpev_scope.attribute_id = 321\n"
-                    "      AND cpev_scope.store_id     = 0\n"
-                    "      AND cpev_scope.value        = ev_scope.evento_id\n"
+                    "    SELECT cpev.entity_id\n"
+                    "    FROM catalog_product_entity_varchar cpev\n"
+                    "    INNER JOIN catalog_product_entity cpe\n"
+                    "           ON cpe.entity_id = cpev.entity_id AND cpe.type_id = 'bundle'\n"
+                    "    WHERE cpev.attribute_id = 321\n"
+                    "      AND cpev.store_id     = 0\n"
+                    "      AND cpev.value        IN :id_eventos\n"
+                    ") AS cpev1 ON cpev1.entity_id = soi_parent.product_id\n"
                     "WHERE\n"
                     "    soi_parent.product_type = 'bundle'\n"
-                    "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 15 MONTH)\n"
+                    "AND soi_parent.product_id   IN :bundle_ids\n"
                     "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
-                    "AND so.state != 'canceled'\n"
-                    "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
-                    "AND (:skip_cortesia_filter OR NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50))\n"
-                    "AND so.created_at < CURDATE() + INTERVAL 1 DAY\n"
-                    "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
-                    "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
+                    "AND so.state NOT IN ('canceled')\n"
                     "AND so.increment_id NOT REGEXP '-[0-9]'\n"
                     "GROUP BY soi_parent.product_id"
                 )
                 magento_count_query = text(_sql_count).bindparams(
-                    skip_cortesia_filter=_skip_cortesia_filter,
-                    **_cnt_extra_params,
-                )
+                    bindparam("id_eventos", expanding=True),
+                    bindparam("bundle_ids", expanding=True),
+                ).bindparams(id_eventos=_id_eventos_cnt)
             else:
-                # Fallback: sem mapa bid→evento (bundles sem KitConfig.id_evento)
+                # Fallback: evento sem id_externo mapeado — usa bundle_ids com
+                # janela clássica (comportamento legado)
                 _sql_count = (
                     "SELECT /*+ MAX_EXECUTION_TIME(20000) */ STRAIGHT_JOIN\n"
                     "    soi_parent.product_id                  AS bundle_entity_id,\n"
@@ -3439,18 +3412,12 @@ def get_margem_por_kit(
                     "AND soi_parent.product_id   IN :bundle_ids\n"
                     "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 15 MONTH)\n"
                     "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
-                    "AND so.state != 'canceled'\n"
-                    "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
-                    "AND (:skip_cortesia_filter OR NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50))\n"
-                    "AND so.created_at < CURDATE() + INTERVAL 1 DAY\n"
-                    "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
-                    "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
+                    "AND so.state NOT IN ('canceled')\n"
                     "AND so.increment_id NOT REGEXP '-[0-9]'\n"
                     "GROUP BY soi_parent.product_id"
                 )
                 magento_count_query = text(_sql_count).bindparams(
                     bindparam("bundle_ids", expanding=True),
-                    skip_cortesia_filter=_skip_cortesia_filter,
                 )
 
             # Query 2: receita — mesmo padrão de partida (sales_order com índice created_at)
@@ -3625,7 +3592,10 @@ def get_margem_por_kit(
                     # Backfill por bundle: se o LIVE respondeu mas faltou bundle
                     # que sabidamente tem qtd > 0 no snapshot, preenche do snapshot.
                     # Mesma lógica do backfill de receita — protege contra resposta parcial.
-                    if not _cnt_live_failed:
+                    # NOTA: backfill é PULADO quando force_refresh=True — neste caso o
+                    # usuário quer o resultado ao vivo sem interferência do snapshot
+                    # (que pode conter valores inflados/desatualizados).
+                    if not _cnt_live_failed and not force_refresh:
                         _bf_snap_data, _bf_snap_age_h = _load_snapshot_qtd(max_age_h=None)
                         if _bf_snap_data:
                             _bf_filled = 0
