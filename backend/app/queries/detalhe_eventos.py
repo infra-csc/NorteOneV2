@@ -55,7 +55,7 @@ SELECT /*+ MAX_EXECUTION_TIME(90000) */
     END                                                                                 AS canal,
 
     h.ds_categoria                                                                      AS kit,
-    q.nm_modalidade                                                                     AS modalidade,
+    q.ds_modalidade                                                                     AS modalidade,
 
     COALESCE(IF(c.fl_local_inscricao = 1, g.pelotao, w.pelotao), 'Branco')              AS pelotao,
     NULL                                                                                AS produtos,
@@ -93,7 +93,8 @@ INNER JOIN sa_pedido AS c
 LEFT JOIN sa_modalidade_categoria AS h
     ON h.id_categoria = a.id_categoria
 LEFT JOIN sa_evento_modalidade AS q
-    ON q.id_modalidade = h.id_modalidade
+    ON q.id_modalidade = a.id_modalidade
+   AND q.id_evento     = b.id_evento
 LEFT JOIN sa_usuario AS g
     ON g.id_usuario = c.id_usuario
 LEFT JOIN sa_usuario_balcao AS w
@@ -126,7 +127,7 @@ WHERE
     END,
     h.id_categoria,
     h.ds_categoria,
-    q.nm_modalidade,
+    q.ds_modalidade,
     COALESCE(IF(c.fl_local_inscricao = 1, g.pelotao, w.pelotao), 'Branco'),
     IF(x.id_tamanho_camiseta = 2, 'BL', x.ds_tamanho)
 

@@ -1876,6 +1876,18 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Schema/seed setup failed: {e}")
 
+        # Phase 0.5: descarta snapshots de detalhe calculados com query antiga
+        try:
+            from app.core.database import SessionLocal as _SL_flush
+            from app.services.detalhe_eventos_service import maybe_flush_snapshots_on_version_change
+            _db_flush = _SL_flush()
+            try:
+                maybe_flush_snapshots_on_version_change(_db_flush)
+            finally:
+                _db_flush.close()
+        except Exception as e:
+            logger.error(f"Detalhe snapshot version flush failed: {e}")
+
         # Phase 1: connections & sync
         try:
             _startup_resync_projetos()

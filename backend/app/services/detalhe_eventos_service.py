@@ -757,6 +757,82 @@ def _trigger_background_refresh(evento_grupo: str) -> None:
     t.start()
 
 
+# Versão da estrutura da query. Quando alterada, o startup descarta todos os
+# snapshots calculados com a versão anterior, garantindo que contagens obsoletas
+# não sejam servidas após deploys que mudam a lógica de contagem.
+DETALHE_QUERY_VERSION = "v2"  # v2: join sa_evento_modalidade via a.id_modalidade + id_evento
+
+
+def maybe_flush_snapshots_on_version_change(db: Session) -> None:
+    """Descarta todos os snapshots de detalhe se a versão da query mudou.
+
+    Usa uma linha sentinela (evento_grupo='__version__') na própria tabela para
+    rastrear a última versão computada sem precisar de tabela extra.
+
+    Comportamento por reinicialização:
+    - Versão bate     → nenhuma operação (caminho rápido).
+    - Versão diverge  → DELETE de todos os snapshots reais + UPSERT da sentinela.
+    Snapshots são recriados lazily no primeiro acesso (SWR) ou pelo job noturno.
+    """
+    from app.models.vendas_snapshot import DetalheEventosSnapshot
+    try:
+        marker = (
+            db.query(DetalheEventosSnapshot)
+            .filter(DetalheEventosSnapshot.evento_grupo == "__version__")
+            .first()
+        )
+        stored_version: Optional[str] = None
+        if marker:
+            try:
+                stored_version = json.loads(marker.payload).get("version")
+            except Exception:
+                pass
+
+        if stored_version == DETALHE_QUERY_VERSION:
+            logger.info(
+                f"[DetalheSnap] Version check OK ({DETALHE_QUERY_VERSION}) — snapshots válidos"
+            )
+            return
+
+        # Versão diferente: descarta todos os snapshots reais
+        deleted = (
+            db.query(DetalheEventosSnapshot)
+            .filter(DetalheEventosSnapshot.evento_grupo != "__version__")
+            .delete(synchronize_session=False)
+        )
+
+        now_utc = datetime.now(timezone.utc)
+        version_payload = json.dumps({"version": DETALHE_QUERY_VERSION})
+        if marker:
+            marker.payload = version_payload
+            marker.updated_at = now_utc
+        else:
+            db.add(DetalheEventosSnapshot(
+                evento_grupo="__version__",
+                payload=version_payload,
+                created_at=now_utc,
+                updated_at=now_utc,
+            ))
+
+        db.commit()
+
+        # Limpa também o cache em memória para que não sirva dados da versão antiga
+        with _cache_lock:
+            _cache.clear()
+
+        logger.info(
+            f"[DetalheSnap] {deleted} snapshot(s) descartado(s) "
+            f"(mudança de versão: {stored_version!r} → {DETALHE_QUERY_VERSION!r}). "
+            "Snapshots serão recriados no próximo acesso."
+        )
+    except Exception as e:
+        logger.error(f"[DetalheSnap] maybe_flush_snapshots_on_version_change falhou: {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+
 def save_snapshot(db: Session, evento_grupo: str, payload: Dict) -> bool:
     """
     Persiste o payload no snapshot PostgreSQL via UPSERT.
