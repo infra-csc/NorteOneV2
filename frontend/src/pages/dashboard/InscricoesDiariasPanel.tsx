@@ -362,7 +362,6 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
           <div className="space-y-2">
             {sortedTop10.map((ev, idx) => {
               const displayTotal = getDisplayTotal(ev);
-              const { variacao, prev } = getDisplayVariacao(ev);
               const maxVal = getDisplayTotal(sortedTop10[0]);
               const barPct = maxVal > 0 ? Math.round((displayTotal / maxVal) * 100) : 0;
               return (
@@ -380,7 +379,6 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
                       {ev.nome}
                     </span>
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      <VariacaoBadge variacao={variacao} prev={prev} />
                       <span className={`text-xs font-black w-14 text-right ${isDark ? 'text-white' : 'text-gray-900'}`}>
                         {fmtNum(displayTotal)}
                       </span>
