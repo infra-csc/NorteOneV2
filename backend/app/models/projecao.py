@@ -135,6 +135,7 @@ class ProjecaoCutoffEventoArea(Base):
     data_corte_1 = Column(Date, nullable=True)
     data_corte_2 = Column(Date, nullable=True)
     data_saida_caminhao = Column(Date, nullable=True)
+    observacao_corte_1 = Column(Text, nullable=True)
     created_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True, index=True)
     updated_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True, index=True)
     created_at = Column(DateTime, default=_now_brasilia)

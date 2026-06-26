@@ -9,7 +9,7 @@ import {
   Calendar, Filter, Eye, ChevronDown, ChevronUp, Search,
   Layers, Download, RotateCcw,
   AlertTriangle, Trash, Check, Lock, LockOpen, Clock, Bell, Zap,
-  Package, Info, Truck, Mail,
+  Package, Info, Truck, Mail, MessageSquare,
 } from 'lucide-react';
 
 interface MultiSelectOption {
@@ -122,6 +122,7 @@ interface CutoffEventoArea {
   data_corte_1: string | null;
   data_corte_2: string | null;
   data_saida_caminhao: string | null;
+  observacao_corte_1: string | null;
   updated_by: number | null;
   updated_by_nome: string | null;
   updated_at: string | null;
@@ -420,6 +421,109 @@ const ClientesTooltip: React.FC<{
   </div>
 );
 
+const ObservacaoPopover: React.FC<{
+  areaId: number;
+  value: string;
+  canEdit: boolean;
+  isDark: boolean;
+  onChange: (areaId: number, value: string) => void;
+  onSave: () => void;
+  saving: boolean;
+}> = ({ areaId, value, canEdit, isDark, onChange, onSave, saving }) => {
+  const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const popW = 280;
+    const margin = 8;
+    let left = rect.left;
+    if (left + popW + margin > window.innerWidth) {
+      left = Math.max(margin, window.innerWidth - popW - margin);
+    }
+    setCoords({ top: rect.bottom + 6, left });
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (
+        triggerRef.current && !triggerRef.current.contains(e.target as Node) &&
+        popoverRef.current && !popoverRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    };
+    const closeOnScroll = () => setOpen(false);
+    document.addEventListener('mousedown', handler);
+    window.addEventListener('scroll', closeOnScroll, true);
+    window.addEventListener('resize', closeOnScroll);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      window.removeEventListener('scroll', closeOnScroll, true);
+      window.removeEventListener('resize', closeOnScroll);
+    };
+  }, [open]);
+
+  const hasObs = (value || '').trim().length > 0;
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        title={hasObs ? 'Ver/editar observação' : 'Adicionar observação'}
+        onClick={() => setOpen(v => !v)}
+        className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all ${
+          hasObs
+            ? isDark ? 'text-amber-400 bg-amber-500/15 hover:bg-amber-500/25' : 'text-amber-600 bg-amber-100 hover:bg-amber-200'
+            : isDark ? 'text-gray-500 hover:text-gray-300 hover:bg-gray-700/50' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
+        }`}
+      >
+        <MessageSquare className="w-4 h-4" />
+      </button>
+      {open && coords && createPortal(
+        <div
+          ref={popoverRef}
+          style={{ position: 'fixed', top: coords.top, left: coords.left, width: 280, zIndex: 9999 }}
+          className={`rounded-xl shadow-2xl border p-3 space-y-2 ${isDark ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}
+        >
+          <p className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Observação — Corte Envio</p>
+          {canEdit ? (
+            <>
+              <textarea
+                autoFocus
+                rows={3}
+                value={value}
+                onChange={e => onChange(areaId, e.target.value)}
+                placeholder="Escreva uma observação sobre esta data de corte..."
+                className={`w-full px-3 py-2 rounded-lg border text-sm resize-none focus:outline-none focus:ring-2 focus:ring-orange-500 ${
+                  isDark ? 'bg-gray-800 border-gray-600 text-white placeholder-gray-500' : 'bg-gray-50 border-gray-300 text-gray-900 placeholder-gray-400'
+                }`}
+              />
+              <button
+                onClick={() => { onSave(); setOpen(false); }}
+                disabled={saving}
+                className="w-full py-1.5 rounded-lg text-sm font-semibold bg-gradient-to-r from-orange-500 to-amber-500 text-white hover:shadow-md disabled:opacity-60 transition-all"
+              >
+                {saving ? 'Salvando...' : 'Salvar observação'}
+              </button>
+            </>
+          ) : (
+            <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+              {(value || '').trim() || <span className={isDark ? 'text-gray-500 italic' : 'text-gray-400 italic'}>Sem observação</span>}
+            </p>
+          )}
+        </div>,
+        document.body
+      )}
+    </>
+  );
+};
+
 const projReadCache = (key: string): any => {
   try {
     const raw = localStorage.getItem(key);
@@ -527,7 +631,7 @@ const ProjecaoInscritos: React.FC = () => {
   const [eventoCutoffs, setEventoCutoffs] = useState<CutoffEventoArea[]>([]);
   const [eventoCutoffsLoading, setEventoCutoffsLoading] = useState(false);
   const [savingCutoffAreaId, setSavingCutoffAreaId] = useState<number | null>(null);
-  const [cutoffDraft, setCutoffDraft] = useState<Record<number, { d1: string; d2: string; saida: string }>>({});
+  const [cutoffDraft, setCutoffDraft] = useState<Record<number, { d1: string; d2: string; saida: string; obs1: string }>>({});
   const cutoffsLoadTokenRef = useRef(0);
 
   const [selectedEventoCorteSnap, setSelectedEventoCorteSnap] = useState<{ congelado_corte_1_em: string | null; reaberto_manual_corte_1: boolean; congelado_corte_2_em: string | null; reaberto_manual_corte_2: boolean } | null>(null);
@@ -1024,12 +1128,13 @@ const ProjecaoInscritos: React.FC = () => {
       // Descarta a resposta se outro evento foi selecionado durante a requisição
       if (token !== cutoffsLoadTokenRef.current) return;
       setEventoCutoffs(data);
-      const draft: Record<number, { d1: string; d2: string; saida: string }> = {};
+      const draft: Record<number, { d1: string; d2: string; saida: string; obs1: string }> = {};
       data.forEach((c: CutoffEventoArea) => {
         draft[c.area_projecao_id] = {
           d1: c.data_corte_1 || '',
           d2: c.data_corte_2 || '',
           saida: c.data_saida_caminhao || '',
+          obs1: c.observacao_corte_1 || '',
         };
       });
       setCutoffDraft(draft);
@@ -1046,7 +1151,7 @@ const ProjecaoInscritos: React.FC = () => {
   };
 
   const saveEventoCutoff = async (eventoId: number, areaId: number) => {
-    const draft = cutoffDraft[areaId] || { d1: '', d2: '', saida: '' };
+    const draft = cutoffDraft[areaId] || { d1: '', d2: '', saida: '', obs1: '' };
     setSavingCutoffAreaId(areaId);
     try {
       await projecaoService.upsertCutoffEventoArea({
@@ -1055,6 +1160,7 @@ const ProjecaoInscritos: React.FC = () => {
         data_corte_1: draft.d1 || null,
         data_corte_2: draft.d2 || null,
         data_saida_caminhao: draft.saida || null,
+        observacao_corte_1: draft.obs1 || null,
       });
       showToast('Datas de corte salvas', 'success');
       await loadEventoCutoffs(eventoId);
@@ -2439,7 +2545,7 @@ const ProjecaoInscritos: React.FC = () => {
                   ) : (
                     <div className="space-y-2">
                       {myCustomAreas.map(area => {
-                        const draft = cutoffDraft[area.id] || { d1: '', d2: '', saida: '' };
+                        const draft = cutoffDraft[area.id] || { d1: '', d2: '', saida: '', obs1: '' };
                         const existing = eventoCutoffs.find(c => c.area_projecao_id === area.id);
                         return (
                           <div
@@ -2457,19 +2563,30 @@ const ProjecaoInscritos: React.FC = () => {
                             </div>
                             <div>
                               <div className={`text-xs font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Data de corte Envio</div>
-                              <input
-                                type="date"
-                                value={draft.d1}
-                                onChange={e => setCutoffDraft(prev => ({ ...prev, [area.id]: { ...(prev[area.id] || { d1: '', d2: '', saida: '' }), d1: e.target.value } }))}
-                                className={`px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:ring-2 focus:ring-orange-500`}
-                              />
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="date"
+                                  value={draft.d1}
+                                  onChange={e => setCutoffDraft(prev => ({ ...prev, [area.id]: { ...(prev[area.id] || { d1: '', d2: '', saida: '', obs1: '' }), d1: e.target.value } }))}
+                                  className={`px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:ring-2 focus:ring-orange-500`}
+                                />
+                                <ObservacaoPopover
+                                  areaId={area.id}
+                                  value={draft.obs1}
+                                  canEdit={true}
+                                  isDark={isDark}
+                                  onChange={(areaId, val) => setCutoffDraft(prev => ({ ...prev, [areaId]: { ...(prev[areaId] || { d1: '', d2: '', saida: '', obs1: '' }), obs1: val } }))}
+                                  onSave={() => saveEventoCutoff(selectedEvento.id, area.id)}
+                                  saving={savingCutoffAreaId === area.id}
+                                />
+                              </div>
                             </div>
                             <div>
                               <div className={`text-xs font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Saída caminhão</div>
                               <input
                                 type="date"
                                 value={draft.saida}
-                                onChange={e => setCutoffDraft(prev => ({ ...prev, [area.id]: { ...(prev[area.id] || { d1: '', d2: '', saida: '' }), saida: e.target.value } }))}
+                                onChange={e => setCutoffDraft(prev => ({ ...prev, [area.id]: { ...(prev[area.id] || { d1: '', d2: '', saida: '', obs1: '' }), saida: e.target.value } }))}
                                 className={`px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:ring-2 focus:ring-orange-500`}
                               />
                             </div>

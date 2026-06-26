@@ -1728,7 +1728,7 @@ export const projecaoService = {
     const response = await api.get('/projecao/cutoff-evento-area', { params: { evento_id: eventoId } });
     return response.data;
   },
-  upsertCutoffEventoArea: async (data: { evento_id: number; area_projecao_id: number; data_corte_1: string | null; data_corte_2: string | null; data_saida_caminhao: string | null }) => {
+  upsertCutoffEventoArea: async (data: { evento_id: number; area_projecao_id: number; data_corte_1: string | null; data_corte_2: string | null; data_saida_caminhao: string | null; observacao_corte_1?: string | null }) => {
     const response = await api.put('/projecao/cutoff-evento-area', data);
     return response.data;
   },

@@ -266,6 +266,7 @@ class CutoffEventoAreaUpsert(BaseModel):
     data_corte_1: Optional[str] = None  # ISO date YYYY-MM-DD
     data_corte_2: Optional[str] = None
     data_saida_caminhao: Optional[str] = None  # ISO date YYYY-MM-DD
+    observacao_corte_1: Optional[str] = None
 
 
 class CutoffEventoAreaResponse(BaseModel):
@@ -276,6 +277,7 @@ class CutoffEventoAreaResponse(BaseModel):
     data_corte_1: Optional[str] = None
     data_corte_2: Optional[str] = None
     data_saida_caminhao: Optional[str] = None
+    observacao_corte_1: Optional[str] = None
     updated_by: Optional[int] = None
     updated_by_nome: Optional[str] = None
     updated_at: Optional[datetime] = None
