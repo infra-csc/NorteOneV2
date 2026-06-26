@@ -20,4 +20,5 @@
 - [Camiseta avulsa teto](camiseta-avulsa-teto.md) — pós-Corte 1, "Camiseta avulsa" é TETO (valor congelado = máximo, usuário só diminui), não piso; UI deve gatear max por teto>0.
 - [Digest pendências e-mail](projecao-notif-email.md) — guard diário só marca dia em sucesso (mesmo parcial) ou nada-a-enviar; falha TOTAL re-tenta c/ cooldown. SendGrid via connector proxy.
 - [Projeção Convicta canônica](projecao-convicta-reconciliation.md) — valor_corte_1 é a fonte; foto por área pode derivar; self-heal usa only_missing e consolidado reconcilia a soma ao total no read.
+- [ISC "Site" channel + V8 net-revenue](isc-site-channel.md) — ISC conta só Site (exclui Cortesia+Grupos) em todas as 8 funcs Ativo/Magento; receita V8 rateia desconto de carrinho e o agg DEVE ser time-windowed senão today_grouped (12s) estoura.
 - [Bundle count cross-event contamination](bundle-count-cross-event.md) — count_query sem filtro id_evento soma pedidos de edições anteriores na janela 15 meses; fix: VALUES inline + JOIN catalog_product_entity_varchar attr 321; _persist_batch usa EXCLUDED (não GREATEST) para bundles com mapa.

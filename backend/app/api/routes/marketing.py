@@ -8129,6 +8129,9 @@ LEFT JOIN (
 WHERE
     b.id_evento IN :id_eventos
     AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
+    AND a.nr_preco > 0
+    AND (cupom.en_cupom_classificacao IS NULL OR cupom.en_cupom_classificacao <> 'Grupos')
+    AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
     AND c.dt_pedido < CURDATE() + INTERVAL 1 DAY
 GROUP BY b.id_evento, DATE(c.dt_pedido)
 ORDER BY b.id_evento, dia
@@ -8186,11 +8189,16 @@ INNER JOIN sales_order so
       AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
       AND so.state NOT IN ('canceled')
       AND so.increment_id NOT REGEXP '-[0-9]'
+      AND so.base_grand_total > 0
+      AND (so.discount_description NOT LIKE '%%GRUPOS%%' OR so.discount_description IS NULL)
+      AND (so.coupon_code NOT LIKE 'GRUP%%' OR so.coupon_code IS NULL)
       AND so.created_at < CURDATE() + INTERVAL 1 DAY
       {_floor_clause}
 INNER JOIN sales_order_item soi_child
        ON soi_child.parent_item_id = soi_parent.item_id
       AND soi_child.product_type   = 'simple'
+      AND soi_child.price > 0
+      AND (soi_child.price - soi_child.discount_amount) > 0
       AND (
             soi_child.name LIKE '%%Distância%%'
          OR soi_child.name LIKE '%%Distancia%%'
@@ -8276,6 +8284,9 @@ LEFT JOIN (
 WHERE
     b.id_evento IN :id_eventos
     AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
+    AND a.nr_preco > 0
+    AND (cupom.en_cupom_classificacao IS NULL OR cupom.en_cupom_classificacao <> 'Grupos')
+    AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
     AND c.dt_pedido < CURDATE() + INTERVAL 1 DAY
     {('AND c.dt_pedido >= :data_floor' if data_floor else '')}
 GROUP BY DATE(c.dt_pedido)
@@ -8319,6 +8330,9 @@ LEFT JOIN (
 WHERE
     b.id_evento IN :id_eventos
     AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
+    AND a.nr_preco > 0
+    AND (cupom.en_cupom_classificacao IS NULL OR cupom.en_cupom_classificacao <> 'Grupos')
+    AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
     AND c.dt_pedido >= CURDATE()
     AND c.dt_pedido <  CURDATE() + INTERVAL 1 DAY
 GROUP BY DATE(c.dt_pedido)
@@ -8354,6 +8368,8 @@ INNER JOIN sales_order_item soi_parent
 INNER JOIN sales_order_item soi_child
        ON soi_child.parent_item_id = soi_parent.item_id
       AND soi_child.product_type   = 'simple'
+      AND soi_child.price > 0
+      AND (soi_child.price - soi_child.discount_amount) > 0
       AND (
             soi_child.name LIKE '%%Distância%%'
          OR soi_child.name LIKE '%%Distancia%%'
@@ -8372,6 +8388,9 @@ INNER JOIN catalog_product_entity_varchar cpev1
 WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
     AND so.state NOT IN ('canceled')
+    AND so.base_grand_total > 0
+    AND (so.discount_description NOT LIKE '%%GRUPOS%%' OR so.discount_description IS NULL)
+    AND (so.coupon_code NOT LIKE 'GRUP%%' OR so.coupon_code IS NULL)
     AND cpev1.value IN :magento_event_ids
     AND so.increment_id NOT REGEXP '-[0-9]'
     AND so.created_at >= CURDATE()
@@ -8431,6 +8450,9 @@ LEFT JOIN (
 WHERE
     b.id_evento IN :id_eventos
     AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
+    AND a.nr_preco > 0
+    AND (cupom.en_cupom_classificacao IS NULL OR cupom.en_cupom_classificacao <> 'Grupos')
+    AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
     AND c.dt_pedido >= CURDATE()
     AND c.dt_pedido <  CURDATE() + INTERVAL 1 DAY
 GROUP BY b.id_evento
@@ -8472,8 +8494,14 @@ def _fetch_today_sales_magento_grouped(magento_event_ids: list, cortesia_magento
 SELECT /*+ MAX_EXECUTION_TIME(12000) */
     cpev1.value                            AS id_evento,
     COUNT(DISTINCT soi_parent.item_id)     AS qtd,
-    SUM(CASE WHEN so.base_grand_total = 0 THEN 0
-             ELSE soi_child.price - soi_child.discount_amount END) AS receita
+    SUM(
+        soi_child.price
+      - soi_child.discount_amount
+      - COALESCE(
+            (ABS(so.discount_amount) - COALESCE(agg.desc_itens, 0))
+                / NULLIF(agg.qtd_bundles, 0)
+          , 0)
+    )                                       AS receita
 FROM sales_order so
 INNER JOIN sales_order_item soi_parent
        ON soi_parent.order_id     = so.entity_id
@@ -8481,6 +8509,8 @@ INNER JOIN sales_order_item soi_parent
 INNER JOIN sales_order_item soi_child
        ON soi_child.parent_item_id = soi_parent.item_id
       AND soi_child.product_type   = 'simple'
+      AND soi_child.price > 0
+      AND (soi_child.price - soi_child.discount_amount) > 0
       AND (
             soi_child.name LIKE '%%Distância%%'
          OR soi_child.name LIKE '%%Distancia%%'
@@ -8496,15 +8526,43 @@ INNER JOIN catalog_product_entity_varchar cpev1
        ON cpev1.entity_id    = soi_parent.product_id
       AND cpev1.attribute_id = 321
       AND cpev1.store_id     = 0
+LEFT JOIN (
+    SELECT
+        i.order_id,
+        SUM(CASE WHEN i.product_type =  'bundle' THEN 1 ELSE 0 END)                 AS qtd_bundles,
+        SUM(CASE WHEN i.product_type <> 'bundle' THEN i.discount_amount ELSE 0 END) AS desc_itens
+    FROM sales_order_item i
+    JOIN (
+        SELECT DISTINCT b.order_id
+        FROM catalog_product_entity_varchar v
+        JOIN sales_order_item b
+               ON b.product_id   = v.entity_id
+              AND b.product_type = 'bundle'
+        JOIN sales_order o2
+               ON o2.entity_id   = b.order_id
+              AND o2.created_at >= CURDATE()
+              AND o2.created_at <  CURDATE() + INTERVAL 1 DAY
+        WHERE v.attribute_id = 321
+          AND v.store_id     = 0
+          AND v.value IN :magento_event_ids_agg
+    ) AS tgt ON tgt.order_id = i.order_id
+    GROUP BY i.order_id
+) AS agg ON agg.order_id = soi_parent.order_id
 WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
     AND so.state NOT IN ('canceled')
+    AND so.base_grand_total > 0
+    AND (so.discount_description NOT LIKE '%%GRUPOS%%' OR so.discount_description IS NULL)
+    AND (so.coupon_code NOT LIKE 'GRUP%%' OR so.coupon_code IS NULL)
     AND cpev1.value IN :magento_event_ids
     AND so.increment_id NOT REGEXP '-[0-9]'
     AND so.created_at >= CURDATE()
     AND so.created_at <  CURDATE() + INTERVAL 1 DAY
 GROUP BY cpev1.value
-""").bindparams(bindparam("magento_event_ids", expanding=True))
+""").bindparams(
+            bindparam("magento_event_ids", expanding=True),
+            bindparam("magento_event_ids_agg", expanding=True),
+        )
         def _today_grouped_work(conn):
             # Enforce session-level execution timeout as a hard backstop in case
             # the optimizer hint MAX_EXECUTION_TIME is ignored (e.g. the query is
@@ -8513,7 +8571,7 @@ GROUP BY cpev1.value
                 conn.execute(text("SET SESSION MAX_EXECUTION_TIME=12000"))
             except Exception:
                 pass
-            return conn.execute(query, {"magento_event_ids": safe_ids}).fetchall()
+            return conn.execute(query, {"magento_event_ids": safe_ids, "magento_event_ids_agg": safe_ids}).fetchall()
         rows = magento_run(_today_grouped_work, label="today-sales-grouped", profile="once")
         grouped = {}
         for r in rows:
@@ -8721,8 +8779,14 @@ def _fetch_daily_sales_magento_by_ids_impl(
 SELECT /*+ MAX_EXECUTION_TIME(90000) */
     DATE(so.created_at)                    AS dia,
     COUNT(DISTINCT soi_parent.item_id)     AS qtd,
-    SUM(CASE WHEN so.base_grand_total = 0 THEN 0
-             ELSE soi_child.price - soi_child.discount_amount END) AS receita
+    SUM(
+        soi_child.price
+      - soi_child.discount_amount
+      - COALESCE(
+            (ABS(so.discount_amount) - COALESCE(agg.desc_itens, 0))
+                / NULLIF(agg.qtd_bundles, 0)
+          , 0)
+    )                                       AS receita
 FROM catalog_product_entity_varchar cpev1
 INNER JOIN sales_order_item soi_parent
        ON soi_parent.product_id   = cpev1.entity_id
@@ -8732,11 +8796,16 @@ INNER JOIN sales_order so
       AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
       AND so.state NOT IN ('canceled')
       AND so.increment_id NOT REGEXP '-[0-9]'
+      AND so.base_grand_total > 0
+      AND (so.discount_description NOT LIKE '%%GRUPOS%%' OR so.discount_description IS NULL)
+      AND (so.coupon_code NOT LIKE 'GRUP%%' OR so.coupon_code IS NULL)
       AND so.created_at < CURDATE() + INTERVAL 1 DAY
       {('AND so.created_at >= :data_floor' if data_floor else '')}
 INNER JOIN sales_order_item soi_child
        ON soi_child.parent_item_id = soi_parent.item_id
       AND soi_child.product_type   = 'simple'
+      AND soi_child.price > 0
+      AND (soi_child.price - soi_child.discount_amount) > 0
       AND (
             soi_child.name LIKE '%%Distância%%'
          OR soi_child.name LIKE '%%Distancia%%'
@@ -8748,6 +8817,28 @@ INNER JOIN sales_order_item soi_child
          OR soi_child.name LIKE 'Olímpico%%'
          OR soi_child.name LIKE 'Yoga%%'
       )
+LEFT JOIN (
+    SELECT
+        i.order_id,
+        SUM(CASE WHEN i.product_type =  'bundle' THEN 1 ELSE 0 END)                 AS qtd_bundles,
+        SUM(CASE WHEN i.product_type <> 'bundle' THEN i.discount_amount ELSE 0 END) AS desc_itens
+    FROM sales_order_item i
+    JOIN (
+        SELECT DISTINCT b.order_id
+        FROM catalog_product_entity_varchar v
+        JOIN sales_order_item b
+               ON b.product_id   = v.entity_id
+              AND b.product_type = 'bundle'
+        JOIN sales_order o2
+               ON o2.entity_id  = b.order_id
+              AND o2.created_at < CURDATE() + INTERVAL 1 DAY
+              {('AND o2.created_at >= :data_floor' if data_floor else '')}
+        WHERE v.attribute_id = 321
+          AND v.store_id     = 0
+          AND v.value IN :magento_event_ids_agg
+    ) AS tgt ON tgt.order_id = i.order_id
+    GROUP BY i.order_id
+) AS agg ON agg.order_id = soi_parent.order_id
 WHERE
     cpev1.attribute_id = 321
     AND cpev1.store_id = 0
@@ -8755,8 +8846,11 @@ WHERE
 GROUP BY DATE(so.created_at)
 ORDER BY dia
 """)
-        bp = [bindparam("magento_event_ids", expanding=True)]
-        params = {"magento_event_ids": safe_ids}
+        bp = [
+            bindparam("magento_event_ids", expanding=True),
+            bindparam("magento_event_ids_agg", expanding=True),
+        ]
+        params = {"magento_event_ids": safe_ids, "magento_event_ids_agg": safe_ids}
         if data_floor:
             params["data_floor"] = data_floor
         query = query.bindparams(*bp)
