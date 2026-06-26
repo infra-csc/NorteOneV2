@@ -869,6 +869,28 @@ const Usuarios: React.FC = () => {
                     </div>
                   </div>
 
+                  {importResult.total === 0 && (
+                    <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-start gap-2 text-amber-400 text-sm">
+                      <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                      <span>
+                        <span className="font-medium">Planilha vazia.</span> Não encontramos nenhuma linha de dados abaixo do
+                        cabeçalho. Confira se você preencheu os usuários nas linhas seguintes e tente novamente. Se precisar,
+                        baixe o modelo da planilha como referência.
+                      </span>
+                    </div>
+                  )}
+
+                  {importResult.total > 0 && importResult.criados === 0 && importResult.pulados.length > 0 && (
+                    <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-start gap-2 text-amber-400 text-sm">
+                      <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                      <span>
+                        <span className="font-medium">Nenhuma linha válida foi importada.</span> Todas as{' '}
+                        {importResult.pulados.length} linha(s) tiveram algum problema. Revise os motivos abaixo, corrija a
+                        planilha e envie novamente.
+                      </span>
+                    </div>
+                  )}
+
                   {importResult.pulados.length > 0 && (
                     <div>
                       <div className="flex items-center justify-between mb-2">
