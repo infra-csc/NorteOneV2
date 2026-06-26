@@ -821,18 +821,28 @@ const DetalheEventos: React.FC = () => {
   // Render
   // -------------------------------------------------------------------------
 
-  const cardBg = dark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200';
+  const cardBg = dark ? 'bg-gray-800/80 border-gray-700' : 'bg-white border-gray-200';
   const textPrimary = dark ? 'text-white' : 'text-gray-900';
   const textSec = dark ? 'text-gray-400' : 'text-gray-500';
   const borderCol = dark ? 'border-gray-700' : 'border-gray-200';
 
   return (
-    <div className={`min-h-screen p-4 lg:p-6 ${dark ? 'bg-gray-900' : 'bg-gray-50'}`}>
+    <div className={`min-h-screen relative overflow-hidden ${dark ? 'bg-gray-900' : 'bg-gray-50'}`}>
+      {/* Background blobs */}
+      <div className="absolute top-0 left-1/4 w-96 h-96 bg-gradient-to-r from-indigo-500/10 to-purple-500/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-gradient-to-r from-purple-500/10 to-pink-500/10 rounded-full blur-3xl pointer-events-none" />
+
+      <div className="relative p-4 lg:p-6">
       {/* Header */}
-      <div className="mb-6">
-        <div className="flex items-center gap-2 mb-1">
-          <Table2 className={`w-5 h-5 ${dark ? 'text-blue-400' : 'text-blue-600'}`} />
-          <h1 className={`text-xl font-bold ${textPrimary}`}>Detalhamento de Eventos</h1>
+      <div className="mb-6 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="p-3 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 shadow-lg shadow-indigo-500/25">
+            <Table2 className="w-6 h-6 text-white" />
+          </div>
+          <div>
+            <h1 className={`text-2xl font-bold ${textPrimary}`}>Painel do evento</h1>
+            <p className={`text-sm mt-0.5 ${textSec}`}>Detalhamento de inscrições por canal, kit, modalidade e mais.</p>
+          </div>
         </div>
       </div>
 
@@ -978,7 +988,7 @@ const DetalheEventos: React.FC = () => {
       </div>
 
       {error && (
-        <div className="mb-4 flex items-start gap-2 rounded-lg bg-red-50 border border-red-200 p-3 text-red-700">
+        <div className={`mb-4 flex items-start gap-2 rounded-lg border p-3 ${dark ? 'bg-red-900/20 border-red-700 text-red-300' : 'bg-red-50 border-red-200 text-red-700'}`}>
           <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
           <p className="text-sm">{error}</p>
         </div>
@@ -1042,7 +1052,7 @@ const DetalheEventos: React.FC = () => {
       {!loading && payload && (
         <>
           {Object.keys(payload.erros).length > 0 && (
-            <div className="mb-4 flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 p-3 text-amber-700">
+            <div className={`mb-4 flex items-start gap-2 rounded-lg border p-3 ${dark ? 'bg-amber-900/20 border-amber-700 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
               <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
               <div>
                 <p className="text-sm font-semibold">Atenção: erros ao buscar dados de alguns bancos</p>
@@ -1054,7 +1064,7 @@ const DetalheEventos: React.FC = () => {
           )}
 
           {payload.divergencias.length > 0 && (
-            <div className="mb-4 flex items-start gap-2 rounded-lg bg-red-50 border border-red-200 p-3 text-red-700">
+            <div className={`mb-4 flex items-start gap-2 rounded-lg border p-3 ${dark ? 'bg-red-900/20 border-red-700 text-red-300' : 'bg-red-50 border-red-200 text-red-700'}`}>
               <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
               <div>
                 <p className="text-sm font-semibold">{payload.divergencias.length} divergência(s) detectada(s)</p>
@@ -1463,6 +1473,7 @@ const DetalheEventos: React.FC = () => {
           </div>
         </>
       )}
+      </div>
     </div>
   );
 };
