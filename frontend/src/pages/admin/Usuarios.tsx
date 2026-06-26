@@ -3,8 +3,21 @@ import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
 import { 
   Users, Search, Plus, Edit2, Trash2, RefreshCw, 
-  AlertTriangle, CheckCircle, XCircle, X, Building2, ShieldCheck
+  AlertTriangle, CheckCircle, XCircle, X, Building2, ShieldCheck,
+  Upload, Download, FileSpreadsheet
 } from 'lucide-react';
+
+interface ImportSkipped {
+  linha: number;
+  email: string;
+  motivo: string;
+}
+
+interface ImportResult {
+  total: number;
+  criados: number;
+  pulados: ImportSkipped[];
+}
 
 interface CentroCusto {
   id: number;
@@ -67,6 +80,14 @@ const Usuarios: React.FC = () => {
   });
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importPassword, setImportPassword] = useState('');
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [dragOver, setDragOver] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
@@ -184,6 +205,84 @@ const Usuarios: React.FC = () => {
     }
   };
 
+  const openImportModal = () => {
+    setImportFile(null);
+    setImportPassword('');
+    setImportError(null);
+    setImportResult(null);
+    setDragOver(false);
+    setShowImportModal(true);
+  };
+
+  const handleDownloadTemplate = async () => {
+    try {
+      const res = await api.get('/users/bulk-import/template', { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'modelo_importacao_usuarios.csv');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      setImportError('Não foi possível baixar o modelo.');
+    }
+  };
+
+  const validateImportFile = (file: File): boolean => {
+    const name = file.name.toLowerCase();
+    if (!name.endsWith('.csv') && !name.endsWith('.xlsx') && !name.endsWith('.xls')) {
+      setImportError('Formato não suportado. Use um arquivo .csv ou .xlsx');
+      return false;
+    }
+    return true;
+  };
+
+  const handleImportFileSelect = (file: File | null) => {
+    setImportError(null);
+    setImportResult(null);
+    if (!file) {
+      setImportFile(null);
+      return;
+    }
+    if (validateImportFile(file)) {
+      setImportFile(file);
+    } else {
+      setImportFile(null);
+    }
+  };
+
+  const handleImportSubmit = async () => {
+    setImportError(null);
+    if (!importFile) {
+      setImportError('Selecione um arquivo .csv ou .xlsx');
+      return;
+    }
+    if (!importPassword || importPassword.length < 6) {
+      setImportError('A senha padrão deve ter pelo menos 6 caracteres');
+      return;
+    }
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', importFile);
+      fd.append('senha_padrao', importPassword);
+      const res = await api.post('/users/bulk-import', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setImportResult(res.data);
+      if (res.data.criados > 0) {
+        fetchData();
+      }
+    } catch (err: any) {
+      setImportError(err.response?.data?.detail || 'Erro ao importar usuários');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const handleToggleStatus = async (user: Usuario) => {
     try {
       await api.put(`/users/${user.id}`, { ativo: !user.ativo });
@@ -232,13 +331,22 @@ const Usuarios: React.FC = () => {
                 </p>
               </div>
             </div>
-            <button
-              onClick={openCreateModal}
-              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-lg hover:opacity-90 transition-opacity shadow-lg shadow-indigo-500/25"
-            >
-              <Plus className="w-5 h-5" />
-              Novo Usuário
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={openImportModal}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors border ${isDark ? 'bg-gray-800 border-gray-700 text-gray-200 hover:bg-gray-700' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'} shadow-sm`}
+              >
+                <Upload className="w-5 h-5" />
+                Importar em lote
+              </button>
+              <button
+                onClick={openCreateModal}
+                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-lg hover:opacity-90 transition-opacity shadow-lg shadow-indigo-500/25"
+              >
+                <Plus className="w-5 h-5" />
+                Novo Usuário
+              </button>
+            </div>
           </div>
         </div>
 
@@ -690,6 +798,182 @@ const Usuarios: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {showImportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className={`w-full max-w-lg mx-4 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'} shadow-2xl max-h-[90vh] flex flex-col`}>
+            <div className={`flex items-center justify-between p-4 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+              <div className="flex items-center gap-2">
+                <FileSpreadsheet className="w-5 h-5 text-indigo-400" />
+                <h2 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                  Importar Usuários em Lote
+                </h2>
+              </div>
+              <button
+                onClick={() => setShowImportModal(false)}
+                className={`p-2 rounded-lg ${isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-4 overflow-y-auto">
+              {importError && (
+                <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg flex items-center gap-2 text-red-400 text-sm">
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                  {importError}
+                </div>
+              )}
+
+              {importResult ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className={`p-3 rounded-lg text-center ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
+                      <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{importResult.total}</p>
+                      <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Linhas lidas</p>
+                    </div>
+                    <div className="p-3 rounded-lg text-center bg-green-500/20">
+                      <p className="text-2xl font-bold text-green-400">{importResult.criados}</p>
+                      <p className="text-xs text-green-400">Criados</p>
+                    </div>
+                    <div className="p-3 rounded-lg text-center bg-amber-500/20">
+                      <p className="text-2xl font-bold text-amber-400">{importResult.pulados.length}</p>
+                      <p className="text-xs text-amber-400">Pulados</p>
+                    </div>
+                  </div>
+
+                  {importResult.pulados.length > 0 && (
+                    <div>
+                      <p className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                        Linhas puladas
+                      </p>
+                      <div className={`rounded-lg border max-h-60 overflow-y-auto ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                        {importResult.pulados.map((p, i) => (
+                          <div
+                            key={i}
+                            className={`flex items-start gap-2 px-3 py-2 text-sm ${i > 0 ? (isDark ? 'border-t border-gray-700' : 'border-t border-gray-100') : ''}`}
+                          >
+                            <XCircle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                            <span className={isDark ? 'text-gray-300' : 'text-gray-600'}>
+                              <span className="font-medium">Linha {p.linha}</span>
+                              {p.email ? ` (${p.email})` : ''} — {p.motivo}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {importResult.criados > 0 && (
+                    <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-lg flex items-center gap-2 text-green-400 text-sm">
+                      <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                      {importResult.criados} usuário(s) criado(s) com sucesso. A lista foi atualizada.
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/40' : 'bg-gray-50'}`}>
+                    <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                      Envie uma planilha <span className="font-medium">.csv</span> ou{' '}
+                      <span className="font-medium">.xlsx</span> com as colunas: nome, email, perfil_acesso,
+                      centro_custo, recebe_alertas_corte, recebe_insights_nori. Apenas nome e email são obrigatórios.
+                    </p>
+                    <button
+                      onClick={handleDownloadTemplate}
+                      className="mt-2 flex items-center gap-2 text-sm text-indigo-400 hover:text-indigo-300 transition-colors"
+                    >
+                      <Download className="w-4 h-4" />
+                      Baixar modelo da planilha
+                    </button>
+                  </div>
+
+                  <div
+                    onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                    onDragLeave={(e) => { e.preventDefault(); setDragOver(false); }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDragOver(false);
+                      const f = e.dataTransfer.files?.[0];
+                      if (f) handleImportFileSelect(f);
+                    }}
+                    className={`rounded-lg border-2 border-dashed p-6 text-center transition-colors ${
+                      dragOver
+                        ? 'border-indigo-500 bg-indigo-500/10'
+                        : isDark ? 'border-gray-600' : 'border-gray-300'
+                    }`}
+                  >
+                    <FileSpreadsheet className={`w-8 h-8 mx-auto mb-2 ${isDark ? 'text-gray-400' : 'text-gray-400'}`} />
+                    {importFile ? (
+                      <div className="flex items-center justify-center gap-2">
+                        <span className={`text-sm font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>{importFile.name}</span>
+                        <button
+                          onClick={() => handleImportFileSelect(null)}
+                          className="text-gray-400 hover:text-red-400"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                        Arraste o arquivo aqui ou
+                      </p>
+                    )}
+                    <label className="inline-block mt-2 cursor-pointer">
+                      <span className="px-3 py-1.5 rounded-lg text-sm bg-gradient-to-r from-indigo-500 to-purple-500 text-white hover:opacity-90 transition-opacity">
+                        Selecionar arquivo
+                      </span>
+                      <input
+                        type="file"
+                        accept=".csv,.xlsx,.xls"
+                        className="hidden"
+                        onChange={(e) => handleImportFileSelect(e.target.files?.[0] || null)}
+                      />
+                    </label>
+                  </div>
+
+                  <div>
+                    <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                      Senha padrão *
+                    </label>
+                    <input
+                      type="password"
+                      value={importPassword}
+                      onChange={(e) => setImportPassword(e.target.value)}
+                      className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-gray-50 border-gray-300 text-gray-900'} focus:ring-2 focus:ring-indigo-500`}
+                      placeholder="Mínimo 6 caracteres"
+                    />
+                    <p className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                      Aplicada a todos os usuários criados neste lote. Eles podem trocar depois.
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className={`flex justify-end gap-3 p-4 border-t ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+              <button
+                type="button"
+                onClick={() => setShowImportModal(false)}
+                className={`px-4 py-2 rounded-lg ${isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'} transition-colors`}
+              >
+                {importResult ? 'Fechar' : 'Cancelar'}
+              </button>
+              {!importResult && (
+                <button
+                  type="button"
+                  onClick={handleImportSubmit}
+                  disabled={importing}
+                  className="px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-2"
+                >
+                  {importing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                  {importing ? 'Importando...' : 'Importar'}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
