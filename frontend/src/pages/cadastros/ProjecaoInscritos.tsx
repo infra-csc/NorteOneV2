@@ -2564,12 +2564,6 @@ const ProjecaoInscritos: React.FC = () => {
                             <div>
                               <div className={`text-xs font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Data de corte Envio</div>
                               <div className="flex items-center gap-1.5">
-                                <input
-                                  type="date"
-                                  value={draft.d1}
-                                  onChange={e => setCutoffDraft(prev => ({ ...prev, [area.id]: { ...(prev[area.id] || { d1: '', d2: '', saida: '', obs1: '' }), d1: e.target.value } }))}
-                                  className={`px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:ring-2 focus:ring-orange-500`}
-                                />
                                 <ObservacaoPopover
                                   areaId={area.id}
                                   value={draft.obs1}
@@ -2578,6 +2572,12 @@ const ProjecaoInscritos: React.FC = () => {
                                   onChange={(areaId, val) => setCutoffDraft(prev => ({ ...prev, [areaId]: { ...(prev[areaId] || { d1: '', d2: '', saida: '', obs1: '' }), obs1: val } }))}
                                   onSave={() => saveEventoCutoff(selectedEvento.id, area.id)}
                                   saving={savingCutoffAreaId === area.id}
+                                />
+                                <input
+                                  type="date"
+                                  value={draft.d1}
+                                  onChange={e => setCutoffDraft(prev => ({ ...prev, [area.id]: { ...(prev[area.id] || { d1: '', d2: '', saida: '', obs1: '' }), d1: e.target.value } }))}
+                                  className={`px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:ring-2 focus:ring-orange-500`}
                                 />
                               </div>
                             </div>
