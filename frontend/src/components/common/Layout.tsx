@@ -7,7 +7,6 @@ import NoriButton from '../nori/NoriButton';
 import { 
   LayoutDashboard, 
   Building2, 
-  FileSpreadsheet, 
   Users, 
   Target,
   UserCog,
@@ -131,7 +130,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       release();
     };
   }, [sidebarOpen]);
-  const [cadastrosOpen, setCadastrosOpen] = useState(true);
   const [marketingOpen, setMarketingOpen] = useState(location.pathname.startsWith('/marketing'));
   const [adminOpen, setAdminOpen] = useState(location.pathname.startsWith('/admin'));
   const [healthStatus, setHealthStatus] = useState<'healthy' | 'warning' | 'critical' | 'info' | null>(null);
@@ -336,63 +334,42 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </div>
           )}
 
-          {cadastroItems.length > 0 && (
-          <div>
-            <button
-              onClick={() => setCadastrosOpen(!cadastrosOpen)}
-              className={`flex items-center justify-between w-full px-4 py-2 rounded-lg transition-colors ${
-                isDark ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-600 hover:bg-gray-100'
-              }`}
-            >
-              <span className="flex items-center">
-                <FileSpreadsheet className="w-5 h-5 mr-3" />
-                Cadastros
-              </span>
-              <ChevronDown className={`w-4 h-4 transition-transform ${cadastrosOpen ? 'rotate-180' : ''}`} />
-            </button>
-            
-            {cadastrosOpen && (
-              <div className="ml-4 mt-1 space-y-1">
-                {cadastroItems.map((item) => {
-                  const Icon = item.icon;
-                  const isActive = location.pathname === item.path;
-                  const isProjecao = item.path === '/projecao-inscritos';
-                  const pendCount = isProjecao && projecaoPendencias ? projecaoPendencias.total_eventos : 0;
-                  return (
-                    <Link
-                      key={item.path}
-                      to={item.path}
-                      className={`flex items-center justify-between px-4 py-2 rounded-lg transition-colors ${
-                        isActive
-                          ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white'
-                          : isDark
-                          ? 'text-gray-300 hover:bg-gray-700'
-                          : 'text-gray-600 hover:bg-gray-100'
-                      }`}
-                    >
-                      <span className="flex items-center min-w-0">
-                        <Icon className="w-4 h-4 mr-3 flex-shrink-0" />
-                        <span className="truncate">{item.label.replace('Categorias ', '')}</span>
-                      </span>
-                      {pendCount > 0 && (
-                        <span
-                          title={`${pendCount} evento(s) com projeção pendente`}
-                          className={`ml-2 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full text-[10px] font-bold flex-shrink-0 ${
-                            isActive
-                              ? 'bg-white text-red-600'
-                              : 'bg-red-500 text-white animate-pulse'
-                          }`}
-                        >
-                          {pendCount}
-                        </span>
-                      )}
-                    </Link>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-          )}
+          {cadastroItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = location.pathname === item.path;
+            const isProjecao = item.path === '/projecao-inscritos';
+            const pendCount = isProjecao && projecaoPendencias ? projecaoPendencias.total_eventos : 0;
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                className={`flex items-center justify-between px-4 py-2 rounded-lg transition-colors ${
+                  isActive
+                    ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white'
+                    : isDark
+                    ? 'text-gray-300 hover:bg-gray-700'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <span className="flex items-center min-w-0">
+                  <Icon className="w-5 h-5 mr-3 flex-shrink-0" />
+                  <span className="truncate">{item.label}</span>
+                </span>
+                {pendCount > 0 && (
+                  <span
+                    title={`${pendCount} evento(s) com projeção pendente`}
+                    className={`ml-2 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full text-[10px] font-bold flex-shrink-0 ${
+                      isActive
+                        ? 'bg-white text-red-600'
+                        : 'bg-red-500 text-white animate-pulse'
+                    }`}
+                  >
+                    {pendCount}
+                  </span>
+                )}
+              </Link>
+            );
+          })}
 
           {showDetalheEventos && (() => {
             const isActive = location.pathname === detalheEventosItem.path;
