@@ -230,6 +230,30 @@ const Usuarios: React.FC = () => {
     }
   };
 
+  const handleDownloadPulados = () => {
+    if (!importResult || importResult.pulados.length === 0) return;
+    const escapeCsv = (value: string | number) => {
+      const str = String(value ?? '');
+      if (/[",\n;]/.test(str)) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+    const header = ['linha', 'email', 'motivo'];
+    const rows = importResult.pulados.map((p) =>
+      [escapeCsv(p.linha), escapeCsv(p.email), escapeCsv(p.motivo)].join(',')
+    );
+    const csv = '\ufeff' + [header.join(','), ...rows].join('\r\n');
+    const url = window.URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'linhas_puladas_importacao.csv');
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
   const validateImportFile = (file: File): boolean => {
     const name = file.name.toLowerCase();
     if (!name.endsWith('.csv') && !name.endsWith('.xlsx') && !name.endsWith('.xls')) {
@@ -847,9 +871,18 @@ const Usuarios: React.FC = () => {
 
                   {importResult.pulados.length > 0 && (
                     <div>
-                      <p className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                        Linhas puladas
-                      </p>
+                      <div className="flex items-center justify-between mb-2">
+                        <p className={`text-sm font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                          Linhas puladas
+                        </p>
+                        <button
+                          onClick={handleDownloadPulados}
+                          className="flex items-center gap-1.5 text-sm text-indigo-400 hover:text-indigo-300 transition-colors"
+                        >
+                          <Download className="w-4 h-4" />
+                          Baixar linhas puladas (CSV)
+                        </button>
+                      </div>
                       <div className={`rounded-lg border max-h-60 overflow-y-auto ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
                         {importResult.pulados.map((p, i) => (
                           <div
