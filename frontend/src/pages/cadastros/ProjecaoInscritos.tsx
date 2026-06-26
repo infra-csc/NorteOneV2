@@ -438,7 +438,7 @@ const ObservacaoPopover: React.FC<{
   useLayoutEffect(() => {
     if (!open || !triggerRef.current) return;
     const rect = triggerRef.current.getBoundingClientRect();
-    const popW = 280;
+    const popW = 380;
     const margin = 8;
     let left = rect.left;
     if (left + popW + margin > window.innerWidth) {
@@ -457,7 +457,10 @@ const ObservacaoPopover: React.FC<{
         setOpen(false);
       }
     };
-    const closeOnScroll = () => setOpen(false);
+    const closeOnScroll = (e: Event) => {
+      if (popoverRef.current && popoverRef.current.contains(e.target as Node)) return;
+      setOpen(false);
+    };
     document.addEventListener('mousedown', handler);
     window.addEventListener('scroll', closeOnScroll, true);
     window.addEventListener('resize', closeOnScroll);
@@ -488,19 +491,20 @@ const ObservacaoPopover: React.FC<{
       {open && coords && createPortal(
         <div
           ref={popoverRef}
-          style={{ position: 'fixed', top: coords.top, left: coords.left, width: 280, zIndex: 9999 }}
-          className={`rounded-xl shadow-2xl border p-3 space-y-2 ${isDark ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}
+          style={{ position: 'fixed', top: coords.top, left: coords.left, width: 380, zIndex: 9999 }}
+          className={`rounded-xl shadow-2xl border p-4 space-y-3 ${isDark ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}
         >
           <p className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Observação</p>
           {canEdit ? (
             <>
               <textarea
                 autoFocus
-                rows={3}
+                rows={5}
                 value={value}
                 onChange={e => onChange(areaId, e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') e.stopPropagation(); }}
                 placeholder="Escreva uma observação..."
-                className={`w-full px-3 py-2 rounded-lg border text-sm resize-none focus:outline-none focus:ring-2 focus:ring-orange-500 ${
+                className={`w-full px-3 py-2 rounded-lg border text-sm resize-y focus:outline-none focus:ring-2 focus:ring-orange-500 ${
                   isDark ? 'bg-gray-800 border-gray-600 text-white placeholder-gray-500' : 'bg-gray-50 border-gray-300 text-gray-900 placeholder-gray-400'
                 }`}
               />
