@@ -1604,6 +1604,7 @@ def _run_column_migrations():
             "CREATE INDEX IF NOT EXISTS ix_cutoff_evento_area_area ON projecao_cutoff_evento_area (area_projecao_id)",
             "CREATE INDEX IF NOT EXISTS ix_cutoff_evento_area_created_by ON projecao_cutoff_evento_area (created_by)",
             "CREATE INDEX IF NOT EXISTS ix_cutoff_evento_area_updated_by ON projecao_cutoff_evento_area (updated_by)",
+            "ALTER TABLE projecao_cutoff_evento_area ADD COLUMN IF NOT EXISTS observacao_corte_1 TEXT",
             """
             CREATE TABLE IF NOT EXISTS projecao_corte_dist_snapshot (
                 id SERIAL PRIMARY KEY,

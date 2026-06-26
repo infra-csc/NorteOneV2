@@ -2573,7 +2573,7 @@ const ProjecaoInscritos: React.FC = () => {
                                 <ObservacaoPopover
                                   areaId={area.id}
                                   value={draft.obs1}
-                                  canEdit={true}
+                                  canEdit={isAdmin || canEditProjecao}
                                   isDark={isDark}
                                   onChange={(areaId, val) => setCutoffDraft(prev => ({ ...prev, [areaId]: { ...(prev[areaId] || { d1: '', d2: '', saida: '', obs1: '' }), obs1: val } }))}
                                   onSave={() => saveEventoCutoff(selectedEvento.id, area.id)}
