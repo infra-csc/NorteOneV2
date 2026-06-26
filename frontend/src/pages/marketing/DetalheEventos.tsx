@@ -516,8 +516,7 @@ const EMPTY_FILTERS: FilterState = {
 // ---------------------------------------------------------------------------
 
 const DetalheEventos: React.FC = () => {
-  const { theme } = useTheme();
-  const dark = theme === 'dark';
+  const { isDark: dark } = useTheme();
 
   const [eventos, setEventos] = useState<DetalheEventoDisponivel[]>([]);
   const [eventoGrupo, setEventoGrupo] = useState<string>('');
