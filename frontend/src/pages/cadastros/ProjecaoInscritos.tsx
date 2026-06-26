@@ -491,7 +491,7 @@ const ObservacaoPopover: React.FC<{
           style={{ position: 'fixed', top: coords.top, left: coords.left, width: 280, zIndex: 9999 }}
           className={`rounded-xl shadow-2xl border p-3 space-y-2 ${isDark ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}
         >
-          <p className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Observação — Corte Envio</p>
+          <p className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Observação</p>
           {canEdit ? (
             <>
               <textarea
@@ -499,7 +499,7 @@ const ObservacaoPopover: React.FC<{
                 rows={3}
                 value={value}
                 onChange={e => onChange(areaId, e.target.value)}
-                placeholder="Escreva uma observação sobre esta data de corte..."
+                placeholder="Escreva uma observação..."
                 className={`w-full px-3 py-2 rounded-lg border text-sm resize-none focus:outline-none focus:ring-2 focus:ring-orange-500 ${
                   isDark ? 'bg-gray-800 border-gray-600 text-white placeholder-gray-500' : 'bg-gray-50 border-gray-300 text-gray-900 placeholder-gray-400'
                 }`}
