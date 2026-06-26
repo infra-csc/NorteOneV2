@@ -1,0 +1,162 @@
+SELECT STRAIGHT_JOIN
+    -- STRAIGHT_JOIN: trava a ordem de join na sequência textual do FROM
+    -- (ev -> cpev1 -> cpe_bundle -> soi_parent -> soi_child -> so -> agg...).
+    -- Sem isso o otimizador inverte e dirige por soi_child (product_type='simple'),
+    -- varrendo ~2,7M de linhas. Com isso, soi_child é alcançado por parent_item_id.
+
+    ev.id_evento,
+    ev.evento,
+    soi_parent.name                                                                 AS kit,
+    eaov_tipo.value                                                                 AS tipo_categoria,
+    soi_child.name                                                                  AS distancia,
+    'Site'                                                                          AS canal,
+
+    COUNT(DISTINCT soi_parent.item_id)                                              AS inscritos,
+    SUM(soi_child.price)                                                            AS receita_bruta,
+
+    -- receita_liquida AGORA com desconto de carrinho rateado por bundle do pedido.
+    -- resíduo de carrinho = (desconto total do pedido) - (descontos já lançados nos itens),
+    -- rateado por qtd de bundles do pedido (agg.qtd_bundles).
+    -- COALESCE(...,0) protege o SUM: sem ele, um pedido sem match em 'agg' viraria NULL
+    -- e a linha inteira sairia do somatório (SUM ignora NULL).
+    SUM(
+        soi_child.price
+      - soi_child.discount_amount
+      - COALESCE(
+            (ABS(so.discount_amount) - COALESCE(agg.desc_itens, 0))
+                / NULLIF(agg.qtd_bundles, 0)
+          , 0)
+    )                                                                               AS receita_liquida,
+
+    -- TOGGLE: versão anterior (sem desconto de carrinho)
+    -- SUM(soi_child.price - soi_child.discount_amount)                             AS receita_liquida,
+
+    -- ticket_medio sempre recalculado (nunca somado) a partir da receita_liquida nova
+    SUM(
+        soi_child.price
+      - soi_child.discount_amount
+      - COALESCE(
+            (ABS(so.discount_amount) - COALESCE(agg.desc_itens, 0))
+                / NULLIF(agg.qtd_bundles, 0)
+          , 0)
+    )
+        / NULLIF(COUNT(DISTINCT soi_parent.item_id), 0)                             AS ticket_medio
+
+FROM (
+    -- Ponto de entrada: apenas eventos do ano atual (dezenas de linhas)
+    SELECT
+        cped.entity_id                                                              AS id_evento,
+        cpev2.value                                                                 AS evento
+    FROM catalog_product_entity_datetime cped
+    JOIN (
+        SELECT entity_id, MIN(value) AS value
+        FROM catalog_product_entity_varchar
+        WHERE attribute_id = 73
+          AND store_id     = 0
+        GROUP BY entity_id
+    ) AS cpev2 ON cpev2.entity_id = cped.entity_id
+    WHERE cped.attribute_id = 195
+      AND cped.value >= MAKEDATE(YEAR(CURDATE()), 1)
+      AND cped.value <  MAKEDATE(YEAR(CURDATE()) + 1, 1)
+) AS ev
+
+-- Dos eventos, chegar nos produtos (kits) vinculados
+JOIN catalog_product_entity_varchar cpev1
+       ON cpev1.value        = ev.id_evento
+      AND cpev1.attribute_id = 321
+      AND cpev1.store_id     = 0
+JOIN catalog_product_entity cpe_bundle
+       ON cpe_bundle.entity_id = cpev1.entity_id
+      AND cpe_bundle.type_id   = 'bundle'
+
+-- Dos produtos, chegar nos itens de pedido (bundle parent)
+JOIN sales_order_item soi_parent
+       ON soi_parent.product_id    = cpev1.entity_id
+      AND soi_parent.product_type  = 'bundle'
+
+-- Do parent, chegar no item filho (distância)
+JOIN sales_order_item soi_child
+       ON soi_child.parent_item_id = soi_parent.item_id
+      AND soi_child.order_id       = soi_parent.order_id   -- redundante DE PROPÓSITO: habilita SALES_ORDER_ITEM_ORDER_ID e evita full scan (type=ALL) em soi_child. NÃO REMOVER.
+      AND soi_child.product_type   = 'simple'
+      AND soi_child.price          > 0
+      AND (soi_child.price - soi_child.discount_amount) > 0
+      AND (
+            soi_child.name LIKE '%Distância%'
+         OR soi_child.name LIKE '%Distancia%'
+         OR soi_child.name LIKE '%Distâncias%'
+         OR soi_child.name LIKE '%Modalidade%'
+         OR soi_child.name REGEXP '-[0-9]+[Kk]m$'
+         OR soi_child.name REGEXP '^[0-9]+[Kk]m?$'
+         OR soi_child.name LIKE 'Kit Participação%'
+         OR soi_child.name LIKE 'Olímpico%'
+         OR soi_child.name LIKE 'Yoga%'
+      )
+
+-- Do parent, chegar no pedido
+JOIN sales_order so
+       ON so.entity_id        = soi_parent.order_id
+      AND so.status           IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
+      AND so.state            NOT IN ('canceled')
+      AND so.increment_id     NOT REGEXP '-[0-9]'
+      AND so.base_grand_total > 0
+      AND (so.discount_description NOT LIKE '%GRUPOS%' OR so.discount_description IS NULL)
+      AND (so.coupon_code     NOT LIKE 'GRUP%'         OR so.coupon_code IS NULL)
+
+-- =========================================================================
+-- NOVO: agregados por pedido para o desconto de CARRINHO
+--   qtd_bundles -> denominador do rateio
+--   desc_itens  -> soma dos descontos já lançados nos itens (não-bundle)
+-- Escopo limitado aos pedidos que contêm bundles dos eventos do ano
+-- (filtro DENTRO da derivada -> evita full scan em sales_order_item).
+-- =========================================================================
+LEFT JOIN (
+    SELECT
+        i.order_id,
+        SUM(CASE WHEN i.product_type =  'bundle' THEN 1 ELSE 0 END)                 AS qtd_bundles,
+        SUM(CASE WHEN i.product_type <> 'bundle' THEN i.discount_amount ELSE 0 END) AS desc_itens
+    FROM sales_order_item i
+    JOIN (
+        -- pedidos-alvo: têm pelo menos um bundle de evento do ano atual
+        SELECT DISTINCT b.order_id
+        FROM catalog_product_entity_datetime d
+        JOIN catalog_product_entity_varchar v
+               ON v.value        = d.entity_id
+              AND v.attribute_id = 321
+              AND v.store_id     = 0
+        JOIN sales_order_item b
+               ON b.product_id   = v.entity_id
+              AND b.product_type = 'bundle'
+        WHERE d.attribute_id = 195
+          AND d.value >= MAKEDATE(YEAR(CURDATE()), 1)
+          AND d.value <  MAKEDATE(YEAR(CURDATE()) + 1, 1)
+    ) AS tgt ON tgt.order_id = i.order_id
+    GROUP BY i.order_id
+) AS agg ON agg.order_id = soi_parent.order_id
+
+-- tipo_categoria do kit
+LEFT JOIN catalog_product_entity_int cpei_tipo
+       ON cpei_tipo.entity_id    = cpev1.entity_id
+      AND cpei_tipo.attribute_id = (
+            SELECT ea.attribute_id
+            FROM eav_attribute ea
+            JOIN eav_entity_type eet ON eet.entity_type_id = ea.entity_type_id
+            WHERE ea.attribute_code    = 'tipo_categoria'
+              AND eet.entity_type_code = 'catalog_product'
+            LIMIT 1
+          )
+LEFT JOIN eav_attribute_option_value eaov_tipo
+       ON eaov_tipo.option_id = cpei_tipo.value
+
+-- AND cpev1.entity_id = 48152  -- Filtro evento
+
+GROUP BY
+    ev.id_evento,
+    ev.evento,
+    soi_parent.name,
+    eaov_tipo.value,
+    soi_child.name
+
+ORDER BY
+    ev.id_evento,
+    inscritos DESC;
