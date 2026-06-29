@@ -80,6 +80,7 @@ ENABLE_BACKGROUND_MAGENTO_SYNC = "true"
 
 [userenv.development]
 ENABLE_BACKGROUND_MAGENTO_SYNC = "false"
+MS_REDIRECT_URI = "https://a1cc074b-b49f-4f07-9a36-5bdd7b84a09a-00-3dg8b0ryzvim.riker.replit.dev/api/auth/microsoft/callback"
 
 [postMerge]
 path = "scripts/post-merge.sh"
