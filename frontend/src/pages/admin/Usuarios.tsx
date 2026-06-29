@@ -107,7 +107,7 @@ const Usuarios: React.FC = () => {
     setError(null);
     try {
       const [usersRes, centrosRes, perfisRes] = await Promise.all([
-        api.get('/users/'),
+        api.get('/users/', { params: { limit: 100000 } }),
         api.get('/centros-custo/'),
         api.get('/perfis-acesso/')
       ]);
