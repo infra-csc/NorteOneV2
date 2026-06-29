@@ -506,6 +506,22 @@ def trigger_scheduled_daily_consolidation(
             _step_outcomes["event_details"] = "falha"
             _result_sd["errors"].append(f"event_details: {str(_e5)[:300]}")
 
+        # Auto-heal noturno: reconcilia PARA BAIXO a foto de eventos concluídos
+        # recentes quando a leitura ao vivo do Magento vem verificada completa.
+        # Roda DEPOIS da sincronização de margem (passo acima) para que o snapshot
+        # de margem por bundle já esteja fresco. Se a leitura vier parcial, o piso
+        # é preservado — sem regressão da proteção contra resposta parcial.
+        try:
+            from app.services.event_detail_snapshot_service import (
+                reconcile_completed_event_details as _rced_sd,
+            )
+            _result_sd["completed_reconcile"] = _rced_sd()
+            _step_outcomes["completed_reconcile"] = "ok"
+        except Exception as _e6:
+            _logger_sd.error(f"[ScheduledJob] reconcile_completed_event_details falhou: {_e6}")
+            _step_outcomes["completed_reconcile"] = "falha"
+            _result_sd["errors"].append(f"completed_reconcile: {str(_e6)[:300]}")
+
         _result_sd["duration_s"] = round(_time_sd.time() - _t0_sd, 1)
         _result_sd["finished_at"] = datetime.now(timezone.utc).isoformat()
         _result_sd["step_outcomes"] = _step_outcomes

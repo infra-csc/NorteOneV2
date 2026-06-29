@@ -2015,8 +2015,17 @@ def get_isc_totals_from_snapshot(db: Session, ano: int) -> dict:
     return result
 
 
-def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
+def sincronizar_margem_bundle_rev_batch(db: Session, only_bundle_ids: Optional[list] = None) -> dict:
     """Pré-computa receita E quantidade Magento por bundle_entity_id e persiste em margem_bundle_rev_snapshot.
+
+    Quando `only_bundle_ids` é fornecido, o sync é ESCOPADO a esses bundles e
+    IGNORA o filtro de "congelamento" (eventos finalizados). Esse modo é usado
+    pela correção autoritativa de inscritos via "Atualizar" (e pelo auto-heal
+    noturno de concluídos recentes): regenera o snapshot de margem por bundle
+    de um único evento para que a contagem corrigida ao vivo fique durável.
+    Bundles mapeados (com id_evento) gravam `qtd_inscricoes` por substituição
+    direta (EXCLUDED), então o valor pode baixar com segurança quando a leitura
+    ao vivo foi verificada completa.
 
     Executa as mesmas duas queries de get_margem_por_kit (count + revenue), mas
     de forma centralizada para todos os bundles mapeados, com timeout maior
@@ -2048,11 +2057,23 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
         .all()
     )
 
+    # Modo escopado: restringe aos bundles pedidos e ignora o freeze abaixo.
+    _scoped = only_bundle_ids is not None
+    if _scoped:
+        _only_set = {int(b) for b in only_bundle_ids if b is not None}
+        bundle_rows = [(bid, evt_id) for (bid, evt_id) in bundle_rows if bid in _only_set]
+        logger.info(
+            f"[MargemRevSync] Modo ESCOPADO: {len(bundle_rows)} bundles "
+            f"(de {len(_only_set)} pedidos) — freeze ignorado"
+        )
+
     if not bundle_rows:
         logger.info("[MargemRevSync] Nenhum bundle_entity_id encontrado em kit_config")
         return {"status": "ok", "bundles_processados": 0}
 
     # Filtro de eventos finalizados — economia de janela Magento.
+    # No modo escopado (only_bundle_ids), o freeze é ignorado de propósito:
+    # a correção autoritativa precisa regenerar mesmo eventos congelados.
     freeze_days = _freeze_after_days()
     active_event_ids, all_event_ids = _load_active_event_magento_ids(db, freeze_days)
     bundle_ids_all = []
@@ -2062,7 +2083,12 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
     bid_to_evento_id: dict = {}
     skipped_frozen = 0
     for bid, evt_id in bundle_rows:
-        if evt_id is not None and evt_id in all_event_ids and evt_id not in active_event_ids:
+        if (
+            not _scoped
+            and evt_id is not None
+            and evt_id in all_event_ids
+            and evt_id not in active_event_ids
+        ):
             skipped_frozen += 1
             continue
         bundle_ids_all.append(bid)

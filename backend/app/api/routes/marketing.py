@@ -3116,6 +3116,47 @@ def _build_consistency_warning(total_isc: Optional[int], margem_por_kit: Optiona
         return None
 
 
+def _bundle_ids_for_projetos(db: Session, projeto_ids: list, ano: Optional[int] = None) -> list:
+    """Resolve os bundle_entity_ids (KitConfig) ligados aos projetos via SKU →
+    evento Magento. Espelha a mesma resolução que `get_margem_por_kit` usa
+    internamente. Usado pela correção autoritativa de inscritos para escopar o
+    sync de margem por bundle a um único evento (ignorando freeze).
+    """
+    from ...models.kit_config import KitConfig
+    if not projeto_ids:
+        return []
+    proj_rows = db.query(DimProjeto.id, DimProjeto.codigo).filter(
+        DimProjeto.id.in_(projeto_ids)
+    ).all()
+    magento_event_ids: set = set()
+    for _pid, _codigo in proj_rows:
+        if not _codigo:
+            continue
+        _sku = _codigo.upper().strip()
+        _q = db.query(SkuMapping).filter(
+            SkuMapping.sku == _sku,
+            SkuMapping.fonte == 'MAGENTO',
+            SkuMapping.ativo == True,  # noqa: E712
+        )
+        if ano:
+            _q = _q.filter(SkuMapping.ano == ano)
+        for _sm in _q.all():
+            if _sm.id_externo:
+                try:
+                    magento_event_ids.add(int(_sm.id_externo))
+                except (ValueError, TypeError):
+                    continue
+    if not magento_event_ids:
+        return []
+    _rows = db.query(KitConfig.bundle_entity_id).filter(
+        KitConfig.id_evento.in_(list(magento_event_ids)),
+        KitConfig.tipo_kit.isnot(None),
+        KitConfig.ignorado == False,  # noqa: E712
+        KitConfig.bundle_entity_id.isnot(None),
+    ).distinct().all()
+    return [r[0] for r in _rows if r[0] is not None]
+
+
 def get_margem_por_kit(
     db: Session,
     projeto_ids: list,
@@ -3126,9 +3167,22 @@ def get_margem_por_kit(
     avisos_out: Optional[list] = None,
     force_refresh: bool = False,
     incluir_cortesias: bool = False,
+    meta_out: Optional[dict] = None,
 ) -> list:
-    """Quebra de margem por tipo de kit via vendas Magento bundle."""
+    """Quebra de margem por tipo de kit via vendas Magento bundle.
+
+    `meta_out` (opcional): quando passado, recebe a procedência da contagem e da
+    receita (`count_source` / `revenue_source`) em cada ramo do pipeline de
+    cache/snapshot/live. Usado pela correção autoritativa de inscritos para
+    distinguir uma leitura ao vivo VERIFICADAMENTE completa ("live"/"live") de
+    uma servida por cache/snapshot/parcial — só a primeira autoriza baixar o
+    valor de um evento concluído.
+    """
     from ...models.kit_config import KitConfig
+
+    if meta_out is not None:
+        meta_out.setdefault("count_source", "none")
+        meta_out.setdefault("revenue_source", "none")
 
     if not projeto_ids:
         return []
@@ -3556,6 +3610,8 @@ def get_margem_por_kit(
             _cnt_cached = _margem_cnt_cache.get(_cnt_cache_key)
             if _cnt_cached and (_cnt_now_mono - _cnt_cached[1]) < _MARGEM_CNT_TTL_SECONDS:
                 qtd_by_bid = dict(_cnt_cached[0])
+                if meta_out is not None:
+                    meta_out["count_source"] = "cache"
                 logger.info(f"[Margem] count_query cache HIT: {len(bundle_ids)} bundles → {len(qtd_by_bid)} entradas (TTL restante: {int(_MARGEM_CNT_TTL_SECONDS - (_cnt_now_mono - _cnt_cached[1]))}s)")
             else:
                 _cnt_snap_loaded = False
@@ -3570,6 +3626,8 @@ def get_margem_por_kit(
                     # finalizado, snapshot é autoridade absoluta (max_age_h = None).
                     if _cnt_snap_data is not None:
                         qtd_by_bid = dict(_cnt_snap_data)
+                        if meta_out is not None:
+                            meta_out["count_source"] = "snapshot"
                         _margem_cnt_cache[_cnt_cache_key] = (dict(qtd_by_bid), _cnt_now_mono)
                         _cnt_snap_loaded = True
                         _frozen_tag = " [evento finalizado]" if _event_frozen else ""
@@ -3592,6 +3650,8 @@ def get_margem_por_kit(
                         for row in _rows_cnt:
                             qtd_by_bid[int(row[0])] = int(row[1] or 0)
                         logger.info(f"[Margem] count_query: {len(bundle_ids)} bundles → {len(qtd_by_bid)} linhas em {_elapsed_cnt:.2f}s")
+                        if meta_out is not None:
+                            meta_out["count_source"] = "live"
                         _margem_cnt_cache[_cnt_cache_key] = (dict(qtd_by_bid), _cnt_now_mono)
                     except Exception as e:
                         logger.error(f"Erro ao buscar vendas Magento por bundle para margem: {e}")
@@ -3599,6 +3659,8 @@ def get_margem_por_kit(
                         _cnt_live_failed = True
                         if _cnt_cached:
                             qtd_by_bid = dict(_cnt_cached[0])
+                            if meta_out is not None:
+                                meta_out["count_source"] = "cache_expired"
                             logger.warning(f"[Margem] count_query falhou — usando cache expirado: {len(qtd_by_bid)} entradas")
 
                     # Backfill por bundle: se o LIVE respondeu mas faltou bundle
@@ -3636,6 +3698,8 @@ def get_margem_por_kit(
                         _stale_q, _stale_q_age_h = _load_snapshot_qtd(max_age_h=None)
                         if _stale_q:
                             qtd_by_bid = dict(_stale_q)
+                            if meta_out is not None:
+                                meta_out["count_source"] = "stale"
                             logger.info(
                                 f"[Margem] count_query STALE SNAPSHOT FALLBACK: "
                                 f"{len(bundle_ids)} bundles → {len(qtd_by_bid)} entradas (idade {_stale_q_age_h:.1f}h)"
@@ -3701,6 +3765,8 @@ def get_margem_por_kit(
 
             if _cached and (_now_mono - _cached[1]) < _MARGEM_REV_TTL_SECONDS:
                 rev_by_bid = dict(_cached[0])
+                if meta_out is not None:
+                    meta_out["revenue_source"] = "cache"
                 logger.info(f"[Margem] revenue_query cache HIT: {len(bundle_ids)} bundles → {len(rev_by_bid)} entradas (TTL restante: {int(_MARGEM_REV_TTL_SECONDS - (_now_mono - _cached[1]))}s)")
             else:
                 # --- Tentar snapshot PostgreSQL recente antes do Magento ao vivo ---
@@ -3709,6 +3775,8 @@ def get_margem_por_kit(
                     _snap_data, _snap_age_h = _load_snapshot_revenue(max_age_h=_snapshot_max_age_h)
                     if _snap_data is not None:
                         rev_by_bid = _snap_data
+                        if meta_out is not None:
+                            meta_out["revenue_source"] = "snapshot"
                         _margem_rev_cache[_rev_cache_key] = (dict(rev_by_bid), _now_mono)
                         _margem_rev_failure_cache.pop(_rev_cache_key, None)
                         _snap_loaded = True
@@ -3757,6 +3825,8 @@ def get_margem_por_kit(
                             for row in _rows_rev:
                                 rev_by_bid[int(row[0])] = float(row[1] or 0)
                             logger.info(f"[Margem] revenue_query LIVE: {len(bundle_ids)} bundles → {len(rev_by_bid)} linhas em {_elapsed:.2f}s")
+                            if meta_out is not None:
+                                meta_out["revenue_source"] = "live"
                             _margem_rev_cache[_rev_cache_key] = (dict(rev_by_bid), _time.monotonic())
                             _margem_rev_failure_cache.pop(_rev_cache_key, None)
                             # Sucesso: limpa cooldown global
@@ -3815,6 +3885,8 @@ def get_margem_por_kit(
                                     if _bf_oldest_ts is None or _ts_bf < _bf_oldest_ts:
                                         _bf_oldest_ts = _ts_bf
                                 if _bf_filled > 0:
+                                    if meta_out is not None:
+                                        meta_out["revenue_source"] = "partial"
                                     _margem_rev_cache[_rev_cache_key] = (
                                         dict(rev_by_bid), _time.monotonic()
                                     )
@@ -3850,6 +3922,8 @@ def get_margem_por_kit(
                         _stale_data, _stale_age_h = _load_snapshot_revenue(max_age_h=None)
                         if _stale_data is not None:
                             rev_by_bid = _stale_data
+                            if meta_out is not None:
+                                meta_out["revenue_source"] = "stale"
                             # NÃO grava no cache de TTL: queremos voltar a tentar ao vivo
                             # assim que o cooldown expirar.
                             _aviso_stale = _format_snapshot_warning(_stale_age_h)
@@ -11808,6 +11882,7 @@ def get_marketing_event_by_id(
         grupo_projeto_ids = [p.id for p in projetos]
         _grupo_incluir_cortesias = _grupo_incluir_cortesias_attr
         _detail_margem_avisos: list = []
+        _detail_margem_meta: dict = {}
         detail_margem_por_kit = get_margem_por_kit(
             db,
             grupo_projeto_ids,
@@ -11818,6 +11893,7 @@ def get_marketing_event_by_id(
             avisos_out=_detail_margem_avisos,
             force_refresh=force_refresh or force_magento_refresh,
             incluir_cortesias=_grupo_incluir_cortesias,
+            meta_out=_detail_margem_meta,
         )
         # Align currentSales with the kit table total so the card and the
         # "Margem por Tipo de Kit" table always display the same number of athletes.
@@ -11831,6 +11907,23 @@ def get_marketing_event_by_id(
         # ajustamos para CIMA quando a tabela enxerga vendas mais novas.
         _kit_rows_aligned = [r for r in (detail_margem_por_kit or []) if r.get('tipoKit') != 'CONSOLIDADO']
         _kit_total_qty_aligned = sum(int(r.get('qtd', 0) or 0) for r in _kit_rows_aligned)
+        # Sinal de "leitura ao vivo verificadamente completa": só uma leitura que
+        # foi realmente buscada no Magento (count E receita == "live"), sem avisos
+        # de resposta parcial/stale e sem tabela degradada, autoriza BAIXAR o
+        # valor de um evento concluído. Em qualquer outro caso (cache/snapshot/
+        # parcial/cooldown), preservamos o piso — exatamente como hoje.
+        _live_read_verified_complete = bool(
+            force_magento_refresh
+            and _detail_margem_meta.get("count_source") == "live"
+            and _detail_margem_meta.get("revenue_source") == "live"
+            and not _detail_margem_avisos
+            and not _margem_por_kit_is_degraded(detail_margem_por_kit)
+            and _kit_total_qty_aligned > 0
+        )
+        # Flag de baixa autoritativa: quando True, afrouxa os guards de "só sobe"
+        # (Guard B / piso de margem) mais abaixo, para que o valor corrigido
+        # persista mesmo em evento concluído/congelado.
+        _authoritative_downcorrect = False
         if _kit_total_qty_aligned > current_sales:
             logger.info(
                 f"[Detalhe] Alinhando currentSales '{grupo_nome}': {current_sales} → {_kit_total_qty_aligned} "
@@ -11841,10 +11934,74 @@ def get_marketing_event_by_id(
             detail_margin = _calc_margin_fields(detail_budget_ticket, detail_kit_cost_avg, sales_goal,
                                                  avg_ticket, current_sales, current_receita)
         elif _kit_total_qty_aligned > 0 and _kit_total_qty_aligned < current_sales:
-            logger.info(
-                f"[Detalhe] Alinhamento ignorado '{grupo_nome}': kit_table={_kit_total_qty_aligned} "
-                f"< snapshot={current_sales} (provável resposta parcial Magento — preservando piso do snapshot)"
-            )
+            if _live_read_verified_complete:
+                # CORREÇÃO AUTORITATIVA PARA BAIXO — leitura ao vivo verificada
+                # completa. Executa sob o lock global de reconsolidação para que
+                # nenhuma outra reconsolidação interleave e re-infle o evento.
+                from .admin import _try_acquire_evento_slot, _release_evento_slot
+                _adc_slot = str(evento_id)
+                _adc_acq, _adc_waited, _adc_busy = _try_acquire_evento_slot(
+                    _adc_slot, check_cooldown=False
+                )
+                if _adc_acq:
+                    try:
+                        logger.warning(
+                            f"[Detalhe] CORREÇÃO AUTORITATIVA '{grupo_nome}': "
+                            f"{current_sales} → {_kit_total_qty_aligned} "
+                            f"(leitura ao vivo verificada completa; baixando inscritos inflados)"
+                        )
+                        current_sales = _kit_total_qty_aligned
+                        avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else avg_ticket
+                        detail_margin = _calc_margin_fields(detail_budget_ticket, detail_kit_cost_avg, sales_goal,
+                                                             avg_ticket, current_sales, current_receita)
+                        _authoritative_downcorrect = True
+                        # Persiste a contagem corrigida no snapshot de margem por
+                        # bundle (escopado a este evento, ignorando freeze), para
+                        # que a correção sobreviva e leituras futuras não re-inflem.
+                        try:
+                            _adc_bundle_ids = _bundle_ids_for_projetos(db, grupo_projeto_ids, ano=ano)
+                            if _adc_bundle_ids:
+                                from ...services.snapshot_service import (
+                                    sincronizar_margem_bundle_rev_batch as _adc_smbr,
+                                )
+                                _adc_res = _adc_smbr(db, only_bundle_ids=_adc_bundle_ids)
+                                logger.info(
+                                    f"[Detalhe] sync escopado de margem '{grupo_nome}': {_adc_res}"
+                                )
+                            else:
+                                logger.warning(
+                                    f"[Detalhe] correção autoritativa '{grupo_nome}': nenhum bundle "
+                                    f"mapeado encontrado — snapshot de margem não regenerado"
+                                )
+                        except Exception as _adc_sync_e:
+                            logger.warning(
+                                f"[Detalhe] sync escopado de margem '{grupo_nome}' falhou: {_adc_sync_e}"
+                            )
+                    finally:
+                        _release_evento_slot(_adc_slot)
+                else:
+                    logger.info(
+                        f"[Detalhe] Correção autoritativa adiada '{grupo_nome}': lock global ocupado "
+                        f"(busy={_adc_busy}) — preservando piso do snapshot, usuário pode tentar de novo"
+                    )
+                    _adc_aviso = (
+                        "Outra atualização está em andamento — o valor não foi corrigido agora. "
+                        "Tente novamente em instantes."
+                    )
+                    if _adc_aviso not in _detail_margem_avisos:
+                        _detail_margem_avisos.append(_adc_aviso)
+            else:
+                logger.info(
+                    f"[Detalhe] Alinhamento ignorado '{grupo_nome}': kit_table={_kit_total_qty_aligned} "
+                    f"< snapshot={current_sales} (provável resposta parcial Magento — preservando piso do snapshot)"
+                )
+                if force_magento_refresh:
+                    _adc_partial_aviso = (
+                        "Leitura ao vivo veio incompleta — o total não foi corrigido para baixo. "
+                        "Tente atualizar novamente em alguns instantes."
+                    )
+                    if _adc_partial_aviso not in _detail_margem_avisos:
+                        _detail_margem_avisos.append(_adc_partial_aviso)
 
         detail_consistency_warning = None  # aligned above; retained field for API compatibility
         detail_detalhe_vendas = []
@@ -12102,7 +12259,7 @@ def get_marketing_event_by_id(
         # current_sales fell back to the Ativo-only snapshot value), the previously
         # persisted snapshot may hold the correct kit-aligned figure and must not
         # be overwritten with a lower stale value.
-        if _event_is_past:
+        if _event_is_past and not _authoritative_downcorrect:
             try:
                 from ...models.evento_detail_snapshot import EventoDetailSnapshot as _EDS_guard
                 _guard_row = db.query(_EDS_guard).filter(
@@ -12183,7 +12340,8 @@ def get_marketing_event_by_id(
         # Persiste em PostgreSQL para sobreviver a restarts e cache invalidations
         try:
             from ...services.event_detail_snapshot_service import save_persisted_detail as _spd
-            _spd(db, evento_id, ano, grouped_result, data_evento=projeto_data_evento, is_completed=_event_is_past)
+            _spd(db, evento_id, ano, grouped_result, data_evento=projeto_data_evento,
+                 is_completed=_event_is_past, bypass_completed_guard=_authoritative_downcorrect)
         except Exception as _spd_e:
             logger.warning(f"[Persist] save grouped '{evento_id}/{ano}' falhou: {_spd_e}")
         # ISC e eventos_list NÃO são invalidados aqui: o STEP 4b em fetch_isc_pricing_data

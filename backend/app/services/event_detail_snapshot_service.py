@@ -584,6 +584,7 @@ def save_persisted_detail(
     payload: Any,
     data_evento: date | None = None,
     is_completed: bool = False,
+    bypass_completed_guard: bool = False,
 ) -> bool:
     """UPSERT do snapshot. Retorna True se gravou, False em caso de erro.
 
@@ -592,6 +593,12 @@ def save_persisted_detail(
     o snapshot existente é preservado. Isso evita que quedas de conexão
     com o Magento (respostas parciais com menos bundles) sobrescrevam o
     valor final correto de um evento encerrado.
+
+    `bypass_completed_guard=True` desativa essa salvaguarda de 95% para esta
+    gravação. É usado SOMENTE pela correção autoritativa de inscritos (botão
+    "Atualizar" + auto-heal noturno), quando a leitura ao vivo já foi verificada
+    completa upstream — nesse caso queremos justamente permitir a baixa do
+    valor. Todos os fluxos automáticos normais continuam com a guarda ativa.
     """
     try:
         json_safe = _to_jsonable(payload)
@@ -609,7 +616,13 @@ def save_persisted_detail(
         # Executa apenas quando ambos (existente e novo) são is_completed=True,
         # garantindo que a correção nunca bloqueie um evento ainda ativo nem
         # impeça a gravação inicial do snapshot de um evento recém-encerrado.
-        if is_completed:
+        if is_completed and bypass_completed_guard:
+            logger.warning(
+                f"[EventDetailSnapshot] Correção autoritativa '{evento_id}/{ano}' — "
+                f"salvaguarda de 95% desativada (leitura ao vivo verificada completa). "
+                f"Gravando valor corrigido mesmo que inferior ao anterior."
+            )
+        if is_completed and not bypass_completed_guard:
             try:
                 existing_row = (
                     db.query(EventoDetailSnapshot)
@@ -756,5 +769,86 @@ def refresh_active_event_details(max_events: int | None = None) -> int:
     logger.info(
         f"[EventDetailSnapshot] refresh_active_event_details: {count} eventos atualizados, "
         f"{skipped_completed} concluídos pulados"
+    )
+    return count
+
+
+def reconcile_completed_event_details(max_events: int | None = None) -> int:
+    """Auto-heal noturno: reconcilia PARA BAIXO a foto de eventos CONCLUÍDOS
+    recentes quando a leitura ao vivo do Magento vem verificada completa.
+
+    Diferente de `refresh_active_event_details` (que PULA concluídos para não
+    reprocessá-los), esta função processa exatamente os concluídos recentes
+    (data_evento dentro da janela de freeze) chamando
+    `get_marketing_event_by_id(force_magento_refresh=True)`. Essa flag aciona o
+    caminho de "correção autoritativa" no recompute: se — e somente se — a
+    leitura ao vivo for verificada completa, o valor inflado é baixado e a foto
+    reescrita; caso contrário o piso é preservado (comportamento atual). Assim a
+    maioria dos eventos inflados se corrige sozinha, sem o usuário clicar em
+    "Atualizar".
+
+    Limita-se à janela de freeze (`EVENTO_FREEZE_AFTER_DAYS`, default 30 dias)
+    para não martelar o Magento com todo o histórico — eventos antigos demais
+    raramente mudam e seriam pulados pelo sync de margem de qualquer forma.
+
+    Retorna a quantidade de eventos reconciliados (leituras disparadas).
+    """
+    from ..core.database import SessionLocal
+    from ..api.routes.marketing import get_marketing_event_by_id
+    from .snapshot_service import _freeze_after_days
+
+    count = 0
+    db = SessionLocal()
+    try:
+        ano = datetime.now().year
+        freeze_days = _freeze_after_days()
+        cutoff = date.today() - timedelta(days=freeze_days)
+
+        # Concluídos recentes: data_evento >= hoje - freeze_days. Eventos sem
+        # data_evento registrada ficam de fora (não dá para classificar a janela
+        # com segurança).
+        rows = (
+            db.query(EventoDetailSnapshot.evento_id)
+            .filter(
+                EventoDetailSnapshot.ano == ano,
+                EventoDetailSnapshot.is_completed == True,  # noqa: E712
+                EventoDetailSnapshot.data_evento.isnot(None),
+                EventoDetailSnapshot.data_evento >= cutoff,
+            )
+            .all()
+        )
+        evento_ids = [r.evento_id for r in rows]
+        if max_events is not None:
+            evento_ids = evento_ids[:max_events]
+
+        logger.info(
+            f"[EventDetailSnapshot] reconcile_completed: {len(evento_ids)} eventos "
+            f"concluídos recentes (>= {cutoff}) candidatos a correção para baixo"
+        )
+
+        for evento_id in evento_ids:
+            try:
+                _db_iter = SessionLocal()
+                try:
+                    get_marketing_event_by_id(
+                        evento_id=evento_id,
+                        ano=ano,
+                        force_refresh=True,
+                        force_magento_refresh=True,
+                        db=_db_iter,
+                        current_user=None,
+                        response=None,
+                    )
+                    count += 1
+                finally:
+                    _db_iter.close()
+            except Exception as e:
+                logger.warning(f"[EventDetailSnapshot] reconcile '{evento_id}' falhou: {e}")
+    except Exception as e:
+        logger.error(f"[EventDetailSnapshot] reconcile_completed_event_details falhou: {e}")
+    finally:
+        db.close()
+    logger.info(
+        f"[EventDetailSnapshot] reconcile_completed_event_details: {count} eventos reconciliados"
     )
     return count
