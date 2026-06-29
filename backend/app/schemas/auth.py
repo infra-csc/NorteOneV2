@@ -37,6 +37,7 @@ class UserResponse(BaseModel):
     is_admin: bool = False
     centro_custo_id: Optional[int] = None
     ativo: bool
+    auth_provider: str = "local"
     recebe_alertas_corte: bool = False
     recebe_insights_nori: bool = False
     foto_perfil: Optional[str] = None

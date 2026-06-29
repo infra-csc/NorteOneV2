@@ -23,6 +23,7 @@ def _user_to_response(user: Usuario) -> dict:
         "is_admin": user.perfil_acesso_rel.is_admin if user.perfil_acesso_rel else False,
         "centro_custo_id": user.centro_custo_id,
         "ativo": user.ativo,
+        "auth_provider": user.auth_provider or "local",
         "recebe_alertas_corte": user.recebe_alertas_corte or False,
         "recebe_insights_nori": user.recebe_insights_nori or False,
     }

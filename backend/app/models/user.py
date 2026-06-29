@@ -9,7 +9,17 @@ class Usuario(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String(100), unique=True, nullable=False, index=True)
     nome = Column(String(100), nullable=False)
-    senha_hash = Column(String(255), nullable=False)
+    # Nullable: contas provisionadas via Microsoft SSO não têm senha local
+    # (single sign-on puro). Continua obrigatória na prática para contas locais
+    # (break-glass) — a rota de criação local sempre gera o hash.
+    senha_hash = Column(String(255), nullable=True)
+    # Microsoft Entra ID (Azure AD) object id — identifica univocamente a conta
+    # no diretório. Preenchido em contas SSO; NULL em contas locais.
+    ms_oid = Column(String(100), nullable=True, unique=True, index=True)
+    # Origem/forma de autenticação: 'local' (e-mail+senha) ou 'microsoft' (SSO).
+    auth_provider = Column(String(20), nullable=False, default="local")
+    # Último instante em que a conta foi reconciliada com o diretório Microsoft.
+    ms_synced_at = Column(DateTime, nullable=True)
     perfil_acesso_id = Column(Integer, ForeignKey("perfil_acesso.id"), nullable=True, index=True)
     centro_custo_id = Column(Integer, ForeignKey("dim_centro_custo.id"), index=True)
     ativo = Column(Boolean, default=True, index=True)

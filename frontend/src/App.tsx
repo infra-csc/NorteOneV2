@@ -6,6 +6,7 @@ import { PermissionProvider, usePermissions } from './context/PermissionContext'
 import Layout from './components/common/Layout';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import Login from './pages/auth/Login';
+import MicrosoftCallback from './pages/auth/MicrosoftCallback';
 import PWAManager from './pwa/PWAManager';
 
 // Wrapper para lazy imports: quando o chunk está stale (após deploy ou HMR
@@ -97,6 +98,7 @@ function App() {
           <Suspense fallback={<PageLoader />}>
             <Routes>
               <Route path="/login" element={<Login />} />
+              <Route path="/auth/microsoft/callback" element={<MicrosoftCallback />} />
               <Route path="/" element={<PermissionRoute module="dashboard"><Layout><Dashboard /></Layout></PermissionRoute>} />
               <Route path="/cadastros/categorias-atletas" element={<PermissionRoute module="categorias_atletas"><Layout><CategoriasAtletas /></Layout></PermissionRoute>} />
               <Route path="/cadastros/eventos" element={<PermissionRoute module="eventos"><Layout><Eventos /></Layout></PermissionRoute>} />

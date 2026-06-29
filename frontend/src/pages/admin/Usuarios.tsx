@@ -1,11 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import { useTheme } from '../../context/ThemeContext';
-import api from '../../services/api';
+import api, { adminService } from '../../services/api';
 import { 
   Users, Search, Plus, Edit2, Trash2, RefreshCw, 
   AlertTriangle, CheckCircle, XCircle, X, Building2, ShieldCheck,
   Upload, Download, FileSpreadsheet
 } from 'lucide-react';
+
+const MicrosoftLogo = ({ className = 'w-4 h-4' }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 21 21" aria-hidden="true">
+    <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+    <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+    <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+    <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+  </svg>
+);
 
 interface ImportSkipped {
   linha: number;
@@ -39,6 +48,7 @@ interface Usuario {
   is_admin: boolean;
   centro_custo_id: number | null;
   ativo: boolean;
+  auth_provider?: string;
   recebe_alertas_corte: boolean;
   recebe_insights_nori: boolean;
 }
@@ -81,6 +91,9 @@ const Usuarios: React.FC = () => {
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  const [syncingMs, setSyncingMs] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
+
   const [showImportModal, setShowImportModal] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importPassword, setImportPassword] = useState('');
@@ -105,6 +118,25 @@ const Usuarios: React.FC = () => {
       setError(err.response?.data?.detail || 'Erro ao carregar dados');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSyncMicrosoft = async () => {
+    setSyncingMs(true);
+    setSyncMsg(null);
+    setError(null);
+    try {
+      const res = await adminService.syncMicrosoftDirectory();
+      const r = res?.resumo || {};
+      setSyncMsg(
+        `Sincronização concluída: ${r.criados ?? 0} criados, ${r.adotados ?? 0} vinculados, ` +
+        `${r.reativados ?? 0} reativados, ${r.desativados ?? 0} desativados.`
+      );
+      await fetchData();
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Erro ao sincronizar com a Microsoft');
+    } finally {
+      setSyncingMs(false);
     }
   };
 
@@ -357,6 +389,15 @@ const Usuarios: React.FC = () => {
             </div>
             <div className="flex items-center gap-3">
               <button
+                onClick={handleSyncMicrosoft}
+                disabled={syncingMs}
+                title="Sincronizar usuários com o diretório Microsoft Entra ID"
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors border disabled:opacity-50 ${isDark ? 'bg-gray-800 border-gray-700 text-gray-200 hover:bg-gray-700' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'} shadow-sm`}
+              >
+                {syncingMs ? <RefreshCw className="w-4 h-4 animate-spin" /> : <MicrosoftLogo className="w-4 h-4" />}
+                {syncingMs ? 'Sincronizando...' : 'Sincronizar Microsoft'}
+              </button>
+              <button
                 onClick={openImportModal}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors border ${isDark ? 'bg-gray-800 border-gray-700 text-gray-200 hover:bg-gray-700' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'} shadow-sm`}
               >
@@ -479,6 +520,16 @@ const Usuarios: React.FC = () => {
           </div>
         )}
 
+        {syncMsg && (
+          <div className="mb-6 p-4 bg-green-500/20 border border-green-500/50 rounded-xl flex items-center gap-3">
+            <CheckCircle className="w-5 h-5 text-green-400" />
+            <span className="text-green-400">{syncMsg}</span>
+            <button onClick={() => setSyncMsg(null)} className="ml-auto">
+              <X className="w-4 h-4 text-green-400" />
+            </button>
+          </div>
+        )}
+
         <div className={`rounded-xl ${isDark ? 'bg-gray-800/80' : 'bg-white'} shadow-lg backdrop-blur-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'} overflow-hidden`}>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -532,7 +583,23 @@ const Usuarios: React.FC = () => {
                               {user.nome.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
                             </span>
                           </div>
-                          <span className="font-medium">{user.nome}</span>
+                          <div className="flex flex-col">
+                            <span className="font-medium">{user.nome}</span>
+                            {user.auth_provider === 'microsoft' && (
+                              <span
+                                className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium text-sky-400"
+                                title="Conta gerenciada pelo Microsoft Entra ID (SSO)"
+                              >
+                                <svg className="w-2.5 h-2.5" viewBox="0 0 21 21" aria-hidden="true">
+                                  <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+                                  <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+                                  <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+                                  <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+                                </svg>
+                                Microsoft
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </td>
                       <td className={`px-6 py-4 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>

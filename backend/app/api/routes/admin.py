@@ -281,6 +281,33 @@ def get_user_activity(
     return response
 
 
+@router.post("/usuarios/sincronizar-microsoft")
+def trigger_ms_directory_sync(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("admin_usuarios")),
+):
+    """Dispara manualmente a sincronização do diretório Microsoft Entra ID.
+
+    Reconcilia a tabela de usuários com o diretório: cria/adota contas,
+    desativa quem foi desabilitado/removido e invalida sessões. Síncrono
+    (a UI mostra o resumo). Requer permissão de administração de usuários.
+    """
+    from fastapi.responses import JSONResponse
+    from ...services.ms_auth_service import sso_configured, MSAuthError
+    from ...services.ms_directory_sync import sincronizar_diretorio_microsoft
+
+    if not sso_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="Integração Microsoft não está configurada (credenciais ausentes).",
+        )
+    try:
+        resumo = sincronizar_diretorio_microsoft(db)
+    except MSAuthError as e:
+        raise HTTPException(status_code=502, detail=f"Falha ao acessar o diretório Microsoft: {e}")
+    return JSONResponse(content={"ok": True, "resumo": resumo})
+
+
 @router.post("/scheduled-jobs/consolidacao-diaria")
 def trigger_scheduled_daily_consolidation(
     x_scheduler_token: Optional[str] = Header(None, alias="X-Scheduler-Token"),

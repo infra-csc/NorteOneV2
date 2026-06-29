@@ -74,6 +74,17 @@ export const authService = {
     const response = await api.get('/auth/me');
     return response.data;
   },
+  // Indica se o login via Microsoft está disponível (credenciais configuradas).
+  microsoftStatus: async (): Promise<{ enabled: boolean }> => {
+    const response = await api.get('/auth/microsoft/status');
+    return response.data;
+  },
+  // Inicia o SSO redirecionando o browser para o endpoint do backend, que por
+  // sua vez redireciona para a Microsoft (full-page redirect, não XHR).
+  microsoftLoginUrl: (): string => {
+    const base = (api.defaults.baseURL || '/api').replace(/\/$/, '');
+    return `${base}/auth/microsoft/login`;
+  },
   logout: async (token: string) => {
     await api.post('/auth/logout', null, {
       headers: { Authorization: `Bearer ${token}` },
@@ -576,6 +587,10 @@ export const kitConfigService = {
 export const adminService = {
   getUserActivity: async () => {
     const response = await api.get('/admin/user-activity');
+    return response.data;
+  },
+  syncMicrosoftDirectory: async () => {
+    const response = await api.post('/admin/usuarios/sincronizar-microsoft');
     return response.data;
   },
   getHealthSummary: async () => {

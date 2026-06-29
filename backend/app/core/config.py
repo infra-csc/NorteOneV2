@@ -8,6 +8,29 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
     
     CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "http://localhost:5000,http://localhost:5173")
+
+    # ── Microsoft Entra ID (SSO + sync de diretório) ──────────────────────────
+    # Reutiliza o App Registration já usado pelo email_service (client_credentials).
+    # Para o SSO (Authorization Code Flow) é necessário cadastrar o Redirect URI
+    # abaixo no portal Azure e conceder as permissões delegadas openid/profile/
+    # email/User.Read; para o sync de diretório, a permissão de aplicação
+    # User.Read.All com consentimento de administrador.
+    MS_TENANT_ID: str = os.getenv("MS_TENANT_ID", "")
+    MS_CLIENT_ID: str = os.getenv("MS_CLIENT_ID", "")
+    MS_CLIENT_SECRET: str = os.getenv("MS_CLIENT_SECRET", "")
+    # URL pública do callback. Em produção, ex.:
+    #   https://<app>.replit.app/api/auth/microsoft/callback
+    # Se vazio, é derivado em runtime a partir do host da requisição.
+    MS_REDIRECT_URI: str = os.getenv("MS_REDIRECT_URI", "")
+    # Após o callback, o backend redireciona o browser para esta rota do frontend
+    # carregando o token da aplicação no fragmento (#token=...).
+    MS_FRONTEND_REDIRECT_PATH: str = os.getenv("MS_FRONTEND_REDIRECT_PATH", "/auth/microsoft/callback")
+    # Perfil de acesso atribuído a contas novas provisionadas via SSO. Por nome
+    # (preferencial) ou id. Se ambos vazios, usa heurística: perfil ativo
+    # não-admin/não-sistema com menos permissões; se nenhum existir, fica sem
+    # perfil (acesso mais restritivo possível).
+    MS_DEFAULT_PERFIL_NOME: str = os.getenv("MS_DEFAULT_PERFIL_NOME", "")
+    MS_DEFAULT_PERFIL_ID: str = os.getenv("MS_DEFAULT_PERFIL_ID", "")
     
     # SSH Tunnel Configuration
     SSH_HOST: str = os.getenv("SSH_HOST", "")

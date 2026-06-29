@@ -1,8 +1,18 @@
-import React, { useState, lazy, Suspense } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { authService } from '../../services/api';
 import { LogIn, AlertCircle, Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+
+const MicrosoftLogo = () => (
+  <svg className="w-4 h-4 mr-2" viewBox="0 0 21 21" aria-hidden="true">
+    <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+    <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+    <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+    <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+  </svg>
+);
 
 const Background3D = lazy(() => import('../../components/3d/Background3D'));
 
@@ -20,8 +30,41 @@ const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [focusedField, setFocusedField] = useState<string | null>(null);
+  const [ssoEnabled, setSsoEnabled] = useState(false);
+  // Quando o SSO está ativo, o login padrão é só Microsoft; o formulário de
+  // e-mail/senha fica escondido atrás do "acesso de emergência" (break-glass).
+  const [showLocalLogin, setShowLocalLogin] = useState(true);
   const { login } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    // Mostra o botão Microsoft só quando o backend reporta SSO configurado.
+    authService.microsoftStatus()
+      .then((s) => {
+        const enabled = !!s.enabled;
+        setSsoEnabled(enabled);
+        setShowLocalLogin(!enabled);
+      })
+      .catch(() => {
+        setSsoEnabled(false);
+        setShowLocalLogin(true);
+      });
+
+    // Exibe erro vindo do callback do SSO (?sso_error=...).
+    const params = new URLSearchParams(window.location.search);
+    const ssoError = params.get('sso_error');
+    if (ssoError) {
+      setError(ssoError);
+      const url = new URL(window.location.href);
+      url.searchParams.delete('sso_error');
+      window.history.replaceState({}, '', url.pathname + url.search);
+    }
+  }, []);
+
+  const handleMicrosoftLogin = () => {
+    // Full-page redirect para o backend, que redireciona à Microsoft.
+    window.location.href = authService.microsoftLoginUrl();
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -124,6 +167,52 @@ const Login: React.FC = () => {
               )}
             </AnimatePresence>
 
+            {ssoEnabled && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.4, duration: 0.5 }}
+                className="mb-2"
+              >
+                <motion.button
+                  type="button"
+                  onClick={handleMicrosoftLogin}
+                  whileHover={{ scale: 1.02, boxShadow: '0 8px 32px rgba(26, 79, 255, 0.4)' }}
+                  whileTap={{ scale: 0.98 }}
+                  className="w-full py-4 rounded-xl font-semibold text-sm tracking-wide flex items-center justify-center transition-all cursor-pointer text-white"
+                  style={{
+                    background: 'linear-gradient(135deg, #1a4fff 0%, #0033cc 50%, #ff4400 150%)',
+                    boxShadow: '0 4px 16px rgba(26, 79, 255, 0.3)',
+                  }}
+                >
+                  <MicrosoftLogo />
+                  Entrar com Microsoft
+                </motion.button>
+
+                {!showLocalLogin && (
+                  <button
+                    type="button"
+                    onClick={() => { setShowLocalLogin(true); setError(''); }}
+                    className="w-full mt-4 text-center text-xs tracking-wider transition-colors"
+                    style={{ color: 'rgba(255, 255, 255, 0.3)' }}
+                  >
+                    Acesso de emergência (e-mail e senha)
+                  </button>
+                )}
+              </motion.div>
+            )}
+
+            {ssoEnabled && showLocalLogin && (
+              <div className="flex items-center my-4">
+                <div className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.1)' }} />
+                <span className="px-3 text-xs uppercase tracking-wider" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                  acesso de emergência
+                </span>
+                <div className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.1)' }} />
+              </div>
+            )}
+
+            {showLocalLogin && (
             <form onSubmit={handleSubmit} className="space-y-5">
               <motion.div
                 initial={{ opacity: 0, x: -20 }}
@@ -248,6 +337,7 @@ const Login: React.FC = () => {
                 </motion.button>
               </motion.div>
             </form>
+            )}
 
             <motion.div
               initial={{ opacity: 0 }}

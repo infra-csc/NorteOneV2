@@ -307,6 +307,38 @@ def _scheduled_cleanup_sessions():
             db.close()
 
 
+def _scheduled_ms_directory_sync():
+    """Reconcilia a tabela de usuários com o diretório Microsoft Entra ID.
+
+    Roda independente de ENABLE_BACKGROUND_MAGENTO_SYNC (não toca Magento/SSH).
+    Só executa se o SSO/credenciais estiverem configurados; caso contrário sai
+    silenciosamente.
+    """
+    from app.core.database import SessionLocal
+    from app.services.ms_auth_service import sso_configured, MSAuthError
+    from app.services.ms_directory_sync import sincronizar_diretorio_microsoft
+    if not sso_configured():
+        logger.info("[MSDirSync] Credenciais Microsoft ausentes — sync de diretório ignorado.")
+        return
+    db = None
+    try:
+        db = SessionLocal()
+        resumo = sincronizar_diretorio_microsoft(db)
+        logger.info(f"[MSDirSync] Sync de diretório concluído: {resumo}")
+    except MSAuthError as e:
+        logger.error(f"[MSDirSync] Sync de diretório falhou (Graph): {e}")
+        try:
+            from app.services.health_alert_service import log_and_alert
+            log_and_alert("MS_DIR_SYNC_FAILED", "HIGH", "Falha no sync do diretório Microsoft", str(e))
+        except Exception:
+            pass
+    except Exception as e:
+        logger.error(f"[MSDirSync] Sync de diretório falhou: {e}")
+    finally:
+        if db:
+            db.close()
+
+
 def _scheduled_nori_insights():
     # Gateado por ENABLE_BACKGROUND_MAGENTO_SYNC (consistente com startup):
     # em dev (false) o timer 05h30 BRT não dispara — evita ISC force_refresh
@@ -1425,6 +1457,12 @@ def _run_column_migrations():
             "ALTER TABLE dim_usuario ADD COLUMN IF NOT EXISTS foto_perfil VARCHAR(500)",
             "ALTER TABLE dim_usuario ADD COLUMN IF NOT EXISTS foto_perfil_data BYTEA",
             "ALTER TABLE dim_usuario ADD COLUMN IF NOT EXISTS foto_perfil_mime VARCHAR(50)",
+            # Microsoft Entra ID (SSO + sync de diretório) — task #72
+            "ALTER TABLE dim_usuario ALTER COLUMN senha_hash DROP NOT NULL",
+            "ALTER TABLE dim_usuario ADD COLUMN IF NOT EXISTS ms_oid VARCHAR(100)",
+            "ALTER TABLE dim_usuario ADD COLUMN IF NOT EXISTS auth_provider VARCHAR(20) DEFAULT 'local' NOT NULL",
+            "ALTER TABLE dim_usuario ADD COLUMN IF NOT EXISTS ms_synced_at TIMESTAMP",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_dim_usuario_ms_oid ON dim_usuario (ms_oid)",
             "ALTER TABLE system_health_events ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP WITH TIME ZONE",
             "ALTER TABLE system_health_events ADD COLUMN IF NOT EXISTS resolved_by VARCHAR(255)",
             "ALTER TABLE projecao_corte_snapshot ADD COLUMN IF NOT EXISTS reaberto_manual_corte_1 BOOLEAN DEFAULT FALSE NOT NULL",
@@ -2584,6 +2622,32 @@ async def lifespan(app: FastAPI):
 
         # Start the dedicated 05:30 BRT daily timer for insights generation
         _schedule_daily_nori_insights()
+
+        # Sync diário do diretório Microsoft Entra ID (03:00 BRT). Independe do
+        # gate de Magento (não usa SSH). Sai silenciosamente se SSO não estiver
+        # configurado.
+        def _schedule_daily_ms_directory_sync():
+            from zoneinfo import ZoneInfo as _ZI
+            from datetime import datetime as _dt, timedelta as _td
+            _brt = _ZI('America/Sao_Paulo')
+            _now = _dt.now(_brt)
+            _target = _now.replace(hour=3, minute=0, second=0, microsecond=0)
+            if _now >= _target:
+                _target += _td(days=1)
+            _delay = (_target - _now).total_seconds()
+            logger.info(f"[MSDirSync] Daily timer: next run at {_target.isoformat()} BRT (in {_delay/3600:.1f}h)")
+
+            def _run_and_reschedule():
+                _scheduled_ms_directory_sync()
+                _schedule_daily_ms_directory_sync()
+
+            _timer = threading.Timer(_delay, _run_and_reschedule)
+            _timer.daemon = True
+            _timer.name = "ms-directory-sync-daily-timer"
+            _timer.start()
+            return _timer
+
+        _schedule_daily_ms_directory_sync()
 
         # Loop do resumo diário de pendências por e-mail (independente do Magento gate).
         threading.Thread(target=_projecao_notif_loop, daemon=True, name="projecao-notif-loop").start()

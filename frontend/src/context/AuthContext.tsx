@@ -6,6 +6,7 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   login: (email: string, password: string) => Promise<void>;
+  loginWithToken: (accessToken: string) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
   isLoading: boolean;
@@ -38,6 +39,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const data = await authService.login(email, password);
     localStorage.setItem('token', data.access_token);
     setToken(data.access_token);
+    const userData = await authService.getMe();
+    setUser(userData);
+  };
+
+  // Usado pelo callback do SSO Microsoft: o backend já emitiu o JWT da
+  // aplicação e o devolveu no fragmento da URL. Aqui apenas persistimos e
+  // carregamos o usuário.
+  const loginWithToken = async (accessToken: string) => {
+    localStorage.setItem('token', accessToken);
+    setToken(accessToken);
     const userData = await authService.getMe();
     setUser(userData);
   };
@@ -79,7 +90,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, refreshUser, isLoading }}>
+    <AuthContext.Provider value={{ user, token, login, loginWithToken, logout, refreshUser, isLoading }}>
       {children}
     </AuthContext.Provider>
   );
