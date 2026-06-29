@@ -2166,12 +2166,14 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
     def _build_cnt_query_for_batch(batch_bids: list, include_cortesias: bool):
         """Constrói a query de contagem para um lote de bundle_ids.
 
-        Usa a mesma estrutura da query externa de referência (Navicat):
+        Critérios "somente Site" (iguais aos da query de receita e das funções
+        de venda diária do ISC), para que qtd e receita cubram a MESMA população:
         - Filtra via JOIN em catalog_product_entity_varchar (attr 321 = id_evento)
           para garantir que apenas bundles vinculados ao evento correto sejam contados.
-        - Sem janela de created_at (Navicat não usa essa restrição).
-        - Sem exclusão de GRUPOS (contados normalmente, apenas rotulados).
-        - Sem exclusão de cortesias do count (cortesias contam como inscritos).
+        - Sem janela de created_at (o JOIN cpev1 já escopa por evento).
+        - Exclui GRUPOS/B2B (discount_description / coupon_code).
+        - Exclui cortesias salvo quando o evento inclui cortesias
+          (gateado por :skip_cortesia_filter via include_cortesias).
         Bundles sem id_evento mapeado caem no fallback legado (bundle_ids + janela).
         """
         mapped_bids = [bid for bid in batch_bids if bid in bid_to_evento_id]
@@ -2203,6 +2205,10 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
                 "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
                 "AND so.state NOT IN ('canceled')\n"
                 "AND so.increment_id NOT REGEXP '-[0-9]'\n"
+                "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
+                "AND (:skip_cortesia_filter OR NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50))\n"
+                "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
+                "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
                 "GROUP BY soi_parent.product_id"
             )
             results_parts.append((
@@ -2212,6 +2218,7 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
                 ).bindparams(
                     id_eventos_batch=id_eventos_batch,
                     bundle_ids_mapped=mapped_bids,
+                    skip_cortesia_filter=bool(include_cortesias),
                 ),
                 None,
             ))
@@ -2232,11 +2239,16 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
                 "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
                 "AND so.state NOT IN ('canceled')\n"
                 "AND so.increment_id NOT REGEXP '-[0-9]'\n"
+                "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
+                "AND (:skip_cortesia_filter OR NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50))\n"
+                "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
+                "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
                 "GROUP BY soi_parent.product_id"
             )
             results_parts.append((
                 text(_sql_fb).bindparams(
                     bindparam("bundle_ids_fb", expanding=True),
+                    skip_cortesia_filter=bool(include_cortesias),
                 ),
                 no_map,
             ))

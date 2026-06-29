@@ -53,3 +53,28 @@ live ISC totals silently break. Item aggregation inside agg stays full-order
 `POST /snapshots/consolidar-full` (checkpoint/retry) in PROD — it calls
 `consolidar_vendas_grupo` → the modified daily helpers, rebuilding all snapshots
 Site-only with the new revenue formula.
+
+# The Site filter also belongs on the bundle COUNT queries
+
+The Site-only filter is NOT just for the daily-sales helpers and the receita
+query. It MUST also be on the bundle **qtd COUNT** queries:
+- `get_margem_por_kit` live count — both the mapped (cpev1 cross-event JOIN) path
+  AND the legacy bundle_ids fallback.
+- `snapshot_service._build_cnt_query_for_batch` — both the mapped and fallback
+  paths (cortesia gated by `include_cortesias`: normal_batch=False, cortesia_batch=True).
+
+**Why:** the event detail aligns `current_sales` UPWARD to the kit-table total
+(`if kit_total > current_sales: current_sales = kit_total`). If the COUNT query
+omits the Site filter, cortesia+grupos inflate the kit total and that inflated
+number overrides the correct Site daily total (real case: Troféu Brasil 2ª Etapa
+showed 767 vs correct 561; diff 206 = cortesia+grupos). The receita query already
+excluded GRUPOS, so qtd and receita were covering different populations.
+
+**How to apply:** mirror the receita query's order-level predicates in every
+COUNT query — `base_grand_total > 0` and the CORTESIA-cheap rule gated by
+`:skip_cortesia_filter`, plus the unconditional GRUPOS `discount_description` /
+`coupon_code` exclusions. The lean COUNT stays order-level only (no `soi_child`
+price join) for performance; residual mismatch vs the daily count is bounded by
+the max() alignment (daily Site already correct), so only over-counts could
+inflate — acceptable trade-off. After deploy, reconsolidate snapshots so the
+stored `qtd_inscricoes` is rewritten (mapped bundles use EXCLUDED replace).

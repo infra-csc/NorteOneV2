@@ -3348,14 +3348,17 @@ def get_margem_por_kit(
             bundle_ids = list(global_bundle_tipo_map.keys())
 
             # Coleta os id_evento Magento para este grupo de projetos.
-            # A query de contagem usa a mesma estrutura da query de referência
-            # externa (Navicat): filtra via JOIN a catalog_product_entity_varchar
+            # A query de contagem filtra via JOIN a catalog_product_entity_varchar
             # (attribute_id=321 = id_evento do bundle) para garantir que apenas
             # bundles vinculados ao evento correto sejam contados.
-            # Alinhamentos com a query externa:
-            #   - Sem janela de created_at (Navicat não usa essa restrição)
-            #   - Sem exclusão de GRUPOS do count (GRUPOS são contados normalmente)
-            #   - Sem exclusão de cortesias do count (cortesias contam como inscritos)
+            # Critérios "somente Site" (alinhados com a query de receita e com
+            # as funções de venda diária do ISC):
+            #   - Sem janela de created_at (o JOIN cpev1 já escopa por evento)
+            #   - Exclui GRUPOS/B2B (discount_description / coupon_code)
+            #   - Exclui cortesias salvo quando o evento inclui cortesias
+            #     (gateado por :skip_cortesia_filter)
+            # Assim qtd e receita cobrem a MESMA população, e o total exibido
+            # no detalhe não infla com cortesia/grupos.
             _id_eventos_cnt: list = [
                 sm.id_externo
                 for pid in projeto_ids
@@ -3367,8 +3370,8 @@ def get_margem_por_kit(
                 # Mantém bundle_ids IN como restrição de escopo (desempenho +
                 # evita retornar bundles do evento fora do KitConfig).
                 # O JOIN cpev1 valida que cada bundle pertence ao evento correto,
-                # sem janela de created_at e sem exclusão de GRUPOS/cortesias
-                # — alinhado com a query de referência externa (Navicat).
+                # sem janela de created_at, mas com os filtros "somente Site"
+                # (exclui GRUPOS/B2B e cortesias) iguais aos da query de receita.
                 _sql_count = (
                     "SELECT /*+ MAX_EXECUTION_TIME(20000) */ STRAIGHT_JOIN\n"
                     "    soi_parent.product_id                  AS bundle_entity_id,\n"
@@ -3391,12 +3394,16 @@ def get_margem_por_kit(
                     "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
                     "AND so.state NOT IN ('canceled')\n"
                     "AND so.increment_id NOT REGEXP '-[0-9]'\n"
+                    "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
+                    "AND (:skip_cortesia_filter OR NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50))\n"
+                    "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
+                    "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
                     "GROUP BY soi_parent.product_id"
                 )
                 magento_count_query = text(_sql_count).bindparams(
                     bindparam("id_eventos", expanding=True),
                     bindparam("bundle_ids", expanding=True),
-                ).bindparams(id_eventos=_id_eventos_cnt)
+                ).bindparams(id_eventos=_id_eventos_cnt, skip_cortesia_filter=_skip_cortesia_filter)
             else:
                 # Fallback: evento sem id_externo mapeado — usa bundle_ids com
                 # janela clássica (comportamento legado)
@@ -3414,10 +3421,15 @@ def get_margem_por_kit(
                     "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
                     "AND so.state NOT IN ('canceled')\n"
                     "AND so.increment_id NOT REGEXP '-[0-9]'\n"
+                    "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
+                    "AND (:skip_cortesia_filter OR NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50))\n"
+                    "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
+                    "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
                     "GROUP BY soi_parent.product_id"
                 )
                 magento_count_query = text(_sql_count).bindparams(
                     bindparam("bundle_ids", expanding=True),
+                    skip_cortesia_filter=_skip_cortesia_filter,
                 )
 
             # Query 2: receita — mesmo padrão de partida (sales_order com índice created_at)
