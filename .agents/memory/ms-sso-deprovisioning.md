@@ -8,31 +8,42 @@ description: How Entra ID SSO accounts are deprovisioned and how the local break
 The app supports SSO-only login via Microsoft Entra ID plus a daily directory sync.
 A few non-obvious rules keep deprovisioning airtight without locking out emergency access.
 
-## Rule: a Microsoft-managed account must never be able to log in locally
-Three layers enforce this together — changing any one in isolation reopens a bypass:
+## Rule: a Microsoft-managed account must never be able to log in locally — UNLESS it is explicit break-glass
+By default, three layers enforce SSO-only — changing any one in isolation reopens a bypass:
 1. On adoption (an Entra user matching a local account by email), the sync/login sets
    `auth_provider='microsoft'` AND zeroes `senha_hash`.
 2. `/auth/login` hard-rejects any account with `auth_provider=='microsoft'` BEFORE the
    password check — so even a residual `senha_hash` can't be used.
-3. The sync deactivates Microsoft accounts uniformly (no admin exemption) on
-   `accountEnabled=false` or when the oid disappears from the directory, and invalidates
-   their sessions.
+3. The sync deactivates Microsoft accounts on `accountEnabled=false` or when the oid
+   disappears from the directory, and invalidates their sessions.
 
-**Why:** an earlier attempt exempted `is_admin` accounts from deactivation as a
-"break-glass safety net." Combined with adopted accounts keeping their `senha_hash`,
-that let a disabled/removed Entra admin still authenticate via local password — a
-directory-deprovisioning bypass. The fix is to NOT special-case admins in the sync.
+The single sanctioned exception is the per-account boolean `dim_usuario.permite_login_local`
+(break-glass / dual login). When True, ALL THREE layers skip the account: adoption and sync
+do NOT zero `senha_hash`, `/auth/login` allows the password path even with
+`auth_provider=='microsoft'`, and the sync never deactivates it (excluded from the
+disabled-branch and from the orphan-SSO query). Net effect: that account logs in BOTH via
+Microsoft (ms_oid stays linked) AND via emergency password.
+
+**Why:** an earlier attempt exempted `is_admin` accounts broadly — that was wrong because it
+was implicit and class-wide, letting any disabled/removed Entra admin bypass deprovisioning.
+The correct shape is an EXPLICIT, opt-in, per-account flag (not a role), so the bypass is a
+deliberate operator decision on one named account, not an automatic property of a role.
+
+**How to apply:** to restore/create a break-glass account, set `permite_login_local=True` and
+give it a `senha_hash`. Keep the set of flagged accounts tiny and audited. If you add new
+deprovisioning/zeroing logic to the sync or login, it MUST honor this flag too or it silently
+breaks emergency access (or reopens a class-wide bypass).
 
 Also: the manual sync trigger (`POST /admin/usuarios/sincronizar-microsoft`) is a
 mutating/deprovisioning action — guard it with `require_permission(..., "pode_editar")`,
 not the default read permission, or read-only users can deactivate accounts.
 
-## Rule: break-glass = a local account kept OUT of the Entra directory
-**Why:** the sync only ever touches `auth_provider=='microsoft'` accounts. A dedicated
-local admin (the seed admin) whose email is NOT in the directory is never adopted, never
-deactivated, and keeps its password — so it always works. Do not try to protect
-break-glass by exempting admins inside the sync logic; protect it by keeping the account
-out of the directory.
+## Note: break-glass no longer requires keeping the account OUT of the directory
+Previously the only break-glass recipe was "a local admin whose email is NOT in Entra" (so the
+sync never touches it). That still works, but it fails the moment the person's real corporate
+email IS in the directory (the sync adopts it, zeroes the senha, sets microsoft → emergency
+login breaks). The `permite_login_local` flag supersedes that: a directory-managed account can
+now be break-glass without being pulled out of Entra.
 
 ## Login-CSRF defense on the SSO callback
 The SSO `state` is double-submitted: stored in an HttpOnly/Secure/SameSite=Lax cookie
