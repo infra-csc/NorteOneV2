@@ -1,4 +1,5 @@
 import io
+import logging
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import Response as RawResponse
 from sqlalchemy.orm import Session, joinedload
@@ -9,6 +10,8 @@ from ...models.user import Usuario
 from ...models.perfil_acesso import PerfilAcesso
 from ...models.dimensoes import DimCentroCusto
 from ...schemas.auth import UserCreate, UserUpdate, UserResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/users", tags=["Usuários"])
 
@@ -26,6 +29,7 @@ def _user_to_response(user: Usuario) -> dict:
         "auth_provider": user.auth_provider or "local",
         "recebe_alertas_corte": user.recebe_alertas_corte or False,
         "recebe_insights_nori": user.recebe_insights_nori or False,
+        "permite_login_local": user.permite_login_local or False,
     }
 
 
@@ -89,9 +93,22 @@ def update_user(
 
     update_data = user_update.model_dump(exclude_unset=True)
 
+    prev_emergencia = bool(user.permite_login_local)
+    nova_emergencia = update_data.get("permite_login_local", prev_emergencia)
+    nova_senha = update_data.get("password") or None
+
+    # Ao ativar o acesso de emergência, a conta precisa de uma senha local —
+    # caso contrário o caminho de login por senha (break-glass) fica inutilizável,
+    # especialmente em contas Microsoft cujo senha_hash foi zerado pela sincronização.
+    if nova_emergencia and not prev_emergencia and not nova_senha and not user.senha_hash:
+        raise HTTPException(
+            status_code=400,
+            detail="Defina uma senha de emergência ao ativar o acesso de emergência.",
+        )
+
     if "password" in update_data and update_data["password"]:
         user.senha_hash = get_password_hash(update_data["password"])
-        del update_data["password"]
+    update_data.pop("password", None)
 
     was_active = user.ativo
     for field, value in update_data.items():
@@ -102,6 +119,27 @@ def update_user(
 
     db.commit()
     db.refresh(user)
+
+    # Auditoria (quem/quando): registra ativação/desativação do acesso de
+    # emergência e a redefinição da senha de emergência feita por um admin.
+    if nova_emergencia != prev_emergencia:
+        logger.info(
+            "[AUDITORIA] Acesso de emergência %s para usuário id=%s (%s) por admin id=%s (%s)",
+            "ATIVADO" if nova_emergencia else "DESATIVADO",
+            user.id,
+            user.email,
+            current_user.id,
+            current_user.email,
+        )
+    if nova_emergencia and nova_senha:
+        logger.info(
+            "[AUDITORIA] Senha de emergência redefinida para usuário id=%s (%s) por admin id=%s (%s)",
+            user.id,
+            user.email,
+            current_user.id,
+            current_user.email,
+        )
+
     user = db.query(Usuario).options(joinedload(Usuario.perfil_acesso_rel)).filter(Usuario.id == user.id).first()
     return _user_to_response(user)
 

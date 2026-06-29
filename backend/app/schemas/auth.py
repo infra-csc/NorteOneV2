@@ -27,6 +27,7 @@ class UserUpdate(BaseModel):
     password: Optional[str] = None
     recebe_alertas_corte: Optional[bool] = None
     recebe_insights_nori: Optional[bool] = None
+    permite_login_local: Optional[bool] = None
 
 class UserResponse(BaseModel):
     id: int
@@ -40,6 +41,7 @@ class UserResponse(BaseModel):
     auth_provider: str = "local"
     recebe_alertas_corte: bool = False
     recebe_insights_nori: bool = False
+    permite_login_local: bool = False
     foto_perfil: Optional[str] = None
 
     class Config:

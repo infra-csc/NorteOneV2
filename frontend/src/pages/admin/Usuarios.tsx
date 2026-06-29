@@ -52,6 +52,7 @@ interface Usuario {
   auth_provider?: string;
   recebe_alertas_corte: boolean;
   recebe_insights_nori: boolean;
+  permite_login_local: boolean;
 }
 
 interface UsuarioForm {
@@ -63,6 +64,7 @@ interface UsuarioForm {
   ativo: boolean;
   recebe_alertas_corte: boolean;
   recebe_insights_nori: boolean;
+  permite_login_local: boolean;
 }
 
 const Usuarios: React.FC = () => {
@@ -87,7 +89,8 @@ const Usuarios: React.FC = () => {
     centro_custo_id: null,
     ativo: true,
     recebe_alertas_corte: false,
-    recebe_insights_nori: false
+    recebe_insights_nori: false,
+    permite_login_local: false
   });
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -193,7 +196,8 @@ const Usuarios: React.FC = () => {
       centro_custo_id: null,
       ativo: true,
       recebe_alertas_corte: false,
-      recebe_insights_nori: false
+      recebe_insights_nori: false,
+      permite_login_local: false
     });
     setFormError(null);
     setShowModal(true);
@@ -209,7 +213,8 @@ const Usuarios: React.FC = () => {
       centro_custo_id: user.centro_custo_id,
       ativo: user.ativo,
       recebe_alertas_corte: user.recebe_alertas_corte,
-      recebe_insights_nori: user.recebe_insights_nori
+      recebe_insights_nori: user.recebe_insights_nori,
+      permite_login_local: user.permite_login_local
     });
     setFormError(null);
     setShowModal(true);
@@ -222,13 +227,19 @@ const Usuarios: React.FC = () => {
 
     try {
       if (editingUser) {
+        if (formData.permite_login_local && !editingUser.permite_login_local && !formData.password) {
+          setFormError('Defina uma senha de emergência ao ativar o acesso de emergência.');
+          setSaving(false);
+          return;
+        }
         const updateData: any = {
           nome: formData.nome,
           perfil_acesso_id: formData.perfil_acesso_id,
           centro_custo_id: formData.centro_custo_id,
           ativo: formData.ativo,
           recebe_alertas_corte: formData.recebe_alertas_corte,
-          recebe_insights_nori: formData.recebe_insights_nori
+          recebe_insights_nori: formData.recebe_insights_nori,
+          permite_login_local: formData.permite_login_local
         };
         if (formData.password) {
           updateData.password = formData.password;
@@ -605,20 +616,31 @@ const Usuarios: React.FC = () => {
                               </div>
                               <div className="flex flex-col min-w-0">
                                 <span className="font-medium truncate">{user.nome}</span>
-                                {user.auth_provider === 'microsoft' && (
-                                  <span
-                                    className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium text-sky-400"
-                                    title="Conta gerenciada pelo Microsoft Entra ID (SSO)"
-                                  >
-                                    <svg className="w-2.5 h-2.5" viewBox="0 0 21 21" aria-hidden="true">
-                                      <rect x="1" y="1" width="9" height="9" fill="#f25022" />
-                                      <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
-                                      <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
-                                      <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
-                                    </svg>
-                                    Microsoft
-                                  </span>
-                                )}
+                                <div className="flex items-center gap-2">
+                                  {user.auth_provider === 'microsoft' && (
+                                    <span
+                                      className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium text-sky-400"
+                                      title="Conta gerenciada pelo Microsoft Entra ID (SSO)"
+                                    >
+                                      <svg className="w-2.5 h-2.5" viewBox="0 0 21 21" aria-hidden="true">
+                                        <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+                                        <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+                                        <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+                                        <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+                                      </svg>
+                                      Microsoft
+                                    </span>
+                                  )}
+                                  {user.permite_login_local && (
+                                    <span
+                                      className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium text-rose-400"
+                                      title="Acesso de emergência (break-glass): login por senha permitido mesmo em contas Microsoft"
+                                    >
+                                      <ShieldCheck className="w-2.5 h-2.5" />
+                                      Emergência
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -838,6 +860,45 @@ const Usuarios: React.FC = () => {
                       </>
                     )}
                   </div>
+                </div>
+              )}
+
+              {editingUser && (
+                <div className={`p-4 rounded-lg border ${isDark ? 'bg-rose-950/20 border-rose-800/40' : 'bg-rose-50 border-rose-200'}`}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className={`flex items-center gap-1.5 text-sm font-medium ${isDark ? 'text-rose-300' : 'text-rose-900'}`}>
+                        <ShieldCheck className="w-4 h-4" />
+                        Acesso de emergência
+                      </label>
+                      <p className={`text-xs mt-0.5 ${isDark ? 'text-rose-400/70' : 'text-rose-700'}`}>
+                        Permite login por senha mesmo em contas Microsoft (break-glass). A sincronização nunca desativa nem zera a senha desta conta.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, permite_login_local: !formData.permite_login_local })}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${
+                        formData.permite_login_local ? 'bg-rose-500' : 'bg-gray-400'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          formData.permite_login_local ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                  {formData.permite_login_local && (
+                    <div className={`mt-3 flex items-start gap-2 text-xs ${isDark ? 'text-rose-300/80' : 'text-rose-700'}`}>
+                      <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                      <span>
+                        {editingUser.permite_login_local
+                          ? 'Acesso de emergência ativo. Para trocar a senha de emergência, preencha o campo de senha acima.'
+                          : 'Ao ativar, defina uma senha de emergência no campo "Nova Senha" acima — ela será usada no login por senha.'}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
 
