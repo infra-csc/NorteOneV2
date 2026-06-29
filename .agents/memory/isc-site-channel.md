@@ -78,3 +78,27 @@ price join) for performance; residual mismatch vs the daily count is bounded by
 the max() alignment (daily Site already correct), so only over-counts could
 inflate — acceptable trade-off. After deploy, reconsolidate snapshots so the
 stored `qtd_inscricoes` is rewritten (mapped bundles use EXCLUDED replace).
+
+# An already-inflated event can persist AFTER the count code is fixed
+
+Displayed inscritos = `max(vendas_site, kit_table, isc_cache)` and every alignment
+only raises, never lowers — so ONE stale-high source pins the whole display. After
+the Site-only COUNT fix is live, an event can still show the old number because two
+*stored* artifacts hold it and neither self-heals downward:
+- The per-bundle margem snapshot (`margem_bundle_rev_snapshot.qtd_inscricoes`),
+  the kit-table source. A live `get_margem_por_kit(force_refresh=True)` proves the
+  *code* is correct (returns Site-only total) — but it does NOT write back; only
+  the daily batch (`sincronizar_margem_bundle_rev_batch`) persists it. The
+  per-event "Reconsolidar" rebuilds vendas only, NOT the margem snapshot.
+- The completed-event `evento_detail_snapshot` (EDS) row, which is frozen by an
+  `is_completed` guard and skipped by `refresh_active_event_details`.
+
+**Why this is the trap:** rebuilding vendas / "reconsolidar" does nothing because
+vendas is already correct; and deleting the EDS alone is unsafe — if you reopen the
+detail while the margem snapshot is still stale-high, the upward kit-alignment
+re-persists the inflated EDS.
+
+**Durable fix order (no deploy):** persist the margem snapshot first (run the full
+daily job, not per-event reconsolidar), THEN delete the EDS row, THEN force-refresh
+the detail so it re-persists from the corrected kit table. A plain SQL delete won't
+invalidate the in-memory detail cache, so the first read must be a force-refresh.
