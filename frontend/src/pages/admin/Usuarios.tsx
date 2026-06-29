@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { useTheme } from '../../context/ThemeContext';
 import api, { adminService } from '../../services/api';
 import { 
@@ -150,18 +151,31 @@ const Usuarios: React.FC = () => {
     return centro?.nome || '-';
   };
 
-  const filteredUsuarios = usuarios.filter(user => {
-    const matchesSearch = !search || 
-      user.nome.toLowerCase().includes(search.toLowerCase()) ||
-      user.email.toLowerCase().includes(search.toLowerCase());
-    const matchesPerfilAcesso = filterPerfilAcesso === 'todos' || 
-      (filterPerfilAcesso === 'sem_perfil' ? !user.perfil_acesso_id : user.perfil_acesso_id === parseInt(filterPerfilAcesso));
-    const matchesCentro = filterCentroCusto === 'todos' || 
-      (filterCentroCusto === 'sem_centro' ? !user.centro_custo_id : user.centro_custo_id === parseInt(filterCentroCusto));
-    const matchesStatus = filterStatus === 'todos' || 
-      (filterStatus === 'ativos' ? user.ativo : !user.ativo);
-    return matchesSearch && matchesPerfilAcesso && matchesCentro && matchesStatus;
+  const filteredUsuarios = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return usuarios.filter(user => {
+      const matchesSearch = !term ||
+        user.nome.toLowerCase().includes(term) ||
+        user.email.toLowerCase().includes(term);
+      const matchesPerfilAcesso = filterPerfilAcesso === 'todos' ||
+        (filterPerfilAcesso === 'sem_perfil' ? !user.perfil_acesso_id : user.perfil_acesso_id === parseInt(filterPerfilAcesso));
+      const matchesCentro = filterCentroCusto === 'todos' ||
+        (filterCentroCusto === 'sem_centro' ? !user.centro_custo_id : user.centro_custo_id === parseInt(filterCentroCusto));
+      const matchesStatus = filterStatus === 'todos' ||
+        (filterStatus === 'ativos' ? user.ativo : !user.ativo);
+      return matchesSearch && matchesPerfilAcesso && matchesCentro && matchesStatus;
+    });
+  }, [usuarios, search, filterPerfilAcesso, filterCentroCusto, filterStatus]);
+
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: filteredUsuarios.length,
+    getScrollElement: () => tableScrollRef.current,
+    estimateSize: () => 73,
+    overscan: 12,
   });
+  const gridTemplate = 'minmax(240px, 2fr) minmax(220px, 2fr) minmax(180px, 1.3fr) minmax(160px, 1.2fr) 120px 120px';
+  const gridMinWidth = 1040;
 
   const getPerfilAcessoNome = (id: number | null) => {
     if (!id) return '-';
@@ -532,138 +546,146 @@ const Usuarios: React.FC = () => {
 
         <div className={`rounded-xl ${isDark ? 'bg-gray-800/80' : 'bg-white'} shadow-lg backdrop-blur-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'} overflow-hidden`}>
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className={isDark ? 'bg-gray-700/50' : 'bg-gray-100'}>
-                <tr>
-                  <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
-                    Usuário
-                  </th>
-                  <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
-                    Email
-                  </th>
-                  <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
-                    Perfil de Acesso
-                  </th>
-                  <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
-                    Centro de Custo
-                  </th>
-                  <th className={`px-6 py-3 text-center text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
-                    Status
-                  </th>
-                  <th className={`px-6 py-3 text-center text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
-                    Ações
-                  </th>
-                </tr>
-              </thead>
-              <tbody className={`divide-y ${isDark ? 'divide-gray-700' : 'divide-gray-200'}`}>
-                {loading ? (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center">
-                      <RefreshCw className={`w-8 h-8 mx-auto animate-spin ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
-                      <p className={`mt-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Carregando usuários...</p>
-                    </td>
-                  </tr>
-                ) : filteredUsuarios.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center">
-                      <Users className={`w-8 h-8 mx-auto ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
-                      <p className={`mt-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Nenhum usuário encontrado</p>
-                    </td>
-                  </tr>
-                ) : (
-                  filteredUsuarios.map((user) => (
-                    <tr 
-                      key={user.id}
-                      className={`${isDark ? 'hover:bg-gray-700/50' : 'hover:bg-gray-50'} transition-colors`}
-                    >
-                      <td className={`px-6 py-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`}>
-                            <span className="font-medium">
-                              {user.nome.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
-                            </span>
-                          </div>
-                          <div className="flex flex-col">
-                            <span className="font-medium">{user.nome}</span>
-                            {user.auth_provider === 'microsoft' && (
-                              <span
-                                className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium text-sky-400"
-                                title="Conta gerenciada pelo Microsoft Entra ID (SSO)"
-                              >
-                                <svg className="w-2.5 h-2.5" viewBox="0 0 21 21" aria-hidden="true">
-                                  <rect x="1" y="1" width="9" height="9" fill="#f25022" />
-                                  <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
-                                  <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
-                                  <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
-                                </svg>
-                                Microsoft
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      <td className={`px-6 py-4 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
-                        {user.email}
-                      </td>
-                      <td className={`px-6 py-4 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
-                        <div className="flex items-center gap-2">
-                          <ShieldCheck className="w-4 h-4 text-indigo-400" />
-                          <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getPerfilBadgeColor(user.is_admin)}`}>
-                            {user.perfil_acesso_nome || 'Sem perfil'}
-                          </span>
-                        </div>
-                      </td>
-                      <td className={`px-6 py-4 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
-                        <div className="flex items-center gap-2">
-                          <Building2 className="w-4 h-4 text-gray-400" />
-                          {getCentroCustoNome(user.centro_custo_id)}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <button
-                          onClick={() => handleToggleStatus(user)}
-                          className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium ${
-                            user.ativo
-                              ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
-                              : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
-                          } transition-colors`}
+            <div style={{ minWidth: gridMinWidth }} role="table" aria-label="Usuários" aria-rowcount={filteredUsuarios.length}>
+              <div
+                role="row"
+                className={`grid ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}
+                style={{ gridTemplateColumns: gridTemplate }}
+              >
+                <div role="columnheader" className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Usuário</div>
+                <div role="columnheader" className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Email</div>
+                <div role="columnheader" className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Perfil de Acesso</div>
+                <div role="columnheader" className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Centro de Custo</div>
+                <div role="columnheader" className={`px-6 py-3 text-center text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Status</div>
+                <div role="columnheader" className={`px-6 py-3 text-center text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Ações</div>
+              </div>
+
+              {loading ? (
+                <div className="px-6 py-12 text-center">
+                  <RefreshCw className={`w-8 h-8 mx-auto animate-spin ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+                  <p className={`mt-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Carregando usuários...</p>
+                </div>
+              ) : filteredUsuarios.length === 0 ? (
+                <div className="px-6 py-12 text-center">
+                  <Users className={`w-8 h-8 mx-auto ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
+                  <p className={`mt-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Nenhum usuário encontrado</p>
+                </div>
+              ) : (
+                <div
+                  ref={tableScrollRef}
+                  role="rowgroup"
+                  className="overflow-y-auto"
+                  style={{ maxHeight: 'calc(100vh - 340px)', scrollbarGutter: 'stable' }}
+                >
+                  <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative', width: '100%' }}>
+                    {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                      const user = filteredUsuarios[virtualRow.index];
+                      return (
+                        <div
+                          key={user.id}
+                          role="row"
+                          aria-rowindex={virtualRow.index + 1}
+                          className={`grid items-center border-b ${isDark ? 'border-gray-700 hover:bg-gray-700/50' : 'border-gray-200 hover:bg-gray-50'} transition-colors`}
+                          style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            width: '100%',
+                            height: `${virtualRow.size}px`,
+                            transform: `translateY(${virtualRow.start}px)`,
+                            gridTemplateColumns: gridTemplate,
+                          }}
                         >
-                          {user.ativo ? (
-                            <>
-                              <CheckCircle className="w-3 h-3" />
-                              Ativo
-                            </>
-                          ) : (
-                            <>
-                              <XCircle className="w-3 h-3" />
-                              Inativo
-                            </>
-                          )}
-                        </button>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center justify-center gap-2">
-                          <button
-                            onClick={() => openEditModal(user)}
-                            className={`p-2 rounded-lg ${isDark ? 'hover:bg-gray-700 text-gray-400 hover:text-white' : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'} transition-colors`}
-                            title="Editar usuário"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(user)}
-                            className={`p-2 rounded-lg ${isDark ? 'hover:bg-red-500/20 text-gray-400 hover:text-red-400' : 'hover:bg-red-100 text-gray-500 hover:text-red-600'} transition-colors`}
-                            title="Desativar usuário"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <div role="cell" className={`px-6 py-2 min-w-0 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`}>
+                                <span className="font-medium">
+                                  {user.nome.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                                </span>
+                              </div>
+                              <div className="flex flex-col min-w-0">
+                                <span className="font-medium truncate">{user.nome}</span>
+                                {user.auth_provider === 'microsoft' && (
+                                  <span
+                                    className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium text-sky-400"
+                                    title="Conta gerenciada pelo Microsoft Entra ID (SSO)"
+                                  >
+                                    <svg className="w-2.5 h-2.5" viewBox="0 0 21 21" aria-hidden="true">
+                                      <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+                                      <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+                                      <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+                                      <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+                                    </svg>
+                                    Microsoft
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div role="cell" className={`px-6 py-2 min-w-0 truncate ${isDark ? 'text-gray-300' : 'text-gray-600'}`} title={user.email}>
+                            {user.email}
+                          </div>
+                          <div role="cell" className={`px-6 py-2 min-w-0 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                            <div className="flex items-center gap-2 min-w-0">
+                              <ShieldCheck className="shrink-0 w-4 h-4 text-indigo-400" />
+                              <span className={`truncate px-3 py-1 rounded-full text-xs font-medium border ${getPerfilBadgeColor(user.is_admin)}`}>
+                                {user.perfil_acesso_nome || 'Sem perfil'}
+                              </span>
+                            </div>
+                          </div>
+                          <div role="cell" className={`px-6 py-2 min-w-0 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                            <div className="flex items-center gap-2 min-w-0">
+                              <Building2 className="shrink-0 w-4 h-4 text-gray-400" />
+                              <span className="truncate">{getCentroCustoNome(user.centro_custo_id)}</span>
+                            </div>
+                          </div>
+                          <div role="cell" className="px-6 py-2 text-center">
+                            <button
+                              onClick={() => handleToggleStatus(user)}
+                              className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium ${
+                                user.ativo
+                                  ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
+                                  : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
+                              } transition-colors`}
+                            >
+                              {user.ativo ? (
+                                <>
+                                  <CheckCircle className="w-3 h-3" />
+                                  Ativo
+                                </>
+                              ) : (
+                                <>
+                                  <XCircle className="w-3 h-3" />
+                                  Inativo
+                                </>
+                              )}
+                            </button>
+                          </div>
+                          <div role="cell" className="px-6 py-2">
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => openEditModal(user)}
+                                className={`p-2 rounded-lg ${isDark ? 'hover:bg-gray-700 text-gray-400 hover:text-white' : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'} transition-colors`}
+                                title="Editar usuário"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDelete(user)}
+                                className={`p-2 rounded-lg ${isDark ? 'hover:bg-red-500/20 text-gray-400 hover:text-red-400' : 'hover:bg-red-100 text-gray-500 hover:text-red-600'} transition-colors`}
+                                title="Desativar usuário"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
                         </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
