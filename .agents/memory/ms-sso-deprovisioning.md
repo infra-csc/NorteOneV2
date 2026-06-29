@@ -21,7 +21,11 @@ Three layers enforce this together — changing any one in isolation reopens a b
 **Why:** an earlier attempt exempted `is_admin` accounts from deactivation as a
 "break-glass safety net." Combined with adopted accounts keeping their `senha_hash`,
 that let a disabled/removed Entra admin still authenticate via local password — a
-directory-deprovisioning bypass. The fix is to NOT special-case admins here.
+directory-deprovisioning bypass. The fix is to NOT special-case admins in the sync.
+
+Also: the manual sync trigger (`POST /admin/usuarios/sincronizar-microsoft`) is a
+mutating/deprovisioning action — guard it with `require_permission(..., "pode_editar")`,
+not the default read permission, or read-only users can deactivate accounts.
 
 ## Rule: break-glass = a local account kept OUT of the Entra directory
 **Why:** the sync only ever touches `auth_provider=='microsoft'` accounts. A dedicated
