@@ -18,6 +18,8 @@ ou seja, que o teste falharia se a exceção break-glass fosse aplicada larga
 demais.
 """
 
+from datetime import datetime, timedelta
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -70,6 +72,23 @@ class _Form:
     def __init__(self, username: str, password: str):
         self.username = username
         self.password = password
+
+
+def _seed_session(db, user: Usuario, *, n: int = 1) -> None:
+    """Cria ``n`` sessões ativas (linhas de user_sessions) para o usuário."""
+    for i in range(n):
+        db.add(
+            UserSession(
+                user_id=user.id,
+                jti=f"jti-{user.id}-{i}",
+                expires_at=datetime.utcnow() + timedelta(hours=8),
+            )
+        )
+    db.commit()
+
+
+def _session_count(db, user_id: int) -> int:
+    return db.query(UserSession).filter(UserSession.user_id == user_id).count()
 
 
 def _make_break_glass_user(db, *, ativo: bool = True, ms_oid: str = "oid-bg") -> Usuario:
@@ -327,3 +346,127 @@ def test_sync_deactivates_non_break_glass_missing_from_directory(db, monkeypatch
 
     assert user.ativo is False
     assert resumo["desativados"] == 1
+
+
+# ---------------------------------------------------------------------------
+# (4) Desativação derruba as sessões ativas na hora (desprovisão crítica)
+# ---------------------------------------------------------------------------
+
+
+def test_sync_invalidates_sessions_when_account_disabled_in_directory(db, monkeypatch):
+    """Conta SSO comum reportada accountEnabled=false pelo diretório: além de
+    desativada, TODAS as suas linhas de user_sessions são removidas (o ex-
+    funcionário não continua com sessão válida até o token expirar)."""
+    user = Usuario(
+        email="comum@empresa.com",
+        nome="Usuário Comum",
+        senha_hash=None,
+        ms_oid="oid-comum",
+        auth_provider="microsoft",
+        permite_login_local=False,
+        ativo=True,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    _seed_session(db, user, n=3)
+    assert _session_count(db, user.id) == 3
+
+    monkeypatch.setattr(ms_directory_sync, "resolve_default_perfil_id", lambda _db: None)
+    monkeypatch.setattr(
+        ms_directory_sync,
+        "list_directory_users",
+        lambda: [
+            {
+                "id": "oid-comum",
+                "mail": "comum@empresa.com",
+                "displayName": "Usuário Comum",
+                "accountEnabled": False,
+            }
+        ],
+    )
+
+    resumo = ms_directory_sync.sincronizar_diretorio_microsoft(db)
+    db.refresh(user)
+
+    assert user.ativo is False
+    assert resumo["desativados"] == 1
+    # Sessões derrubadas na hora.
+    assert _session_count(db, user.id) == 0
+
+
+def test_sync_invalidates_sessions_when_account_missing_from_directory(db, monkeypatch):
+    """Conta SSO comum que some do diretório (órfã): é desativada E tem as
+    sessões removidas no mesmo passo."""
+    user = Usuario(
+        email="comum@empresa.com",
+        nome="Usuário Comum",
+        senha_hash=None,
+        ms_oid="oid-orfao",
+        auth_provider="microsoft",
+        permite_login_local=False,
+        ativo=True,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    _seed_session(db, user, n=2)
+    assert _session_count(db, user.id) == 2
+
+    monkeypatch.setattr(ms_directory_sync, "resolve_default_perfil_id", lambda _db: None)
+    monkeypatch.setattr(ms_directory_sync, "list_directory_users", lambda: [])
+
+    resumo = ms_directory_sync.sincronizar_diretorio_microsoft(db)
+    db.refresh(user)
+
+    assert user.ativo is False
+    assert resumo["desativados"] == 1
+    assert _session_count(db, user.id) == 0
+
+
+def test_sync_keeps_break_glass_sessions_when_disabled_in_directory(db, monkeypatch):
+    """Contraste: conta break-glass reportada como desabilitada no diretório
+    permanece ativa E mantém suas sessões — não sofre desprovisão."""
+    user = _make_break_glass_user(db, ms_oid="oid-bg")
+    _seed_session(db, user, n=2)
+    assert _session_count(db, user.id) == 2
+
+    monkeypatch.setattr(ms_directory_sync, "resolve_default_perfil_id", lambda _db: None)
+    monkeypatch.setattr(
+        ms_directory_sync,
+        "list_directory_users",
+        lambda: [
+            {
+                "id": "oid-bg",
+                "mail": "emergencia@empresa.com",
+                "displayName": "Admin Emergência",
+                "accountEnabled": False,
+            }
+        ],
+    )
+
+    resumo = ms_directory_sync.sincronizar_diretorio_microsoft(db)
+    db.refresh(user)
+
+    assert user.ativo is True
+    assert resumo["desativados"] == 0
+    # Sessões de emergência preservadas.
+    assert _session_count(db, user.id) == 2
+
+
+def test_sync_keeps_break_glass_sessions_when_missing_from_directory(db, monkeypatch):
+    """Contraste: conta break-glass que some do diretório mantém ativa e
+    sessões (a query de órfãos exclui break-glass)."""
+    user = _make_break_glass_user(db, ms_oid="oid-some")
+    _seed_session(db, user, n=2)
+    assert _session_count(db, user.id) == 2
+
+    monkeypatch.setattr(ms_directory_sync, "resolve_default_perfil_id", lambda _db: None)
+    monkeypatch.setattr(ms_directory_sync, "list_directory_users", lambda: [])
+
+    resumo = ms_directory_sync.sincronizar_diretorio_microsoft(db)
+    db.refresh(user)
+
+    assert user.ativo is True
+    assert resumo["desativados"] == 0
+    assert _session_count(db, user.id) == 2
