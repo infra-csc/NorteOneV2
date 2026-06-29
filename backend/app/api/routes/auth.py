@@ -231,6 +231,7 @@ def get_me(current_user: Usuario = Depends(get_current_user)):
         "perfil_acesso_nome": current_user.perfil_acesso_rel.nome if current_user.perfil_acesso_rel else None,
         "is_admin": current_user.perfil_acesso_rel.is_admin if current_user.perfil_acesso_rel else False,
         "centro_custo_id": current_user.centro_custo_id,
+        "auth_provider": current_user.auth_provider,
         "ativo": current_user.ativo,
         "recebe_alertas_corte": current_user.recebe_alertas_corte or False,
         "recebe_insights_nori": current_user.recebe_insights_nori or False,

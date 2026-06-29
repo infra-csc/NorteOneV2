@@ -284,7 +284,7 @@ def get_user_activity(
 @router.post("/usuarios/sincronizar-microsoft")
 def trigger_ms_directory_sync(
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_permission("admin_usuarios")),
+    current_user: Usuario = Depends(require_permission("admin_usuarios", "pode_editar")),
 ):
     """Dispara manualmente a sincronização do diretório Microsoft Entra ID.
 
