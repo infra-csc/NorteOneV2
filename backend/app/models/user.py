@@ -18,6 +18,11 @@ class Usuario(Base):
     ms_oid = Column(String(100), nullable=True, unique=True, index=True)
     # Origem/forma de autenticação: 'local' (e-mail+senha) ou 'microsoft' (SSO).
     auth_provider = Column(String(20), nullable=False, default="local")
+    # Break-glass / acesso de emergência: quando True, a conta pode autenticar
+    # por SENHA local MESMO sendo gerenciada pelo diretório (auth_provider=
+    # 'microsoft'), e a sincronização NUNCA zera a senha nem a desativa. Permite
+    # login duplo (Microsoft + emergência) para administradores de contingência.
+    permite_login_local = Column(Boolean, nullable=False, default=False)
     # Último instante em que a conta foi reconciliada com o diretório Microsoft.
     ms_synced_at = Column(DateTime, nullable=True)
     perfil_acesso_id = Column(Integer, ForeignKey("perfil_acesso.id"), nullable=True, index=True)

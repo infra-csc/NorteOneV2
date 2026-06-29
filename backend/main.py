@@ -1462,6 +1462,7 @@ def _run_column_migrations():
             "ALTER TABLE dim_usuario ADD COLUMN IF NOT EXISTS ms_oid VARCHAR(100)",
             "ALTER TABLE dim_usuario ADD COLUMN IF NOT EXISTS auth_provider VARCHAR(20) DEFAULT 'local' NOT NULL",
             "ALTER TABLE dim_usuario ADD COLUMN IF NOT EXISTS ms_synced_at TIMESTAMP",
+            "ALTER TABLE dim_usuario ADD COLUMN IF NOT EXISTS permite_login_local BOOLEAN DEFAULT FALSE NOT NULL",
             "CREATE UNIQUE INDEX IF NOT EXISTS ix_dim_usuario_ms_oid ON dim_usuario (ms_oid)",
             "ALTER TABLE system_health_events ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP WITH TIME ZONE",
             "ALTER TABLE system_health_events ADD COLUMN IF NOT EXISTS resolved_by VARCHAR(255)",

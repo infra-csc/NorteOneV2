@@ -119,7 +119,9 @@ def find_or_provision_user(db: Session, ms_oid: str, email: str, nome: str) -> U
             existing.auth_provider = "microsoft"
             # A conta passa a ser gerenciada pelo diretório: zera a senha local
             # para que não exista caminho de login que contorne a desprovisão.
-            existing.senha_hash = None
+            # EXCEÇÃO: contas break-glass preservam a senha (acesso de emergência).
+            if not existing.permite_login_local:
+                existing.senha_hash = None
             existing.ms_synced_at = datetime.utcnow()
             if nome and existing.nome != nome:
                 existing.nome = nome
@@ -196,7 +198,9 @@ def sincronizar_diretorio_microsoft(db: Session) -> dict:
         if not user.ms_oid:
             user.ms_oid = oid
             user.auth_provider = "microsoft"
-            user.senha_hash = None
+            # Break-glass preserva a senha de emergência; demais zeram.
+            if not user.permite_login_local:
+                user.senha_hash = None
             was_adopted = True
             adotados += 1
 
@@ -213,7 +217,8 @@ def sincronizar_diretorio_microsoft(db: Session) -> dict:
             user.ativo = True
             reativados += 1
             changed = True
-        elif not enabled and user.ativo:
+        elif not enabled and user.ativo and not user.permite_login_local:
+            # Break-glass nunca é desativada pelo diretório (acesso de emergência).
             user.ativo = False
             desativados += 1
             changed = True
@@ -224,12 +229,14 @@ def sincronizar_diretorio_microsoft(db: Session) -> dict:
             atualizados += 1
 
     # Contas SSO que sumiram do diretório → desativar.
+    # Break-glass (permite_login_local) é excluída: nunca desativada pelo sync.
     orphan_sso = (
         db.query(Usuario)
         .filter(
             Usuario.auth_provider == "microsoft",
             Usuario.ms_oid.isnot(None),
             Usuario.ativo == True,  # noqa: E712
+            Usuario.permite_login_local == False,  # noqa: E712
         )
         .all()
     )

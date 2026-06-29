@@ -86,7 +86,9 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     # Contas gerenciadas pela Microsoft NUNCA autenticam por senha local, mesmo
     # que ainda tenham senha_hash residual — assim a desprovisão no diretório
     # (desativar/remover) não pode ser contornada por login local.
-    if user and user.auth_provider == "microsoft":
+    # EXCEÇÃO: contas break-glass (permite_login_local=True) podem autenticar por
+    # senha mesmo sendo gerenciadas pelo diretório — acesso de emergência.
+    if user and user.auth_provider == "microsoft" and not user.permite_login_local:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Esta conta usa login Microsoft. Use \"Entrar com Microsoft\".",
