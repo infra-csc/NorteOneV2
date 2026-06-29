@@ -57,6 +57,19 @@ def _issue_session_token(user: Usuario, db: Session) -> str:
     return access_token
 
 
+def _public_base_url(request: Request) -> str:
+    """Origem pública da aplicação (scheme://host). Atrás do proxy/Vite o
+    `request.base_url` resolve para o host interno (ex.: localhost:8000), então
+    quando MS_REDIRECT_URI está configurado derivamos a origem dele — é a mesma
+    origem pública que a Microsoft usa para devolver o browser."""
+    configured = (settings.MS_REDIRECT_URI or "").strip()
+    if configured:
+        parts = urllib.parse.urlsplit(configured)
+        if parts.scheme and parts.netloc:
+            return f"{parts.scheme}://{parts.netloc}"
+    return str(request.base_url).rstrip("/")
+
+
 def _ms_redirect_uri(request: Request) -> str:
     """URL do callback do SSO. Usa MS_REDIRECT_URI quando configurado; caso
     contrário deriva do host da requisição. Deve bater EXATAMENTE com o Redirect
@@ -72,7 +85,7 @@ def _frontend_redirect(request: Request, *, token: str = "", error: str = "") ->
     """Redireciona o browser de volta ao frontend. Em sucesso, o token vai no
     fragmento (#token=...) para não cair em logs de servidor/proxy; em erro,
     como query (?sso_error=...)."""
-    base = str(request.base_url).rstrip("/")
+    base = _public_base_url(request)
     path = settings.MS_FRONTEND_REDIRECT_PATH or "/auth/microsoft/callback"
     if token:
         return RedirectResponse(url=f"{base}{path}#token={urllib.parse.quote(token)}", status_code=302)
