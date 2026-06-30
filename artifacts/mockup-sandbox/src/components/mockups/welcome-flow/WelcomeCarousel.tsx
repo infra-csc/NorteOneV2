@@ -32,7 +32,7 @@ const slides: Slide[] = [
   {
     id: "welcome",
     kind: "welcome",
-    title: "Bem-vindo ao DW Financeiro",
+    title: "Bem-vindo ao Norte One",
     subtitle:
       "Sua central única de dados para eventos. Em poucos passos, vamos te mostrar as ferramentas que vão facilitar o seu dia a dia.",
     icon: PartyPopper,
@@ -65,9 +65,9 @@ const slides: Slide[] = [
     id: "nori",
     kind: "nori",
     badge: "Passo 3",
-    title: "Conheça a Nori",
+    title: "Conheça o Nori",
     subtitle:
-      "Sua assistente virtual inteligente. Faça perguntas por texto ou voz e receba respostas instantâneas sobre os seus dados — quando quiser.",
+      "Seu assistente virtual inteligente. Faça perguntas por texto ou voz e receba respostas instantâneas sobre os seus dados — quando quiser.",
     icon: Sparkles,
     accent: "from-indigo-500 via-purple-500 to-pink-500",
     glow: "from-purple-500/30 to-pink-500/30",
@@ -266,7 +266,7 @@ export function WelcomeCarousel() {
                     Tudo pronto!
                   </h1>
                   <p className="mt-4 max-w-md text-base sm:text-lg text-gray-500 dark:text-gray-400">
-                    Você já conhece o essencial. Explore o sistema no seu ritmo — a Nori está sempre por perto se precisar de ajuda.
+                    Você já conhece o essencial. Explore o sistema no seu ritmo — o Nori está sempre por perto se precisar de ajuda.
                   </p>
                   <button
                     onClick={() => {
