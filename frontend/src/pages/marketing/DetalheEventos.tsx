@@ -403,7 +403,9 @@ const TreeRow: React.FC<TreeRowProps> = ({ node, dark, expanded, bankExpanded, o
               {node.label}
             </span>
             {node.hasDivergencia && (
-              <AlertTriangle className="w-3 h-3 text-amber-500 flex-shrink-0" title="Divergência detectada" />
+              <span title="Divergência detectada" className="flex-shrink-0 inline-flex">
+                <AlertTriangle className="w-3 h-3 text-amber-500" />
+              </span>
             )}
           </div>
         </td>
@@ -1111,7 +1113,7 @@ const DetalheEventos: React.FC = () => {
                 <BarChart data={canalChartData} barSize={32}>
                   <XAxis dataKey="canal" tick={{ fontSize: 11, fill: dark ? '#9ca3af' : '#6b7280' }} axisLine={false} tickLine={false} />
                   <YAxis hide />
-                  <Tooltip formatter={(v: number) => [fmt(v), 'Inscritos']} contentStyle={{ background: dark ? '#1f2937' : '#fff', border: 'none', borderRadius: 8, fontSize: 12 }} />
+                  <Tooltip formatter={(v: number | undefined) => [fmt(v ?? 0), 'Inscritos']} contentStyle={{ background: dark ? '#1f2937' : '#fff', border: 'none', borderRadius: 8, fontSize: 12 }} />
                   <Bar dataKey="inscritos" radius={[4, 4, 0, 0]}>
                     {canalChartData.map((entry, i) => <Cell key={i} fill={CANAL_COLORS[entry.canal] || CHART_COLORS[i % CHART_COLORS.length]} />)}
                   </Bar>
@@ -1124,7 +1126,7 @@ const DetalheEventos: React.FC = () => {
                 <BarChart data={modalidadeChartData.slice(0, 8)} layout="vertical" barSize={12}>
                   <XAxis type="number" hide />
                   <YAxis type="category" dataKey="name" width={80} tick={{ fontSize: 10, fill: dark ? '#9ca3af' : '#6b7280' }} axisLine={false} tickLine={false} />
-                  <Tooltip formatter={(v: number) => [fmt(v), 'Inscritos']} contentStyle={{ background: dark ? '#1f2937' : '#fff', border: 'none', borderRadius: 8, fontSize: 12 }} />
+                  <Tooltip formatter={(v: number | undefined) => [fmt(v ?? 0), 'Inscritos']} contentStyle={{ background: dark ? '#1f2937' : '#fff', border: 'none', borderRadius: 8, fontSize: 12 }} />
                   <Bar dataKey="value" radius={[0, 4, 4, 0]}>
                     {modalidadeChartData.slice(0, 8).map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
                   </Bar>
