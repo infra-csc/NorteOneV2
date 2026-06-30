@@ -15,6 +15,8 @@ Uso:
 from __future__ import annotations
 
 import logging
+import os
+import time
 from datetime import datetime, date, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -791,13 +793,44 @@ def reconcile_completed_event_details(max_events: int | None = None) -> int:
     para não martelar o Magento com todo o histórico — eventos antigos demais
     raramente mudam e seriam pulados pelo sync de margem de qualquer forma.
 
+    Como o túnel SSH do Magento tem concorrência limitada e cada leitura é cara,
+    o passo é protegido por três controles configuráveis via env (todos com
+    defaults seguros que preservam o comportamento atual em cargas normais):
+
+    - `RECONCILE_MAX_EVENTS` (default 0 = sem teto, usa o `max_events` do caller):
+      teto rígido no número de eventos processados por execução.
+    - `RECONCILE_BUDGET_SECONDS` (default 600 = 10 min): orçamento de tempo de
+      parede para o passo inteiro. Ao estourar, o loop para e os eventos
+      restantes ficam para a próxima noite (são idempotentes — o piso nunca
+      regride). Garante que o reconcile nunca extrapole a janela noturna.
+    - `RECONCILE_THROTTLE_SECONDS` (default 0): pausa entre eventos para dar
+      folga ao túnel/pool entre leituras pesadas.
+
     Retorna a quantidade de eventos reconciliados (leituras disparadas).
     """
     from ..core.database import SessionLocal
     from ..api.routes.marketing import get_marketing_event_by_id
     from .snapshot_service import _freeze_after_days
 
+    def _env_int(name: str, default: int) -> int:
+        try:
+            return max(0, int(os.getenv(name, str(default))))
+        except (TypeError, ValueError):
+            return default
+
+    def _env_float(name: str, default: float) -> float:
+        try:
+            return max(0.0, float(os.getenv(name, str(default))))
+        except (TypeError, ValueError):
+            return default
+
+    env_max_events = _env_int("RECONCILE_MAX_EVENTS", 0)
+    budget_seconds = _env_float("RECONCILE_BUDGET_SECONDS", 600.0)
+    throttle_seconds = _env_float("RECONCILE_THROTTLE_SECONDS", 0.0)
+
+    t0 = time.monotonic()
     count = 0
+    aborted_budget = False
     db = SessionLocal()
     try:
         ano = datetime.now().year
@@ -818,15 +851,36 @@ def reconcile_completed_event_details(max_events: int | None = None) -> int:
             .all()
         )
         evento_ids = [r.evento_id for r in rows]
-        if max_events is not None:
-            evento_ids = evento_ids[:max_events]
+
+        # Teto efetivo: o menor entre o teto do caller e o teto do env (quando
+        # ambos definidos). RECONCILE_MAX_EVENTS=0 significa "sem teto de env".
+        effective_cap = max_events
+        if env_max_events > 0:
+            effective_cap = (
+                env_max_events if effective_cap is None else min(effective_cap, env_max_events)
+            )
+        total_candidatos = len(evento_ids)
+        if effective_cap is not None:
+            evento_ids = evento_ids[:effective_cap]
 
         logger.info(
-            f"[EventDetailSnapshot] reconcile_completed: {len(evento_ids)} eventos "
-            f"concluídos recentes (>= {cutoff}) candidatos a correção para baixo"
+            f"[EventDetailSnapshot] reconcile_completed: {total_candidatos} eventos "
+            f"concluídos recentes (>= {cutoff}) candidatos; processando {len(evento_ids)} "
+            f"(cap={effective_cap}, budget={budget_seconds:.0f}s, throttle={throttle_seconds:.1f}s)"
         )
 
-        for evento_id in evento_ids:
+        for idx, evento_id in enumerate(evento_ids):
+            # Orçamento de tempo: para antes de estourar a janela noturna. Eventos
+            # restantes ficam para a próxima execução (idempotente — piso não regride).
+            if budget_seconds > 0 and (time.monotonic() - t0) >= budget_seconds:
+                aborted_budget = True
+                restantes = len(evento_ids) - idx
+                logger.warning(
+                    f"[EventDetailSnapshot] reconcile_completed: orçamento de "
+                    f"{budget_seconds:.0f}s esgotado após {count} evento(s); "
+                    f"{restantes} restante(s) adiados para a próxima execução"
+                )
+                break
             try:
                 _db_iter = SessionLocal()
                 try:
@@ -844,11 +898,17 @@ def reconcile_completed_event_details(max_events: int | None = None) -> int:
                     _db_iter.close()
             except Exception as e:
                 logger.warning(f"[EventDetailSnapshot] reconcile '{evento_id}' falhou: {e}")
+
+            if throttle_seconds > 0 and idx < len(evento_ids) - 1:
+                time.sleep(throttle_seconds)
     except Exception as e:
         logger.error(f"[EventDetailSnapshot] reconcile_completed_event_details falhou: {e}")
     finally:
         db.close()
+    duration_s = round(time.monotonic() - t0, 1)
     logger.info(
-        f"[EventDetailSnapshot] reconcile_completed_event_details: {count} eventos reconciliados"
+        f"[EventDetailSnapshot] reconcile_completed_event_details: {count} eventos "
+        f"reconciliados em {duration_s}s"
+        f"{' (interrompido por orçamento de tempo)' if aborted_budget else ''}"
     )
     return count
