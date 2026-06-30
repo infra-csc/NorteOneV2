@@ -3,7 +3,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell,
 } from 'recharts';
-import { TrendingUp, TrendingDown, Minus, Trophy, BarChart2, Info } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, Trophy, BarChart2 } from 'lucide-react';
 
 type Top10Filter = 'ambos' | 'hoje' | 'ontem';
 
@@ -277,45 +277,6 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
             <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
               {top10Filter === 'ambos' ? 'Mais vendidos hoje e ontem' : top10Filter === 'hoje' ? 'Inscrições de hoje' : 'Inscrições de ontem'}
             </p>
-          </div>
-          <div className="group relative flex-shrink-0">
-            <Info className={`w-4 h-4 cursor-help ${isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600'}`} />
-            <div className={`
-              pointer-events-none absolute right-0 top-6 z-50 w-64 rounded-xl p-3 shadow-xl
-              opacity-0 group-hover:opacity-100 transition-opacity duration-150
-              ${isDark ? 'bg-gray-900 border border-gray-700 text-gray-200' : 'bg-white border border-gray-200 text-gray-700'}
-            `}>
-              <p className={`text-xs font-semibold mb-2.5 ${isDark ? 'text-white' : 'text-gray-900'}`}>Como ler os números</p>
-              <div className="flex items-start gap-2 mb-2.5">
-                <span className={`text-xs font-black flex-shrink-0 mt-0.5 w-8 text-right ${isDark ? 'text-white' : 'text-gray-900'}`}>31</span>
-                <p className="text-xs leading-snug">
-                  {top10Filter === 'ambos' && <><span className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>Total de hoje e ontem</span> — soma das inscrições do dia atual (estimativa ao vivo) com as de ontem (snapshot).</>}
-                  {top10Filter === 'hoje' && <><span className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>Total de hoje</span> — estimativa ao vivo do dia atual.</>}
-                  {top10Filter === 'ontem' && <><span className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>Total de ontem</span> — snapshot consolidado do dia anterior.</>}
-                </p>
-              </div>
-              <div className={`border-t mb-2.5 ${isDark ? 'border-gray-700' : 'border-gray-100'}`} />
-              <div className="flex items-start gap-2 mb-2.5">
-                <span className="flex items-center gap-0.5 text-xs font-semibold text-emerald-400 flex-shrink-0 mt-0.5 w-8 justify-end">
-                  <TrendingUp className="w-3 h-3" />+5
-                </span>
-                <p className="text-xs leading-snug">
-                  <span className="font-semibold text-emerald-400">Variação</span> = hoje <span className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>menos</span> ontem — sempre compara os dois dias visíveis.
-                </p>
-              </div>
-              <div className={`rounded-lg p-2 text-xs ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
-                <div className="flex items-center gap-1 mb-1">
-                  <div className={`w-2 h-2 rounded-sm flex-shrink-0 ${isDark ? 'bg-gray-600' : 'bg-gray-300'}`} />
-                  <span className={isDark ? 'text-gray-400' : 'text-gray-500'}>Ontem → referência da variação</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <div className="w-2 h-2 rounded-sm flex-shrink-0 bg-indigo-500" />
-                  <span className={isDark ? 'text-gray-300' : 'text-gray-600'}>
-                    {top10Filter === 'ambos' ? 'Ontem + hoje → ranking' : top10Filter === 'hoje' ? 'Hoje → ranking' : 'Ontem → ranking'}
-                  </span>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
 
