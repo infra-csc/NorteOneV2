@@ -77,6 +77,7 @@ SSH_HOST_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILptjCB6sjk0yPPaeEp/wPje1Nkl
 FORCE_RESET_EMAIL = "admin@cscdoesporte.com"
 FORCE_RESET_PASSWORD = "Nortemkt@2026"
 ENABLE_BACKGROUND_MAGENTO_SYNC = "true"
+MS_REDIRECT_URI = "https://norte-one-v-2.replit.app/api/auth/microsoft/callback"
 
 [userenv.development]
 ENABLE_BACKGROUND_MAGENTO_SYNC = "false"
