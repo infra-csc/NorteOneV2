@@ -8556,7 +8556,7 @@ GROUP BY b.id_evento
         return {}
 
 
-def _fetch_today_sales_magento_grouped(magento_event_ids: list, cortesia_magento_ids: Optional[set] = None, raise_on_error: bool = False) -> dict:
+def _fetch_today_sales_magento_grouped(magento_event_ids: list, cortesia_magento_ids: Optional[set] = None, raise_on_error: bool = False, acquire_timeout: Optional[float] = None) -> dict:
     """
     Single-query batch for today's Magento sales grouped by id_evento.
     Returns {str(id_evento): {"qtd": int, "receita": float}}.
@@ -8658,7 +8658,7 @@ GROUP BY cpev1.value
             except Exception:
                 pass
             return conn.execute(query, {"magento_event_ids": safe_ids, "magento_event_ids_agg": safe_ids}).fetchall()
-        rows = magento_run(_today_grouped_work, label="today-sales-grouped", profile="once")
+        rows = magento_run(_today_grouped_work, label="today-sales-grouped", profile="once", acquire_timeout=acquire_timeout)
         grouped = {}
         for r in rows:
             grouped[str(r[0])] = {"qtd": int(r[1] or 0), "receita": float(r[2] or 0.0)}
@@ -13208,7 +13208,8 @@ def _atualizar_hoje_inner(
             return _qtd, _rec, False
         try:
             _rows = magento_breaker.call(
-                _fetch_today_sales_magento_grouped, magento_ids, raise_on_error=True
+                _fetch_today_sales_magento_grouped, magento_ids, raise_on_error=True,
+                acquire_timeout=_MAGENTO_TIMEOUT_S,
             )
             for _entry in _rows.values():
                 _qtd += _entry["qtd"]
@@ -13223,12 +13224,16 @@ def _atualizar_hoje_inner(
     # Timeouts de aplicação: garantem que o endpoint retorna mesmo se o MySQL
     # ignorar o hint MAX_EXECUTION_TIME (query na fila, SSH congestionado, etc.).
     # Ativo:   SQL 20s  → Python 24s (SSH tunnel pode ser instável).
-    # Magento: SQL 12s, profile="once" (sem retry) → Python 14s (12s + 2s buffer).
-    #          "once" elimina a segunda tentativa que antes podia somar 70s na thread.
+    # Magento: SQL 12s, profile="once" (sem retry) → Python 32s.
+    #          "once" é interativo e tem PRIORIDADE no slot único do túnel
+    #          (db_retry), mas não dá pra preemptar uma query de background já
+    #          em execução: o pior caso é esperar ~1 query de background (~12-15s)
+    #          + a própria query (~12s). 14s era curto demais e estourava sempre
+    #          que o batch das 17h estava rodando; 32s cobre 1 query em voo + a nossa.
     # shutdown(wait=False) libera o pool sem bloquear; threads daemon concluem sozinhas.
     import concurrent.futures as _cf_ah
     _ATIVO_TIMEOUT_S = 24
-    _MAGENTO_TIMEOUT_S = 14
+    _MAGENTO_TIMEOUT_S = 32
     _t_parallel_start = _time_inner.time()
     _pool_ah = _TPE(max_workers=2)
     _fut_ativo   = _pool_ah.submit(_run_ativo)

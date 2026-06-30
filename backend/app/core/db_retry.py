@@ -32,7 +32,7 @@ import socket
 import threading
 import time
 from collections import deque
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Optional
 
 from sqlalchemy.exc import (
     DBAPIError,
@@ -66,19 +66,21 @@ _CIRCUIT_OPEN_DURATION_S = 60.0
 # saturar o servidor remoto (cada grupo fan-out 3-7 queries pesadas via
 # force_magento_refresh).
 #
-# Política por profile:
-#   - "request" (usuário/dia): limitado (default 3). Permite até 3 queries
-#     simultâneas de usuário, eliminando a fila que bloqueava o rebuild do
-#     Mapeamento de Kits por queries do ISC. Acquire com timeout generoso
-#     (default 180s = 3 min) — preferimos esperar na fila a derrubar a
+# Política por profile (TODOS passam pelo slot único — concorrência=1):
+#   - "request"/"once" (interativos: clicks do usuário, "Atualizar Hoje",
+#     today-sales): adquirem o slot com PRIORIDADE. Acquire com timeout
+#     generoso (default 180s) — preferimos esperar na fila a derrubar a
 #     request com snapshot stale.
-#   - "background" (scheduler/warmup/job noturno): SEM limite. Concorrência
-#     livre, conforme já era antes do semáforo. Jobs noturnos correm sem
-#     competir com clicks de usuário.
+#   - "background" (scheduler/warmup/job noturno, kit_cost_batch, curvas):
+#     também gated pelo mesmo slot, MAS CEDE a vez enquanto houver interativo
+#     na fila. À noite (sem usuários) roda serializado sem perda de throughput
+#     — o túnel não paraleliza mesmo. De dia, não inunda mais o Magento nem
+#     starva o "Atualizar Hoje". (Antes "background" ignorava o semáforo e o
+#     batch das 17h + kit_cost saturavam o túnel, zerando as vendas de hoje.)
 #
-# Configurável via env: MAGENTO_MAX_CONCURRENCY (default 1) controla os
-# profiles "request" e "once". MAGENTO_ACQUIRE_TIMEOUT_S (default 180) é o
-# tempo máximo na fila antes de cair pra snapshot piso.
+# Configurável via env: MAGENTO_MAX_CONCURRENCY (default 1) controla o slot.
+# MAGENTO_ACQUIRE_TIMEOUT_S (default 180) é o tempo máximo na fila antes de
+# cair pra snapshot piso.
 # IMPORTANTE: o túnel SSH para o Magento NÃO suporta queries pesadas em
 # paralelo. Subir esse valor (já tentamos 3) satura o servidor remoto e o
 # MySQL mata as queries com erro 3024 (max statement execution time),
@@ -87,6 +89,20 @@ _CIRCUIT_OPEN_DURATION_S = 60.0
 _MAGENTO_MAX_CONCURRENCY = max(1, int(os.getenv("MAGENTO_MAX_CONCURRENCY", "1")))
 _MAGENTO_ACQUIRE_TIMEOUT_S = float(os.getenv("MAGENTO_ACQUIRE_TIMEOUT_S", "180"))
 _magento_concurrency_sem = threading.BoundedSemaphore(_MAGENTO_MAX_CONCURRENCY)
+
+# Prioridade interativa sobre background.
+# O slot do túnel é único (concorrência=1) e TODOS os profiles passam por ele
+# — inclusive "background", porque queries de background disparadas durante o
+# dia (kit_cost_batch, curvas, e o batch das 17h sincronizar_hoje) inundavam o
+# túnel em paralelo, saturavam o servidor Magento e faziam a query interativa
+# ("Atualizar Hoje", today-sales) estourar timeout mesmo com concorrência=1.
+# Para o usuário não ficar preso atrás do batch, uma query "background" CEDE a
+# vez enquanto houver qualquer thread interativa (request/once) esperando o
+# slot. Não há preempção de query em execução (não dá pra matar um SQL no meio),
+# então o pior caso de espera interativa é ~1 query de background em andamento.
+_interactive_waiting_lock = threading.Lock()
+_interactive_waiting = 0
+_BG_YIELD_POLL_S = 0.25  # de quanto em quanto o background re-checa se há interativo na fila
 
 _circuit_lock = threading.Lock()
 _circuit_failures: Dict[str, deque] = {}
@@ -239,6 +255,7 @@ def magento_run(
     *,
     label: str,
     profile: str = "request",
+    acquire_timeout: Optional[float] = None,
 ) -> Any:
     """Execute ``work_fn(connection)`` with automatic retry on transient errors.
 
@@ -304,45 +321,71 @@ def magento_run(
     backoff_base = float(cfg["backoff_base"])
     max_backoff = float(cfg["max_backoff"])
 
-    # Semáforo para profiles interativos "request" (clicks/dia) e "once"
-    # (paths em tempo real como "Atualizar Hoje" e a query today-sales).
-    # Sem serializar "once", a query de "hoje" rodava sem throttle e competia
-    # com as queries "request" + jobs, saturando o túnel SSH e sendo morta por
-    # timeout (3024) — zerando as vendas de hoje do Magento. Profile
-    # "background" (scheduler/warmup/job noturno) roda livre — é o cenário em
-    # que paralelismo é OK porque não há fan-out de usuários competindo.
-    _use_sem = profile in ("request", "once")
+    # TODOS os profiles passam pelo slot único do túnel (concorrência=1) — ver
+    # nota no topo do arquivo sobre por que background também é gated. Profiles
+    # interativos (request/once) têm prioridade: background cede a vez enquanto
+    # houver interativo na fila.
+    global _interactive_waiting
+    _is_interactive = profile in ("request", "once")
+    # Timeout de fila por chamada: o caller (ex.: "Atualizar Hoje") pode passar
+    # um teto curto alinhado ao seu próprio orçamento de thread, evitando query
+    # "zumbi" que continua ocupando o slot (e, sendo interativa, segura o
+    # background) muito depois do endpoint já ter caído para snapshot.
+    _acq_to = acquire_timeout if acquire_timeout is not None else _MAGENTO_ACQUIRE_TIMEOUT_S
 
     last_exc: BaseException | None = None
     for attempt in range(1, max_attempts + 1):
         _sem_acquired = False
+        _iw_incremented = False
         _wait_started = time.time()
         try:
-            if _use_sem:
-                # Serializa o acesso ao tunnel SSH/MySQL externo. Sem isso,
-                # 5+ grupos atualizados em paralelo saturam o Magento e
-                # geram timeouts em cascata. Default: 1 concorrente.
-                # Timeout generoso (180s) — preferimos esperar na fila a
-                # derrubar a request: o usuário aceita esperar 30-60s mais,
-                # mas não aceita "snapshot stale" quando clicou Reconsolidar.
+            # Serializa o acesso ao tunnel SSH/MySQL externo. Sem isso, queries
+            # em paralelo saturam o Magento e geram timeouts em cascata (3024).
+            # Timeout generoso (180s) — preferimos esperar na fila a derrubar a
+            # request: o usuário aceita esperar mais, mas não "snapshot stale".
+            if _is_interactive:
+                # Sinaliza presença na fila para que o background ceda a vez.
+                with _interactive_waiting_lock:
+                    _interactive_waiting += 1
+                _iw_incremented = True
+            else:
+                # Background cede enquanto houver interativo esperando, até o
+                # deadline de aquisição (depois prossegue para não travar jobs).
+                _yield_deadline = _wait_started + _acq_to
+                while True:
+                    with _interactive_waiting_lock:
+                        _iw = _interactive_waiting
+                    if _iw == 0 or time.time() >= _yield_deadline:
+                        break
+                    time.sleep(_BG_YIELD_POLL_S)
+
+            try:
                 _sem_acquired = _magento_concurrency_sem.acquire(
-                    timeout=_MAGENTO_ACQUIRE_TIMEOUT_S
+                    timeout=_acq_to
                 )
-                if not _sem_acquired:
-                    logger.warning(
-                        f"[Magento][{label}] fila cheia — desistiu após "
-                        f"{_MAGENTO_ACQUIRE_TIMEOUT_S:.0f}s aguardando vaga. "
-                        f"Cai para snapshot."
-                    )
-                    raise MagentoEngineUnavailable(
-                        f"Fila Magento cheia ({_MAGENTO_MAX_CONCURRENCY} concorrentes ocupados)"
-                    )
-                _waited = time.time() - _wait_started
-                if _waited > 1.0:
-                    logger.info(
-                        f"[Magento][{label}] esperou {_waited:.1f}s na fila "
-                        f"(concorrência={_MAGENTO_MAX_CONCURRENCY}, profile={profile})"
-                    )
+            finally:
+                # Assim que adquirimos (ou desistimos) não estamos mais "na
+                # fila" — liberamos o background a competir pelo próximo slot.
+                if _iw_incremented:
+                    with _interactive_waiting_lock:
+                        _interactive_waiting -= 1
+                    _iw_incremented = False
+
+            if not _sem_acquired:
+                logger.warning(
+                    f"[Magento][{label}] fila cheia — desistiu após "
+                    f"{_acq_to:.0f}s aguardando vaga. "
+                    f"Cai para snapshot."
+                )
+                raise MagentoEngineUnavailable(
+                    f"Fila Magento cheia ({_MAGENTO_MAX_CONCURRENCY} concorrentes ocupados)"
+                )
+            _waited = time.time() - _wait_started
+            if _waited > 1.0:
+                logger.info(
+                    f"[Magento][{label}] esperou {_waited:.1f}s na fila "
+                    f"(concorrência={_MAGENTO_MAX_CONCURRENCY}, profile={profile})"
+                )
             with engine.connect() as conn:
                 result = work_fn(conn)
                 if attempt > 1:
