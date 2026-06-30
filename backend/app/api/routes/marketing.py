@@ -8556,7 +8556,7 @@ GROUP BY b.id_evento
         return {}
 
 
-def _fetch_today_sales_magento_grouped(magento_event_ids: list, cortesia_magento_ids: Optional[set] = None, raise_on_error: bool = False, acquire_timeout: Optional[float] = None) -> dict:
+def _fetch_today_sales_magento_grouped(magento_event_ids: list, cortesia_magento_ids: Optional[set] = None, raise_on_error: bool = False, acquire_timeout: Optional[float] = None, max_exec_ms: int = 12000) -> dict:
     """
     Single-query batch for today's Magento sales grouped by id_evento.
     Returns {str(id_evento): {"qtd": int, "receita": float}}.
@@ -8576,8 +8576,17 @@ def _fetch_today_sales_magento_grouped(magento_event_ids: list, cortesia_magento
         safe_ids = [str(int(i)) for i in magento_event_ids if str(i).isdigit()]
         if not safe_ids:
             return {}
-        query = text("""
-SELECT /*+ MAX_EXECUTION_TIME(12000) */
+        # Clamp defensivo: evita hint inválido/extremo por erro de chamada futura.
+        _exec_ms = max(1000, min(60000, int(max_exec_ms)))
+        # STRAIGHT_JOIN força o otimizador a ler as tabelas na ordem do FROM,
+        # ou seja, liderar pela `sales_order` JÁ filtrada por created_at >= hoje
+        # (um único dia = pouquíssimas linhas). Sem isso, o MySQL às vezes lidera
+        # por cpev1 (produtos do evento) e materializa itens de TODAS as edições
+        # do evento antes de aplicar o filtro de data — explodindo o tempo de
+        # execução e batendo no MAX_EXECUTION_TIME (erro 3024), o que zerava o
+        # Magento de "hoje" no "Atualizar Hoje".
+        query = text(f"""
+SELECT /*+ MAX_EXECUTION_TIME({_exec_ms}) */ STRAIGHT_JOIN
     cpev1.value                            AS id_evento,
     COUNT(DISTINCT soi_parent.item_id)     AS qtd,
     SUM(
@@ -8654,7 +8663,7 @@ GROUP BY cpev1.value
             # the optimizer hint MAX_EXECUTION_TIME is ignored (e.g. the query is
             # waiting for a lock rather than actually executing).
             try:
-                conn.execute(text("SET SESSION MAX_EXECUTION_TIME=12000"))
+                conn.execute(text(f"SET SESSION MAX_EXECUTION_TIME={_exec_ms}"))
             except Exception:
                 pass
             return conn.execute(query, {"magento_event_ids": safe_ids, "magento_event_ids_agg": safe_ids}).fetchall()
@@ -13209,7 +13218,7 @@ def _atualizar_hoje_inner(
         try:
             _rows = magento_breaker.call(
                 _fetch_today_sales_magento_grouped, magento_ids, raise_on_error=True,
-                acquire_timeout=_MAGENTO_TIMEOUT_S,
+                acquire_timeout=_MAGENTO_ACQUIRE_BUDGET_S, max_exec_ms=_MAGENTO_EXEC_BUDGET_MS,
             )
             for _entry in _rows.values():
                 _qtd += _entry["qtd"]
@@ -13224,16 +13233,23 @@ def _atualizar_hoje_inner(
     # Timeouts de aplicação: garantem que o endpoint retorna mesmo se o MySQL
     # ignorar o hint MAX_EXECUTION_TIME (query na fila, SSH congestionado, etc.).
     # Ativo:   SQL 20s  → Python 24s (SSH tunnel pode ser instável).
-    # Magento: SQL 12s, profile="once" (sem retry) → Python 32s.
-    #          "once" é interativo e tem PRIORIDADE no slot único do túnel
-    #          (db_retry), mas não dá pra preemptar uma query de background já
-    #          em execução: o pior caso é esperar ~1 query de background (~12-15s)
-    #          + a própria query (~12s). 14s era curto demais e estourava sempre
-    #          que o batch das 17h estava rodando; 32s cobre 1 query em voo + a nossa.
+    # Magento: orçamento DESACOPLADO em fila + execução para não dar timeout
+    #          falso (o problema de produção era a query estourar 12s de execução
+    #          — erro 3024 — mesmo com o slot livre). "once" é interativo e tem
+    #          PRIORIDADE no slot único do túnel (db_retry), mas não dá pra
+    #          preemptar uma query de background em voo. Orçamento:
+    #            - fila (acquire):   13s  → cobre ~1 query de background em voo
+    #            - execução (SQL):   20s  → MAX_EXECUTION_TIME do today-sales
+    #            - thread (Python):  35s  → fila + execução + margem (13+20+2)
+    #          Antes era 14s de thread, curto demais: estourava sempre que havia
+    #          qualquer concorrência. O STRAIGHT_JOIN no today-sales deve deixar
+    #          a query em poucos segundos; o orçamento generoso é rede de segurança.
     # shutdown(wait=False) libera o pool sem bloquear; threads daemon concluem sozinhas.
     import concurrent.futures as _cf_ah
     _ATIVO_TIMEOUT_S = 24
-    _MAGENTO_TIMEOUT_S = 32
+    _MAGENTO_ACQUIRE_BUDGET_S = 13
+    _MAGENTO_EXEC_BUDGET_MS = 20000
+    _MAGENTO_TIMEOUT_S = 35
     _t_parallel_start = _time_inner.time()
     _pool_ah = _TPE(max_workers=2)
     _fut_ativo   = _pool_ah.submit(_run_ativo)

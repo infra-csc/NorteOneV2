@@ -49,6 +49,18 @@ ids and `today_grouped` (12s MAX_EXECUTION_TIME) times out → empty fallback �
 live ISC totals silently break. Item aggregation inside agg stays full-order
 (proration must see the whole cart); only the *set of orders* is windowed.
 
+**Join-order constraint (STRAIGHT_JOIN — 30/06/2026):** even with agg
+time-windowed, the OUTER `today_grouped` query still hit `3024` (12s exceeded) in
+prod for a SINGLE event because MySQL led the plan with `cpev1` (the event's
+products) and materialized items from ALL editions before applying the today
+date filter. Fix: `SELECT /*+ MAX_EXECUTION_TIME(n) */ STRAIGHT_JOIN ...` forces
+the FROM order so `sales_order` (filtered `created_at >= CURDATE()` = one day,
+tiny) drives the join. **Why:** "today" is the most selective predicate; it MUST
+be the driver. Symptom of regression: Magento "Indisponível"/"16 vendas hoje"
+with `3024` in logs even though the tunnel slot was free (concurrency fix already
+working — Ativo OK 0.1s). `max_exec_ms` is now per-call: interactive
+"Atualizar Hoje" passes a bigger budget (20s) as safety; dashboard/batch keep 12s.
+
 **Snapshot rebuild after deploy:** no new script. Trigger admin endpoint
 `POST /snapshots/consolidar-full` (checkpoint/retry) in PROD — it calls
 `consolidar_vendas_grupo` → the modified daily helpers, rebuilding all snapshots
