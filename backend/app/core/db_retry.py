@@ -76,13 +76,15 @@ _CIRCUIT_OPEN_DURATION_S = 60.0
 #     livre, conforme já era antes do semáforo. Jobs noturnos correm sem
 #     competir com clicks de usuário.
 #
-# Configurável via env: MAGENTO_MAX_CONCURRENCY (default 3) controla apenas
-# o profile "request". MAGENTO_ACQUIRE_TIMEOUT_S (default 180) é o tempo
-# máximo na fila antes de cair pra snapshot piso.
-# Pool do engine_magento: pool_size=8, max_overflow=12 → folga suficiente
-# para 3 request + ~5 background sem pressionar o servidor Magento.
+# Configurável via env: MAGENTO_MAX_CONCURRENCY (default 1) controla os
+# profiles "request" e "once". MAGENTO_ACQUIRE_TIMEOUT_S (default 180) é o
+# tempo máximo na fila antes de cair pra snapshot piso.
+# IMPORTANTE: o túnel SSH para o Magento NÃO suporta queries pesadas em
+# paralelo. Subir esse valor (já tentamos 3) satura o servidor remoto e o
+# MySQL mata as queries com erro 3024 (max statement execution time),
+# gerando 429s e vendas de "hoje" zeradas. Mantenha 1.
 # ---------------------------------------------------------------------------
-_MAGENTO_MAX_CONCURRENCY = max(1, int(os.getenv("MAGENTO_MAX_CONCURRENCY", "3")))
+_MAGENTO_MAX_CONCURRENCY = max(1, int(os.getenv("MAGENTO_MAX_CONCURRENCY", "1")))
 _MAGENTO_ACQUIRE_TIMEOUT_S = float(os.getenv("MAGENTO_ACQUIRE_TIMEOUT_S", "180"))
 _magento_concurrency_sem = threading.BoundedSemaphore(_MAGENTO_MAX_CONCURRENCY)
 
@@ -302,11 +304,14 @@ def magento_run(
     backoff_base = float(cfg["backoff_base"])
     max_backoff = float(cfg["max_backoff"])
 
-    # Semáforo apenas para profile "request" (clicks de usuário durante o
-    # dia). Profile "background" (scheduler/warmup/job noturno) roda livre
-    # — é o cenário em que paralelismo é OK porque não há fan-out de
-    # múltiplos usuários competindo pelo servidor remoto.
-    _use_sem = profile == "request"
+    # Semáforo para profiles interativos "request" (clicks/dia) e "once"
+    # (paths em tempo real como "Atualizar Hoje" e a query today-sales).
+    # Sem serializar "once", a query de "hoje" rodava sem throttle e competia
+    # com as queries "request" + jobs, saturando o túnel SSH e sendo morta por
+    # timeout (3024) — zerando as vendas de hoje do Magento. Profile
+    # "background" (scheduler/warmup/job noturno) roda livre — é o cenário em
+    # que paralelismo é OK porque não há fan-out de usuários competindo.
+    _use_sem = profile in ("request", "once")
 
     last_exc: BaseException | None = None
     for attempt in range(1, max_attempts + 1):
