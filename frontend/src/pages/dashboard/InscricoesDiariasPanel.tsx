@@ -271,9 +271,21 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
             <Trophy className="w-4 h-4 text-white" />
           </div>
           <div className="flex-1">
-            <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-              TOP 10 Eventos
-            </h3>
+            <div className="flex items-center gap-2">
+              <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                TOP 10 Eventos
+              </h3>
+              <span
+                title="Considera apenas vendas do canal Site (exclui Grupos e Cortesias)"
+                className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide ${
+                  isDark
+                    ? 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/25'
+                    : 'bg-amber-50 text-amber-600 ring-1 ring-amber-200'
+                }`}
+              >
+                Site
+              </span>
+            </div>
             <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
               {top10Filter === 'ambos' ? 'Mais vendidos hoje e ontem' : top10Filter === 'hoje' ? 'Inscrições de hoje' : 'Inscrições de ontem'}
             </p>
