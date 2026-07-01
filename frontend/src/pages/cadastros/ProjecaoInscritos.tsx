@@ -2295,7 +2295,7 @@ const ProjecaoInscritos: React.FC = () => {
         {
           key: 'modal-clientes',
           title: 'Passo 4: distribuição por Cliente',
-          target: 'modal-form',
+          target: 'modal-clientes',
           tab: 'projecoes',
           needsEvento: true,
           openModal: true,
@@ -4661,7 +4661,7 @@ const ProjecaoInscritos: React.FC = () => {
               )}
 
               {/* Toggle clientes */}
-              <div className={`flex items-center justify-between p-3 rounded-xl border ${isDark ? 'border-gray-700 bg-gray-900/30' : 'border-gray-200 bg-gray-50'}`}>
+              <div data-tour="modal-clientes" className={`flex items-center justify-between p-3 rounded-xl border ${isDark ? 'border-gray-700 bg-gray-900/30' : 'border-gray-200 bg-gray-50'}`}>
                 <div className="flex items-center gap-2">
                   <Users className={`w-4 h-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
                   <span className={`text-sm font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Distribuir por cliente</span>
