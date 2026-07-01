@@ -567,6 +567,8 @@ const ProjecaoTour: React.FC<{
 }> = ({ steps, isDark, onClose, onPrepare }) => {
   const [idx, setIdx] = useState(0);
   const [rect, setRect] = useState<DOMRect | null>(null);
+  const [tipH, setTipH] = useState(240);
+  const tipRef = useRef<HTMLDivElement>(null);
   const stepsRef = useRef(steps);
   stepsRef.current = steps;
   const prepRef = useRef(onPrepare);
@@ -631,25 +633,49 @@ const ProjecaoTour: React.FC<{
     return () => window.removeEventListener('keydown', onKey);
   }, [total, onClose]);
 
+  // Mede a altura real do balão para posicioná-lo sem estourar a viewport.
+  useLayoutEffect(() => {
+    const h = tipRef.current?.offsetHeight;
+    if (h && Math.abs(h - tipH) > 2) setTipH(h);
+  }, [idx, rect, tipH]);
+
   if (!step) return null;
 
   const isFirst = idx === 0;
   const isLast = idx === total - 1;
   const pad = 8;
+  const margin = 12;
 
-  // Posicionamento do balão.
-  const tipW = 360;
+  // Posicionamento do balão — sempre mantido dentro da viewport, sem exigir
+  // que o usuário reduza o zoom para enxergar o pop-up.
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 1024;
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 768;
+  const tipW = Math.min(360, vw - margin * 2);
+  const gap = pad + 6;
   let tipStyle: React.CSSProperties;
   if (rect) {
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const showBelow = spaceBelow > 260 || spaceBelow > rect.top;
+    const spaceBelow = vh - rect.bottom - gap - margin;
+    const spaceAbove = rect.top - gap - margin;
+    let top: number;
+    if (spaceBelow >= tipH) {
+      top = rect.bottom + gap;               // abaixo do alvo
+    } else if (spaceAbove >= tipH) {
+      top = rect.top - gap - tipH;           // acima do alvo
+    } else {
+      // Sem espaço suficiente em cima ou embaixo: fixa no topo visível.
+      top = margin;
+    }
+    top = Math.max(margin, Math.min(top, vh - tipH - margin));
     let left = rect.left + rect.width / 2 - tipW / 2;
-    left = Math.max(12, Math.min(left, window.innerWidth - tipW - 12));
-    tipStyle = showBelow
-      ? { position: 'fixed', top: rect.bottom + pad + 6, left, width: tipW }
-      : { position: 'fixed', bottom: window.innerHeight - rect.top + pad + 6, left, width: tipW };
+    left = Math.max(margin, Math.min(left, vw - tipW - margin));
+    tipStyle = { position: 'fixed', top, left, width: tipW };
   } else {
-    tipStyle = { position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: tipW };
+    tipStyle = {
+      position: 'fixed',
+      top: Math.max(margin, (vh - tipH) / 2),
+      left: Math.max(margin, (vw - tipW) / 2),
+      width: tipW,
+    };
   }
 
   const card = (
@@ -676,7 +702,8 @@ const ProjecaoTour: React.FC<{
       )}
       {/* Balão */}
       <div
-        style={{ ...tipStyle, pointerEvents: 'auto', zIndex: 2 }}
+        ref={tipRef}
+        style={{ ...tipStyle, maxHeight: `calc(100vh - ${margin * 2}px)`, overflowY: 'auto', pointerEvents: 'auto', zIndex: 2 }}
         className={`rounded-2xl shadow-2xl border p-5 ${isDark ? 'bg-gray-900 border-gray-700 text-gray-200' : 'bg-white border-gray-200 text-gray-800'}`}
       >
         <div className="flex items-start justify-between gap-3 mb-2">
@@ -2163,7 +2190,7 @@ const ProjecaoInscritos: React.FC = () => {
         title: 'Bem-vindo à Projeção de Inscritos',
         body: (
           <div className="space-y-2">
-            <p>Esta tela reúne as <strong>metas de inscritos por evento e por área</strong> da empresa, comparando o que foi projetado com o realizado.</p>
+            <p>Esta tela reúne as <strong>metas de inscritos por evento e por área</strong> da empresa, consolidando as projeções de todas as áreas em uma visão única.</p>
             <p>Vou te mostrar rapidamente como a tela funciona{podeEditarProjecao ? ' e como preencher os dados' : ' e como consultar as informações'}. Você pode reabrir este guia a qualquer momento pelo botão <strong>Guia</strong> no topo.</p>
           </div>
         ),
@@ -2176,7 +2203,7 @@ const ProjecaoInscritos: React.FC = () => {
         body: (
           <div className="space-y-2">
             <p><strong>Projeções</strong>: lista de eventos e as projeções de cada um.</p>
-            <p><strong>Visão Consolidada</strong>: comparação entre o projetado e o realizado (Real x Projetado).</p>
+            <p><strong>Visão Consolidada</strong>: soma das projeções por evento, área e corte (Convicta e Ajuste).</p>
             {isAdmin && <p><strong>Configuração</strong> e <strong>Lixeira</strong>: ajustes e itens removidos (apenas administradores).</p>}
           </div>
         ),
@@ -2313,13 +2340,13 @@ const ProjecaoInscritos: React.FC = () => {
     steps.push(
       {
         key: 'consolidado',
-        title: 'Visão Consolidada: Real x Projetado',
+        title: 'Visão Consolidada',
         target: 'consolidado',
         tab: 'consolidado',
         body: (
           <div className="space-y-2">
-            <p>Aqui você compara o <strong>Realizado</strong> (inscritos de fato) com o <strong>Projetado</strong>, por evento e por área.</p>
-            <p>Expanda cada linha para o detalhamento e acompanhe o quanto falta para atingir a meta.</p>
+            <p>Aqui as projeções de todas as áreas são <strong>somadas por evento</strong>, mostrando o total projetado e os valores de cada corte (<strong>Projeção Convicta</strong> e <strong>Projeção de Ajuste</strong>).</p>
+            <p>Expanda cada evento para ver o detalhamento por área e acompanhar os cortes já congelados.</p>
           </div>
         ),
       },
