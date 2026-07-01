@@ -556,6 +556,7 @@ interface TourStep {
   target?: string;        // valor do atributo data-tour do elemento-alvo
   tab?: TourTab;          // troca para esta aba antes de destacar
   openModal?: boolean;    // abre o modal de criação antes de destacar
+  needsEvento?: boolean;  // exige um evento selecionado (auto-seleciona se preciso)
 }
 
 const ProjecaoTour: React.FC<{
@@ -2201,10 +2202,24 @@ const ProjecaoInscritos: React.FC = () => {
           title: 'Detalhes do evento',
           target: 'detail',
           tab: 'projecoes',
+          needsEvento: true,
           body: (
             <div className="space-y-2">
               <p>Dentro do evento você vê as projeções já cadastradas por área, os cortes e o total projetado.</p>
-              <p>Para criar uma nova projeção, use o botão <strong>Nova Projeção</strong> (disponível quando o evento não está travado).</p>
+              <p>Indicadores de <strong>corte congelado</strong> ou <strong>trava automática (D-N)</strong> aparecem aqui quando o evento não aceita mais edições.</p>
+            </div>
+          ),
+        },
+        {
+          key: 'nova-projecao',
+          title: 'Botão Nova Projeção',
+          target: 'btn-nova-projecao',
+          tab: 'projecoes',
+          needsEvento: true,
+          body: (
+            <div className="space-y-2">
+              <p>Use o botão <strong>Nova Projeção</strong> para lançar a projeção de uma área. Ele só aparece quando o evento <strong>não está travado</strong> (nem por corte congelado, nem pela trava automática D-N).</p>
+              <p>Vou abrir o formulário para te mostrar cada campo.</p>
             </div>
           ),
         },
@@ -2213,6 +2228,7 @@ const ProjecaoInscritos: React.FC = () => {
           title: 'Passo 1: escolha a área',
           target: 'modal-area',
           tab: 'projecoes',
+          needsEvento: true,
           openModal: true,
           body: (
             <div className="space-y-2">
@@ -2226,6 +2242,7 @@ const ProjecaoInscritos: React.FC = () => {
           title: 'Passo 2: informe a quantidade',
           target: 'modal-qtd',
           tab: 'projecoes',
+          needsEvento: true,
           openModal: true,
           body: (
             <div className="space-y-2">
@@ -2239,6 +2256,7 @@ const ProjecaoInscritos: React.FC = () => {
           title: 'Passo 3: distribuição por Kit',
           target: 'modal-kits',
           tab: 'projecoes',
+          needsEvento: true,
           openModal: true,
           body: (
             <div className="space-y-2">
@@ -2252,6 +2270,7 @@ const ProjecaoInscritos: React.FC = () => {
           title: 'Passo 4: distribuição por Cliente',
           target: 'modal-form',
           tab: 'projecoes',
+          needsEvento: true,
           openModal: true,
           body: (
             <div className="space-y-2">
@@ -2265,6 +2284,7 @@ const ProjecaoInscritos: React.FC = () => {
           title: 'Regra de negócio: Cortes',
           target: 'detail',
           tab: 'projecoes',
+          needsEvento: true,
           body: (
             <div className="space-y-2">
               <p><strong>Corte 1 (Convicta)</strong>: primeira fotografia da projeção. Ao ser congelado, os valores viram base e não voltam a zero.</p>
@@ -2280,6 +2300,7 @@ const ProjecaoInscritos: React.FC = () => {
         title: 'Detalhes do evento',
         target: 'detail',
         tab: 'projecoes',
+        needsEvento: true,
         body: (
           <div className="space-y-2">
             <p>Ao abrir um evento você consulta as projeções por área, os cortes aplicados e o total projetado.</p>
@@ -2319,16 +2340,26 @@ const ProjecaoInscritos: React.FC = () => {
 
   const handleTourPrepare = React.useCallback((step: TourStep) => {
     if (step.tab && step.tab !== activeTab) setActiveTab(step.tab);
+
+    // Passos que dependem de um evento aberto: auto-seleciona um evento válido
+    // (preferindo um não travado) para que a visão de detalhes/cortes e o modal
+    // tenham contexto real para destacar.
+    let evento = selectedEvento;
+    if (step.needsEvento && !evento && filteredEventosList.length > 0) {
+      evento = filteredEventosList.find(e => !autoLockedEventoIds.has(e.id)) || filteredEventosList[0];
+      setSelectedEvento(evento);
+    }
+
     if (step.openModal) {
       if (!showCreateModal) {
         resetForm();
-        if (selectedEvento) setFormEventoId(selectedEvento.id);
+        if (evento) setFormEventoId(evento.id);
         setShowCreateModal(true);
       }
     } else {
       setShowCreateModal(false);
     }
-  }, [activeTab, showCreateModal, selectedEvento]);
+  }, [activeTab, showCreateModal, selectedEvento, filteredEventosList, autoLockedEventoIds]);
 
   const handleTourClose = React.useCallback(() => {
     setShowTour(false);
@@ -2448,6 +2479,7 @@ const ProjecaoInscritos: React.FC = () => {
               }
               return (
                 <button
+                  data-tour="btn-nova-projecao"
                   onClick={() => { resetForm(); setFormEventoId(selectedEvento.id); setShowCreateModal(true); }}
                   className="group relative px-6 py-3 bg-gradient-to-r from-violet-600 via-blue-600 to-cyan-500 text-white rounded-2xl font-semibold shadow-xl shadow-violet-500/30 hover:shadow-violet-500/50 transition-all duration-300 hover:scale-105 overflow-hidden"
                 >
