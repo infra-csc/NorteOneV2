@@ -1432,7 +1432,11 @@ def get_inscricoes_diarias(
     top_grupos = sorted(grupo_total_periodo.items(), key=lambda x: x[1], reverse=True)[:10]
     top_grupo_names = {g for g, _ in top_grupos}
 
-    # Resolve event names
+    # Resolve event names — prefer the current-year (target_ano) label.
+    # The same evento_grupo slug (sem ano) carries mappings for múltiplas edições
+    # (ex.: 2025 + 2026), todas ativo=True. Um DISTINCT ON sem filtro de ano nem
+    # ORDER BY escolhia um nome arbitrário — muitas vezes o rótulo "2025" — fazendo
+    # eventos de competência do ano corrente aparecerem como edições passadas.
     nome_map: dict = {}
     if top_grupo_names:
         mapping_rows = (
@@ -1440,13 +1444,32 @@ def get_inscricoes_diarias(
             .filter(
                 SkuMapping.evento_grupo.in_(top_grupo_names),
                 SkuMapping.ativo == True,
+                SkuMapping.ano == target_ano,
             )
+            .order_by(SkuMapping.evento_grupo, SkuMapping.id.desc())
             .distinct(SkuMapping.evento_grupo)
             .all()
         )
         for m in mapping_rows:
             if m.evento_grupo and m.nome_evento and m.evento_grupo not in nome_map:
                 nome_map[m.evento_grupo] = m.nome_evento
+        # Fallback: grupos sem nome no ano corrente (ex.: safety-net que caiu em
+        # todos os grupos ativos) usam o nome mais recente disponível.
+        missing = {g for g in top_grupo_names if g not in nome_map}
+        if missing:
+            fb_rows = (
+                db.query(SkuMapping.evento_grupo, SkuMapping.nome_evento)
+                .filter(
+                    SkuMapping.evento_grupo.in_(missing),
+                    SkuMapping.ativo == True,
+                )
+                .order_by(SkuMapping.evento_grupo, SkuMapping.ano.desc(), SkuMapping.id.desc())
+                .distinct(SkuMapping.evento_grupo)
+                .all()
+            )
+            for m in fb_rows:
+                if m.evento_grupo and m.nome_evento and m.evento_grupo not in nome_map:
+                    nome_map[m.evento_grupo] = m.nome_evento
 
     top10 = []
     for grupo, total in top_grupos:
