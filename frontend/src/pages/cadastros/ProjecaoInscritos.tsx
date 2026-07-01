@@ -10,6 +10,7 @@ import {
   Layers, Download, RotateCcw,
   AlertTriangle, Trash, Check, Lock, LockOpen, Clock, Bell, Zap,
   Package, Info, Truck, Mail, MessageSquare,
+  HelpCircle, ArrowLeft, ArrowRight, Sparkles,
 } from 'lucide-react';
 
 interface MultiSelectOption {
@@ -543,6 +544,212 @@ const projClearCache = (...keys: string[]) => {
   keys.forEach(k => { try { localStorage.removeItem(k); } catch {} });
 };
 
+// ─────────────────────────────────────────────────────────────
+// Tour guiado da tela de Projeção de Inscritos
+// ─────────────────────────────────────────────────────────────
+type TourTab = 'projecoes' | 'consolidado' | 'config' | 'lixeira';
+
+interface TourStep {
+  key: string;
+  title: string;
+  body: React.ReactNode;
+  target?: string;        // valor do atributo data-tour do elemento-alvo
+  tab?: TourTab;          // troca para esta aba antes de destacar
+  openModal?: boolean;    // abre o modal de criação antes de destacar
+}
+
+const ProjecaoTour: React.FC<{
+  steps: TourStep[];
+  isDark: boolean;
+  onClose: () => void;
+  onPrepare: (step: TourStep) => void;
+}> = ({ steps, isDark, onClose, onPrepare }) => {
+  const [idx, setIdx] = useState(0);
+  const [rect, setRect] = useState<DOMRect | null>(null);
+  const stepsRef = useRef(steps);
+  stepsRef.current = steps;
+  const prepRef = useRef(onPrepare);
+  prepRef.current = onPrepare;
+
+  const total = steps.length;
+  const step = steps[idx];
+
+  const locate = React.useCallback(() => {
+    const s = stepsRef.current[idx];
+    if (!s || !s.target) { setRect(null); return; }
+    const el = document.querySelector(`[data-tour="${s.target}"]`) as HTMLElement | null;
+    if (el) {
+      setRect(el.getBoundingClientRect());
+    } else {
+      setRect(null);
+    }
+  }, [idx]);
+
+  // Ao mudar de passo: prepara o ambiente (aba/modal), rola o alvo até a
+  // viewport e mede sua posição. Faz polling curto porque a troca de aba ou a
+  // abertura do modal renderiza o alvo de forma assíncrona.
+  useEffect(() => {
+    const s = stepsRef.current[idx];
+    if (!s) return;
+    prepRef.current(s);
+    let tries = 0;
+    const interval = setInterval(() => {
+      tries++;
+      const el = s.target ? document.querySelector(`[data-tour="${s.target}"]`) as HTMLElement | null : null;
+      if (el) {
+        el.scrollIntoView({ block: 'center', inline: 'nearest' });
+        setRect(el.getBoundingClientRect());
+        clearInterval(interval);
+      } else if (!s.target || tries > 30) {
+        setRect(null);
+        clearInterval(interval);
+      }
+    }, 40);
+    return () => clearInterval(interval);
+  }, [idx]);
+
+  // Reposiciona ao rolar/redimensionar.
+  useEffect(() => {
+    const onMove = () => locate();
+    window.addEventListener('scroll', onMove, true);
+    window.addEventListener('resize', onMove);
+    return () => {
+      window.removeEventListener('scroll', onMove, true);
+      window.removeEventListener('resize', onMove);
+    };
+  }, [locate]);
+
+  // Navegação por teclado.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      else if (e.key === 'ArrowRight') setIdx(i => Math.min(total - 1, i + 1));
+      else if (e.key === 'ArrowLeft') setIdx(i => Math.max(0, i - 1));
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [total, onClose]);
+
+  if (!step) return null;
+
+  const isFirst = idx === 0;
+  const isLast = idx === total - 1;
+  const pad = 8;
+
+  // Posicionamento do balão.
+  const tipW = 360;
+  let tipStyle: React.CSSProperties;
+  if (rect) {
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const showBelow = spaceBelow > 260 || spaceBelow > rect.top;
+    let left = rect.left + rect.width / 2 - tipW / 2;
+    left = Math.max(12, Math.min(left, window.innerWidth - tipW - 12));
+    tipStyle = showBelow
+      ? { position: 'fixed', top: rect.bottom + pad + 6, left, width: tipW }
+      : { position: 'fixed', bottom: window.innerHeight - rect.top + pad + 6, left, width: tipW };
+  } else {
+    tipStyle = { position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: tipW };
+  }
+
+  const card = (
+    <>
+      {/* Camada que bloqueia interação com o app por trás */}
+      <div
+        className="fixed inset-0"
+        style={{ pointerEvents: 'auto', background: rect ? 'transparent' : 'rgba(0,0,0,0.6)' }}
+      />
+      {/* Spotlight (realce) sobre o alvo */}
+      {rect && (
+        <div
+          className="fixed rounded-xl transition-all duration-200"
+          style={{
+            top: rect.top - pad,
+            left: rect.left - pad,
+            width: rect.width + pad * 2,
+            height: rect.height + pad * 2,
+            boxShadow: '0 0 0 9999px rgba(0,0,0,0.6)',
+            border: '2px solid rgb(139,92,246)',
+            pointerEvents: 'none',
+          }}
+        />
+      )}
+      {/* Balão */}
+      <div
+        style={{ ...tipStyle, pointerEvents: 'auto', zIndex: 2 }}
+        className={`rounded-2xl shadow-2xl border p-5 ${isDark ? 'bg-gray-900 border-gray-700 text-gray-200' : 'bg-white border-gray-200 text-gray-800'}`}
+      >
+        <div className="flex items-start justify-between gap-3 mb-2">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-gradient-to-br from-violet-500 to-blue-500 shadow-lg shadow-violet-500/30">
+              <Sparkles className="w-4 h-4 text-white" />
+            </div>
+            <h3 className={`text-base font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{step.title}</h3>
+          </div>
+          <button
+            onClick={onClose}
+            title="Fechar guia"
+            className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-gray-400 hover:text-white hover:bg-gray-800' : 'text-gray-400 hover:text-gray-700 hover:bg-gray-100'}`}
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className={`text-sm leading-relaxed ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+          {step.body}
+        </div>
+
+        {/* Progresso */}
+        <div className="flex items-center gap-1.5 mt-4 mb-3">
+          {steps.map((s, i) => (
+            <button
+              key={s.key}
+              onClick={() => setIdx(i)}
+              className={`h-1.5 rounded-full transition-all ${i === idx ? 'w-6 bg-violet-500' : `w-1.5 ${isDark ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-300 hover:bg-gray-400'}`}`}
+              aria-label={`Passo ${i + 1}`}
+            />
+          ))}
+        </div>
+
+        <div className="flex items-center justify-between gap-2">
+          <span className={`text-xs font-medium ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+            {idx + 1} de {total}
+          </span>
+          <div className="flex items-center gap-2">
+            {!isLast && (
+              <button
+                onClick={onClose}
+                className={`text-xs font-semibold px-3 py-2 rounded-lg transition-colors ${isDark ? 'text-gray-400 hover:text-white hover:bg-gray-800' : 'text-gray-500 hover:text-gray-800 hover:bg-gray-100'}`}
+              >
+                Pular
+              </button>
+            )}
+            {!isFirst && (
+              <button
+                onClick={() => setIdx(i => Math.max(0, i - 1))}
+                className={`flex items-center gap-1 text-xs font-semibold px-3 py-2 rounded-lg border transition-colors ${isDark ? 'border-gray-700 text-gray-200 hover:bg-gray-800' : 'border-gray-200 text-gray-700 hover:bg-gray-50'}`}
+              >
+                <ArrowLeft className="w-3.5 h-3.5" /> Anterior
+              </button>
+            )}
+            <button
+              onClick={() => { if (isLast) onClose(); else setIdx(i => Math.min(total - 1, i + 1)); }}
+              className="flex items-center gap-1 text-xs font-bold px-4 py-2 rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 text-white shadow-lg shadow-violet-500/30 hover:scale-105 transition-transform"
+            >
+              {isLast ? (<><Check className="w-3.5 h-3.5" /> Concluir</>) : (<>Próximo <ArrowRight className="w-3.5 h-3.5" /></>)}
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+
+  return createPortal(
+    <div className="fixed inset-0" style={{ zIndex: 2000 }}>
+      {card}
+    </div>,
+    document.body,
+  );
+};
+
 const ProjecaoInscritos: React.FC = () => {
   const { isDark } = useTheme();
   const { user } = useAuth();
@@ -554,6 +761,7 @@ const ProjecaoInscritos: React.FC = () => {
   const canDeleteProjecao = canDelete('projecao_inscritos');
 
   const [activeTab, setActiveTab] = useState<'projecoes' | 'consolidado' | 'config' | 'lixeira'>('projecoes');
+  const [showTour, setShowTour] = useState(false);
   const [projecoes, setProjecoes] = useState<Projecao[]>(() => projReadCache('proj_projecoes_v1') || []);
   const [areas, setAreas] = useState<AreaProjecao[]>(() => projReadCache('proj_areas_v1') || []);
   const [myAreaIds, setMyAreaIds] = useState<Set<number>>(() => { const d = projReadCache('proj_my_areas_v1'); return d ? new Set<number>(d) : new Set<number>(); });
@@ -1944,6 +2152,201 @@ const ProjecaoInscritos: React.FC = () => {
     });
   };
 
+  // ── Tour guiado (passos sensíveis à permissão) ──
+  const podeEditarProjecao = canCreateProjecao || canEditProjecao;
+
+  const tourSteps = useMemo<TourStep[]>(() => {
+    const steps: TourStep[] = [
+      {
+        key: 'intro',
+        title: 'Bem-vindo à Projeção de Inscritos',
+        body: (
+          <div className="space-y-2">
+            <p>Esta tela reúne as <strong>metas de inscritos por evento e por área</strong> da empresa, comparando o que foi projetado com o realizado.</p>
+            <p>Vou te mostrar rapidamente como a tela funciona{podeEditarProjecao ? ' e como preencher os dados' : ' e como consultar as informações'}. Você pode reabrir este guia a qualquer momento pelo botão <strong>Guia</strong> no topo.</p>
+          </div>
+        ),
+      },
+      {
+        key: 'tabs',
+        title: 'As abas da tela',
+        target: 'tabs',
+        tab: 'projecoes',
+        body: (
+          <div className="space-y-2">
+            <p><strong>Projeções</strong>: lista de eventos e as projeções de cada um.</p>
+            <p><strong>Visão Consolidada</strong>: comparação entre o projetado e o realizado (Real x Projetado).</p>
+            {isAdmin && <p><strong>Configuração</strong> e <strong>Lixeira</strong>: ajustes e itens removidos (apenas administradores).</p>}
+          </div>
+        ),
+      },
+      {
+        key: 'event-list',
+        title: 'Escolha um evento',
+        target: 'event-list',
+        tab: 'projecoes',
+        body: (
+          <div className="space-y-2">
+            <p>Aqui ficam todos os eventos. Use os filtros (mês, modalidade, cidade, status) para localizar rapidamente.</p>
+            <p>Clique em um evento para abrir seus detalhes e ver as projeções por área.</p>
+          </div>
+        ),
+      },
+    ];
+
+    if (podeEditarProjecao) {
+      steps.push(
+        {
+          key: 'detail',
+          title: 'Detalhes do evento',
+          target: 'detail',
+          tab: 'projecoes',
+          body: (
+            <div className="space-y-2">
+              <p>Dentro do evento você vê as projeções já cadastradas por área, os cortes e o total projetado.</p>
+              <p>Para criar uma nova projeção, use o botão <strong>Nova Projeção</strong> (disponível quando o evento não está travado).</p>
+            </div>
+          ),
+        },
+        {
+          key: 'modal-area',
+          title: 'Passo 1: escolha a área',
+          target: 'modal-area',
+          tab: 'projecoes',
+          openModal: true,
+          body: (
+            <div className="space-y-2">
+              <p>Cada projeção pertence a uma <strong>área</strong> (por exemplo, um segmento comercial). Selecione a área para a qual está projetando.</p>
+              <p>Você só pode lançar projeções nas áreas às quais tem acesso.</p>
+            </div>
+          ),
+        },
+        {
+          key: 'modal-qtd',
+          title: 'Passo 2: informe a quantidade',
+          target: 'modal-qtd',
+          tab: 'projecoes',
+          openModal: true,
+          body: (
+            <div className="space-y-2">
+              <p>Digite o <strong>total de inscritos</strong> que você espera para essa área.</p>
+              <p>Este é o número principal da projeção — os detalhamentos por kit e por cliente devem somar exatamente este total.</p>
+            </div>
+          ),
+        },
+        {
+          key: 'modal-kits',
+          title: 'Passo 3: distribuição por Kit',
+          target: 'modal-kits',
+          tab: 'projecoes',
+          openModal: true,
+          body: (
+            <div className="space-y-2">
+              <p>Ative <strong>Distribuir por Kit</strong> para detalhar quantos inscritos irão para cada tipo de kit. A soma dos kits precisa bater com a quantidade total.</p>
+              <p>A <strong>Camiseta avulsa</strong> tem uma regra especial: após o <strong>Corte 1</strong> ela vira um <strong>teto</strong> (valor máximo já congelado) e só pode ser reduzida, nunca aumentada.</p>
+            </div>
+          ),
+        },
+        {
+          key: 'modal-clientes',
+          title: 'Passo 4: distribuição por Cliente',
+          target: 'modal-form',
+          tab: 'projecoes',
+          openModal: true,
+          body: (
+            <div className="space-y-2">
+              <p>Ative <strong>Distribuir por Cliente</strong> para separar quantos inscritos vêm de cada cliente B2B (ex.: Convicta). A soma também precisa fechar com o total.</p>
+              <p>Ao salvar, a projeção passa a valer para os cálculos de meta e para a Visão Consolidada.</p>
+            </div>
+          ),
+        },
+        {
+          key: 'cortes',
+          title: 'Regra de negócio: Cortes',
+          target: 'detail',
+          tab: 'projecoes',
+          body: (
+            <div className="space-y-2">
+              <p><strong>Corte 1 (Convicta)</strong>: primeira fotografia da projeção. Ao ser congelado, os valores viram base e não voltam a zero.</p>
+              <p><strong>Corte 2 (Ajuste)</strong>: é <strong>aditivo</strong> — soma-se ao que foi congelado no Corte 1 para chegar ao total.</p>
+              <p>Eventos podem ser <strong>travados automaticamente</strong> a D-N (dias antes do evento); depois disso não é possível editar, exceto para administradores.</p>
+            </div>
+          ),
+        },
+      );
+    } else {
+      steps.push({
+        key: 'detail-read',
+        title: 'Detalhes do evento',
+        target: 'detail',
+        tab: 'projecoes',
+        body: (
+          <div className="space-y-2">
+            <p>Ao abrir um evento você consulta as projeções por área, os cortes aplicados e o total projetado.</p>
+            <p>Seu perfil é de <strong>consulta</strong>: você visualiza os números, mas o lançamento de projeções é feito pelas áreas responsáveis.</p>
+          </div>
+        ),
+      });
+    }
+
+    steps.push(
+      {
+        key: 'consolidado',
+        title: 'Visão Consolidada: Real x Projetado',
+        target: 'consolidado',
+        tab: 'consolidado',
+        body: (
+          <div className="space-y-2">
+            <p>Aqui você compara o <strong>Realizado</strong> (inscritos de fato) com o <strong>Projetado</strong>, por evento e por área.</p>
+            <p>Expanda cada linha para o detalhamento e acompanhe o quanto falta para atingir a meta.</p>
+          </div>
+        ),
+      },
+      {
+        key: 'fim',
+        title: 'Pronto!',
+        body: (
+          <div className="space-y-2">
+            <p>Você já conhece o essencial da tela de Projeção de Inscritos.</p>
+            <p>Sempre que precisar, clique no botão <strong>Guia</strong> no topo para rever este passo a passo. Bom trabalho!</p>
+          </div>
+        ),
+      },
+    );
+
+    return steps;
+  }, [podeEditarProjecao, isAdmin]);
+
+  const handleTourPrepare = React.useCallback((step: TourStep) => {
+    if (step.tab && step.tab !== activeTab) setActiveTab(step.tab);
+    if (step.openModal) {
+      if (!showCreateModal) {
+        resetForm();
+        if (selectedEvento) setFormEventoId(selectedEvento.id);
+        setShowCreateModal(true);
+      }
+    } else {
+      setShowCreateModal(false);
+    }
+  }, [activeTab, showCreateModal, selectedEvento]);
+
+  const handleTourClose = React.useCallback(() => {
+    setShowTour(false);
+    setShowCreateModal(false);
+    try {
+      if (user?.id != null) localStorage.setItem(`projecaoTourSeen_${user.id}`, '1');
+    } catch {}
+  }, [user?.id]);
+
+  // Auto-abre o guia na primeira visita (por usuário), sem bloquear o uso normal.
+  useEffect(() => {
+    if (!hasAccess || user?.id == null) return;
+    try {
+      const seen = localStorage.getItem(`projecaoTourSeen_${user.id}`);
+      if (!seen) setShowTour(true);
+    } catch {}
+  }, [hasAccess, user?.id]);
+
   if (!hasAccess) {
     return (
       <div className={`p-8 text-center ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
@@ -1994,6 +2397,14 @@ const ProjecaoInscritos: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowTour(true)}
+              title="Abrir guia da tela"
+              className={`flex items-center gap-2 px-4 py-3 rounded-2xl font-semibold text-sm transition-all duration-300 hover:scale-105 ${isDark ? 'bg-violet-500/15 text-violet-300 hover:bg-violet-500/25 border border-violet-500/30' : 'bg-violet-50 text-violet-700 hover:bg-violet-100 border border-violet-200 shadow-sm'}`}
+            >
+              <HelpCircle className="w-4 h-4" />
+              <span className="hidden sm:inline">Guia</span>
+            </button>
             {(activeTab === 'projecoes' || activeTab === 'consolidado') && (
               <button
                 onClick={handleExportar}
@@ -2052,7 +2463,7 @@ const ProjecaoInscritos: React.FC = () => {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-2">
+        <div className="flex gap-2" data-tour="tabs">
           {[
             { key: 'projecoes' as const, label: 'Projeções', icon: BarChart3 },
             { key: 'consolidado' as const, label: 'Visão Consolidada', icon: Eye },
@@ -2208,7 +2619,7 @@ const ProjecaoInscritos: React.FC = () => {
 
         {activeTab === 'projecoes' && !selectedEvento && (
           /* ── Events master table ── */
-          <div className={`rounded-2xl overflow-hidden ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
+          <div data-tour="event-list" className={`rounded-2xl overflow-hidden ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
             {/* Events filter bar */}
             {(() => {
               const selClass = `h-9 pl-3 pr-8 rounded-xl border text-sm appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-violet-500 ${isDark ? 'bg-gray-900/50 border-gray-600 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'}`;
@@ -2494,7 +2905,7 @@ const ProjecaoInscritos: React.FC = () => {
 
         {activeTab === 'projecoes' && selectedEvento && (
           /* ── Projections detail view ── */
-          <div className="space-y-3">
+          <div className="space-y-3" data-tour="detail">
             {/* Breadcrumb */}
             <div className="flex items-center gap-2">
               <button
@@ -2807,7 +3218,7 @@ const ProjecaoInscritos: React.FC = () => {
         )}
 
         {activeTab === 'consolidado' && (
-          <div className="space-y-6">
+          <div className="space-y-6" data-tour="consolidado">
             {consolidadoLoading && filteredConsolidado.length === 0 ? (
               <div className="space-y-4">
                 {[0, 1, 2].map(i => (
@@ -3966,7 +4377,7 @@ const ProjecaoInscritos: React.FC = () => {
                 <X className={`w-5 h-5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
               </button>
             </div>
-            <form onSubmit={handleCreate} className="p-6 space-y-4">
+            <form onSubmit={handleCreate} className="p-6 space-y-4" data-tour="modal-form">
               <div>
                 <label className={`block text-sm font-semibold mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Evento</label>
                 {selectedEvento ? (
@@ -4031,7 +4442,7 @@ const ProjecaoInscritos: React.FC = () => {
                 </div>
                 )}
               </div>
-              <div>
+              <div data-tour="modal-area">
                 <label className={`block text-sm font-semibold mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Área</label>
                 <select
                   value={formAreaId}
@@ -4045,7 +4456,7 @@ const ProjecaoInscritos: React.FC = () => {
                   ))}
                 </select>
               </div>
-              <div>
+              <div data-tour="modal-qtd">
                 <label className={`block text-sm font-semibold mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Quantidade</label>
                 <input
                   type="text"
@@ -4059,7 +4470,7 @@ const ProjecaoInscritos: React.FC = () => {
               </div>
 
               {/* Toggle kits */}
-              <div className={`flex items-center justify-between p-3 rounded-xl border ${isDark ? 'border-gray-700 bg-gray-900/30' : 'border-gray-200 bg-gray-50'}`}>
+              <div data-tour="modal-kits" className={`flex items-center justify-between p-3 rounded-xl border ${isDark ? 'border-gray-700 bg-gray-900/30' : 'border-gray-200 bg-gray-50'}`}>
                 <div className="flex items-center gap-2">
                   <Package className={`w-4 h-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
                   <span className={`text-sm font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Distribuir por Kit</span>
@@ -5010,6 +5421,15 @@ const ProjecaoInscritos: React.FC = () => {
             </button>
           </div>
         </div>
+      )}
+
+      {showTour && (
+        <ProjecaoTour
+          steps={tourSteps}
+          isDark={isDark}
+          onClose={handleTourClose}
+          onPrepare={handleTourPrepare}
+        />
       )}
 
     </div>
