@@ -75,8 +75,11 @@ export const authService = {
     return response.data;
   },
   // Indica se o login via Microsoft está disponível (credenciais configuradas).
+  // Timeout curto: essa checagem nunca deve segurar a tela de login. Se o
+  // servidor estiver saturado (ex.: fila do Magento), preferimos falhar rápido
+  // e cair no estado conhecido/cacheado a deixar o usuário sem botão.
   microsoftStatus: async (): Promise<{ enabled: boolean }> => {
-    const response = await api.get('/auth/microsoft/status');
+    const response = await api.get('/auth/microsoft/status', { timeout: 6000 });
     return response.data;
   },
   // Inicia o SSO redirecionando o browser para o endpoint do backend, que por

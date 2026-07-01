@@ -1,4 +1,4 @@
-import React, { useState, useEffect, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { authService } from '../../services/api';
@@ -13,6 +13,24 @@ const MicrosoftLogo = () => (
     <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
   </svg>
 );
+
+// Estado do SSO cacheado no navegador (acesso protegido contra ambientes que
+// bloqueiam localStorage, ex.: modo privado restrito). Nunca deve lançar.
+const SSO_CACHE_KEY = 'sso_enabled';
+const readSsoCache = (): boolean => {
+  try {
+    return localStorage.getItem(SSO_CACHE_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
+const writeSsoCache = (enabled: boolean): void => {
+  try {
+    localStorage.setItem(SSO_CACHE_KEY, enabled ? '1' : '0');
+  } catch {
+    /* localStorage indisponível — ignora */
+  }
+};
 
 const Background3D = lazy(() => import('../../components/3d/Background3D'));
 
@@ -30,24 +48,39 @@ const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [focusedField, setFocusedField] = useState<string | null>(null);
-  const [ssoEnabled, setSsoEnabled] = useState(false);
+  // Lembramos o último estado conhecido do SSO no navegador. Assim o botão
+  // Microsoft aparece IMEDIATAMENTE em acessos seguintes, mesmo que a checagem
+  // de status esteja lenta (servidor saturado) ou falhe. Uma instabilidade no
+  // Magento/servidor nunca deve impedir o usuário de entrar via Microsoft.
+  const ssoWasEnabled = readSsoCache();
+  const [ssoEnabled, setSsoEnabled] = useState(ssoWasEnabled);
   // Quando o SSO está ativo, o login padrão é só Microsoft; o formulário de
   // e-mail/senha fica escondido atrás do "acesso de emergência" (break-glass).
-  const [showLocalLogin, setShowLocalLogin] = useState(true);
+  const [showLocalLogin, setShowLocalLogin] = useState(!ssoWasEnabled);
+  // Marca se o usuário abriu explicitamente o acesso de emergência nesta sessão,
+  // para que a revalidação em segundo plano não feche o formulário sob seus pés.
+  const emergencyOpenedRef = useRef(false);
   const { login } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Mostra o botão Microsoft só quando o backend reporta SSO configurado.
+    // Revalida em segundo plano. Sucesso atualiza e persiste o estado.
     authService.microsoftStatus()
       .then((s) => {
         const enabled = !!s.enabled;
         setSsoEnabled(enabled);
-        setShowLocalLogin(!enabled);
+        // SSO ativo => Microsoft-first (esconde local), a menos que o usuário
+        // tenha aberto o acesso de emergência. SSO inativo => mostra local.
+        setShowLocalLogin(enabled ? emergencyOpenedRef.current : true);
+        writeSsoCache(enabled);
       })
       .catch(() => {
-        setSsoEnabled(false);
-        setShowLocalLogin(true);
+        // Falha na checagem (timeout/rede/servidor saturado): NÃO escondemos o
+        // botão se já sabíamos que o SSO está ligado. Falha "aberto".
+        if (!ssoWasEnabled) {
+          setSsoEnabled(false);
+          setShowLocalLogin(true);
+        }
       });
 
     // Exibe erro vindo do callback do SSO (?sso_error=...).
@@ -192,7 +225,7 @@ const Login: React.FC = () => {
                 {!showLocalLogin && (
                   <button
                     type="button"
-                    onClick={() => { setShowLocalLogin(true); setError(''); }}
+                    onClick={() => { emergencyOpenedRef.current = true; setShowLocalLogin(true); setError(''); }}
                     className="w-full mt-4 text-center text-xs tracking-wider transition-colors"
                     style={{ color: 'rgba(255, 255, 255, 0.3)' }}
                   >
