@@ -1802,6 +1802,22 @@ def _resync_id_sequences():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Folga no threadpool que serve TODAS as rotas síncronas (o FastAPI executa
+    # `def` endpoints via anyio.to_thread). Default do anyio é 40; sob carga, com
+    # o Magento gated em concorrência=1, as threads eram monopolizadas por
+    # chamadas Magento e o /auth/login (também síncrono) ficava starvado. Com o
+    # teto de ocupação do Magento (MAGENTO_MAX_PENDING) + esta folga, o login e
+    # as demais rotas têm sempre threads livres. Configurável via env; 64 fica
+    # abaixo do teto do pool PG (25+50=75), então não exaure o Postgres local.
+    try:
+        import anyio
+        _tp_tokens = max(40, int(os.getenv("FASTAPI_THREADPOOL_SIZE", "64")))
+        _limiter = anyio.to_thread.current_default_thread_limiter()
+        _limiter.total_tokens = _tp_tokens
+        logger.info(f"[Startup] Threadpool síncrono ajustado para {_tp_tokens} tokens")
+    except Exception as _tp_e:
+        logger.warning(f"[Startup] Não foi possível ajustar o threadpool: {_tp_e}")
+
     register_full_warmup_fn(_full_cache_warmup)
     cache_scheduler.register_full_refresh(_full_cache_warmup)
     cache_scheduler.register(_scheduled_isc_refresh)

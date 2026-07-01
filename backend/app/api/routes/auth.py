@@ -125,7 +125,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 
 
 @router.get("/microsoft/status")
-def microsoft_sso_status():
+async def microsoft_sso_status():
     """Informa ao frontend se o login Microsoft está disponível (credenciais
     configuradas), para exibir ou não o botão."""
     from ...services.ms_auth_service import sso_configured

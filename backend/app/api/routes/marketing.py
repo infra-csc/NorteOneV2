@@ -492,6 +492,37 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
     if not all_configs:
         return {}
 
+    # Não processar eventos já CONCLUÍDOS (congelados): o ticket de um evento
+    # finalizado não muda mais, então re-resolvê-lo a cada 30 min (incl. os
+    # fetches de kits do Ativo por config) só desperdiça trabalho e alonga a
+    # fila do slot único do Magento que trava as requests interativas.
+    # Conservador: kits sem cadastro/sem data continuam sendo processados
+    # (não dá pra classificar como concluído sem a data).
+    try:
+        from ...services.snapshot_service import (
+            _load_data_evento_by_magento_id,
+            is_event_frozen,
+        )
+        _mag_ids = {c.id_evento for c in all_configs if c.id_evento is not None}
+        _dt_map = _load_data_evento_by_magento_id(db, _mag_ids)
+        _before_n = len(all_configs)
+        all_configs = [
+            c for c in all_configs
+            if not is_event_frozen(_dt_map.get(str(c.id_evento)))
+        ]
+        _skipped_frozen = _before_n - len(all_configs)
+        if _skipped_frozen:
+            logger.info(
+                f"[ticket_atual] {_skipped_frozen} kit(s) de eventos concluídos "
+                f"pulados (sem processamento/consulta)"
+            )
+        if not all_configs:
+            return {}
+    except Exception as _fe:
+        logger.warning(
+            f"[ticket_atual] filtro de freeze falhou (conservador: processa tudo): {_fe}"
+        )
+
     # Synthetic bundle (negativo) = evento Ativo-only. Magento = positivo.
     magento_configs = [c for c in all_configs if c.bundle_entity_id is not None and c.bundle_entity_id >= 0]
     ativo_configs = [c for c in all_configs if c.bundle_entity_id is not None and c.bundle_entity_id < 0]

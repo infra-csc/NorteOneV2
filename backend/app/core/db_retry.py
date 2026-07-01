@@ -79,15 +79,18 @@ _CIRCUIT_OPEN_DURATION_S = 60.0
 #     batch das 17h + kit_cost saturavam o túnel, zerando as vendas de hoje.)
 #
 # Configurável via env: MAGENTO_MAX_CONCURRENCY (default 1) controla o slot.
-# MAGENTO_ACQUIRE_TIMEOUT_S (default 180) é o tempo máximo na fila antes de
-# cair pra snapshot piso.
-# IMPORTANTE: o túnel SSH para o Magento NÃO suporta queries pesadas em
-# paralelo. Subir esse valor (já tentamos 3) satura o servidor remoto e o
-# MySQL mata as queries com erro 3024 (max statement execution time),
-# gerando 429s e vendas de "hoje" zeradas. Mantenha 1.
+# MAGENTO_ACQUIRE_TIMEOUT_S (default 60) é o tempo máximo na fila antes de
+# cair pra snapshot piso. Baixado de 180→60 porque a thread que espera fica
+# PRESA no threadpool compartilhado do FastAPI; segurá-la por 180s starva
+# /auth/login e demais rotas síncronas sob carga.
+# IMPORTANTE: o gargalo NÃO é rede/túnel — o Magento é conexão TCP/IP direta
+# ao MySQL. É o próprio servidor MySQL do Magento que NÃO suporta queries
+# pesadas em paralelo: subir a concorrência (já tentamos 3) satura o servidor
+# e o MySQL mata as queries com erro 3024 (max statement execution time),
+# gerando 429s e vendas de "hoje" zeradas. Mantenha a concorrência em 1.
 # ---------------------------------------------------------------------------
 _MAGENTO_MAX_CONCURRENCY = max(1, int(os.getenv("MAGENTO_MAX_CONCURRENCY", "1")))
-_MAGENTO_ACQUIRE_TIMEOUT_S = float(os.getenv("MAGENTO_ACQUIRE_TIMEOUT_S", "180"))
+_MAGENTO_ACQUIRE_TIMEOUT_S = float(os.getenv("MAGENTO_ACQUIRE_TIMEOUT_S", "60"))
 _magento_concurrency_sem = threading.BoundedSemaphore(_MAGENTO_MAX_CONCURRENCY)
 
 # Prioridade interativa sobre background.
@@ -103,6 +106,27 @@ _magento_concurrency_sem = threading.BoundedSemaphore(_MAGENTO_MAX_CONCURRENCY)
 _interactive_waiting_lock = threading.Lock()
 _interactive_waiting = 0
 _BG_YIELD_POLL_S = 0.25  # de quanto em quanto o background re-checa se há interativo na fila
+
+# Teto de chamadas que podem estar OCUPANDO uma thread dentro de magento_run
+# ao mesmo tempo (esperando o slot único OU executando). O Magento roda no
+# MESMO threadpool do FastAPI que serve TODAS as rotas síncronas — inclusive
+# /auth/login. Sem esse teto, uma rajada de queries Magento, cada uma segurando
+# a thread por até MAGENTO_ACQUIRE_TIMEOUT_S, esgota o pool e trava o login e o
+# resto do sistema (mesmo para usuários que nem abrem telas de Magento). Ao
+# estourar o teto, a chamada cai NA HORA para o snapshot piso (mesmo
+# comportamento do timeout de fila), sem segurar a thread. Configurável via env.
+_MAGENTO_MAX_PENDING = max(1, int(os.getenv("MAGENTO_MAX_PENDING", "12")))
+# Teto MENOR para profiles "background" (scheduler/warmup/jobs): reserva as
+# vagas restantes (_MAGENTO_MAX_PENDING - _MAGENTO_MAX_PENDING_BG) exclusivamente
+# para chamadas interativas (clicks do usuário, "Atualizar Hoje"). Assim uma
+# rajada de background não impede a admissão de uma request interativa nem a
+# empurra cedo demais para snapshot. Default 8 (reserva 4 vagas p/ interativo).
+_MAGENTO_MAX_PENDING_BG = min(
+    _MAGENTO_MAX_PENDING,
+    max(1, int(os.getenv("MAGENTO_MAX_PENDING_BG", "8"))),
+)
+_magento_pending_lock = threading.Lock()
+_magento_pending = 0
 
 _circuit_lock = threading.Lock()
 _circuit_failures: Dict[str, deque] = {}
@@ -325,7 +349,7 @@ def magento_run(
     # nota no topo do arquivo sobre por que background também é gated. Profiles
     # interativos (request/once) têm prioridade: background cede a vez enquanto
     # houver interativo na fila.
-    global _interactive_waiting
+    global _interactive_waiting, _magento_pending
     _is_interactive = profile in ("request", "once")
     # Timeout de fila por chamada: o caller (ex.: "Atualizar Hoje") pode passar
     # um teto curto alinhado ao seu próprio orçamento de thread, evitando query
@@ -337,12 +361,30 @@ def magento_run(
     for attempt in range(1, max_attempts + 1):
         _sem_acquired = False
         _iw_incremented = False
+        _pending_incremented = False
         _wait_started = time.time()
         try:
-            # Serializa o acesso ao tunnel SSH/MySQL externo. Sem isso, queries
-            # em paralelo saturam o Magento e geram timeouts em cascata (3024).
-            # Timeout generoso (180s) — preferimos esperar na fila a derrubar a
-            # request: o usuário aceita esperar mais, mas não "snapshot stale".
+            # Teto de ocupação do threadpool compartilhado: se já há chamadas
+            # Magento demais bloqueadas/ativas (esperando o slot único ou
+            # executando), NÃO segura mais uma thread — cai já para o snapshot
+            # piso. Sem isso, uma rajada de queries Magento esgota o threadpool
+            # do FastAPI e trava /auth/login e todas as rotas síncronas.
+            _pending_cap = _MAGENTO_MAX_PENDING if _is_interactive else _MAGENTO_MAX_PENDING_BG
+            with _magento_pending_lock:
+                if _magento_pending >= _pending_cap:
+                    logger.warning(
+                        f"[Magento][{label}] saturado: {_magento_pending} chamada(s) "
+                        f"em andamento ≥ teto {_pending_cap} (profile={profile}) — não "
+                        f"enfileira, cai para snapshot (protege threadpool/login)."
+                    )
+                    raise MagentoEngineUnavailable(
+                        f"Magento saturado ({_magento_pending} em andamento ≥ {_pending_cap})"
+                    )
+                _magento_pending += 1
+                _pending_incremented = True
+            # Serializa o acesso ao MySQL externo do Magento (conexão TCP/IP
+            # direta). Sem isso, queries em paralelo saturam o servidor remoto e
+            # geram timeouts em cascata (erro 3024).
             if _is_interactive:
                 # Sinaliza presença na fila para que o background ceda a vez.
                 with _interactive_waiting_lock:
@@ -414,6 +456,10 @@ def magento_run(
             )
             time.sleep(backoff)
         finally:
+            if _pending_incremented:
+                with _magento_pending_lock:
+                    _magento_pending -= 1
+                _pending_incremented = False
             if _sem_acquired:
                 try:
                     _magento_concurrency_sem.release()
