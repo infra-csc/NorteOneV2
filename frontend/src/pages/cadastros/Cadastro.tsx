@@ -694,7 +694,6 @@ const Cadastro: React.FC = () => {
   const totalEventos = cadastros.length;
   const emAndamento = cadastros.filter(c => c.status === 'Em andamento').length;
   const concluidos = cadastros.filter(c => c.status === 'Concluído').length;
-  const totalAtletas = cadastros.reduce((acc, c) => acc + getTotalAtletasCadastro(c), 0);
 
   const openNewModal = () => {
     setEditItem(null);
@@ -2267,6 +2266,12 @@ const Cadastro: React.FC = () => {
 
         return (
           <div className="space-y-6">
+            <div className={`flex items-start gap-3 p-4 rounded-xl border ${isDark ? 'bg-amber-900/20 border-amber-500/30' : 'bg-amber-50 border-amber-200'}`}>
+              <AlertCircle className={`w-5 h-5 flex-shrink-0 mt-0.5 ${isDark ? 'text-amber-400' : 'text-amber-600'}`} />
+              <p className={`text-sm ${isDark ? 'text-amber-200' : 'text-amber-800'}`}>
+                Os valores desta aba referem-se ao <strong>orçamento</strong> do evento. Não representam projeção nem realizado.
+              </p>
+            </div>
             {isCiclismo ? (
               <div className="space-y-4">
                 <div className="grid grid-cols-3 gap-4">
@@ -3465,18 +3470,6 @@ const Cadastro: React.FC = () => {
             </div>
           </div>
 
-          <div className={`relative overflow-hidden rounded-2xl p-4 ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
-            <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-orange-500/20 to-transparent rounded-full blur-2xl" />
-            <div className="relative">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="p-1.5 rounded-lg bg-orange-500/20">
-                  <Users className="w-4 h-4 text-orange-400" />
-                </div>
-                <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Total Atletas</span>
-              </div>
-              <p className={`text-3xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(totalAtletas) || '0'}</p>
-            </div>
-          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
@@ -3839,42 +3832,6 @@ const Cadastro: React.FC = () => {
                           ))
                         )}
                       </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className={`border-t ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`} />
-
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <Users className={`w-5 h-5 ${isDark ? 'text-purple-400' : 'text-purple-600'}`} />
-                  <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Atletas</h3>
-                </div>
-                <div className={`grid grid-cols-2 md:grid-cols-3 ${selectedCadastro.localizacao_evento === 'Rio de Janeiro' ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-4`}>
-                  <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
-                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total Atletas</p>
-                    <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(getTotalAtletasCadastro(selectedCadastro)) || '0'}</p>
-                  </div>
-                  <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
-                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Site - Pago</p>
-                    <p className="text-2xl font-bold text-blue-400">{formatNumber(selectedCadastro.atletas.site.pago || 0) || '0'}</p>
-                    <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Tkt Médio: R$ {formatNumber(selectedCadastro.atletas.site.tkt_medio || 0) || '0'}</p>
-                  </div>
-                  <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
-                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Grupos - Pago</p>
-                    <p className="text-2xl font-bold text-orange-400">{formatNumber(selectedCadastro.atletas.grupos.pago || 0) || '0'}</p>
-                    <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Tkt Médio: R$ {formatNumber(selectedCadastro.atletas.grupos.tkt_medio || 0) || '0'}</p>
-                  </div>
-                  <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
-                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Cortesias</p>
-                    <p className="text-2xl font-bold text-emerald-400">{formatNumber(selectedCadastro.atletas.cortesia || 0) || '0'}</p>
-                  </div>
-                  {selectedCadastro.localizacao_evento === 'Rio de Janeiro' && (
-                    <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
-                      <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Appai/Assist - Pago</p>
-                      <p className="text-2xl font-bold text-cyan-400">{formatNumber(selectedCadastro.atletas.appai?.pago || 0) || '0'}</p>
-                      <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Tkt Médio: R$ {formatNumber(selectedCadastro.atletas.appai?.tkt_medio || 0) || '0'}</p>
                     </div>
                   )}
                 </div>
