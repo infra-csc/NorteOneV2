@@ -2204,7 +2204,6 @@ const ProjecaoInscritos: React.FC = () => {
           <div className="space-y-2">
             <p><strong>Projeções</strong>: lista de eventos e as projeções de cada um.</p>
             <p><strong>Visão Consolidada</strong>: soma das projeções por evento, área e corte (Convicta e Ajuste).</p>
-            {isAdmin && <p><strong>Configuração</strong> e <strong>Lixeira</strong>: ajustes e itens removidos (apenas administradores).</p>}
           </div>
         ),
       },
@@ -2288,6 +2287,7 @@ const ProjecaoInscritos: React.FC = () => {
           body: (
             <div className="space-y-2">
               <p>Ative <strong>Distribuir por Kit</strong> para detalhar quantos inscritos irão para cada tipo de kit. A soma dos kits precisa bater com a quantidade total.</p>
+              <p className={`p-2 rounded-lg text-sm ${isDark ? 'bg-blue-500/10 text-blue-200' : 'bg-blue-50 text-blue-700'}`}>💡 Se você <strong>não</strong> usar o detalhamento e apenas informar a quantidade total e salvar, o sistema considerará todo esse total como <strong>Kit Básico</strong> nos cálculos automaticamente.</p>
               <p>A <strong>Camiseta avulsa</strong> tem uma regra especial: após o <strong>Corte 1</strong> ela vira um <strong>teto</strong> (valor máximo já congelado) e só pode ser reduzida, nunca aumentada.</p>
             </div>
           ),
@@ -2363,7 +2363,7 @@ const ProjecaoInscritos: React.FC = () => {
     );
 
     return steps;
-  }, [podeEditarProjecao, isAdmin]);
+  }, [podeEditarProjecao, isAdmin, isDark]);
 
   const handleTourPrepare = React.useCallback((step: TourStep) => {
     if (step.tab && step.tab !== activeTab) setActiveTab(step.tab);
