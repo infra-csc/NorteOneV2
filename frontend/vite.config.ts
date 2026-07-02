@@ -1,11 +1,35 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react-swc'
 import path from 'path'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// Identificador único por build. É embutido no bundle (__APP_BUILD_VERSION__) e
+// gravado em dist/version.json — o backend expõe esse arquivo via /api/version.
+// O frontend compara os dois periodicamente: se divergirem, força a atualização
+// (guarda de versão que funciona mesmo quando o sw.js antigo está preso em cache).
+const BUILD_VERSION = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+
+function emitVersionJson(): Plugin {
+  return {
+    name: 'emit-version-json',
+    apply: 'build',
+    generateBundle() {
+      this.emitFile({
+        type: 'asset',
+        fileName: 'version.json',
+        source: JSON.stringify({ version: BUILD_VERSION }),
+      })
+    },
+  }
+}
+
 export default defineConfig({
+  define: {
+    __APP_BUILD_VERSION__: JSON.stringify(BUILD_VERSION),
+  },
   plugins: [
     react(),
+    emitVersionJson(),
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: false,

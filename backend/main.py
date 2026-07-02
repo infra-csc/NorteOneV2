@@ -2853,6 +2853,38 @@ _backend_dir = os.path.dirname(os.path.abspath(__file__))
 _backend_static = os.path.join(_backend_dir, "static")
 _workspace_frontend_dist = os.path.join(os.path.dirname(_backend_dir), "frontend", "dist")
 frontend_dist = _backend_static if os.path.isdir(_backend_static) and os.path.isfile(os.path.join(_backend_static, "index.html")) else _workspace_frontend_dist
+
+
+@app.get("/api/version")
+async def get_app_version():
+    """Versão do build do frontend em produção (guarda de versão do PWA).
+
+    Lê dist/version.json (gerado pelo vite build e copiado junto com o dist).
+    Endpoint público, barato (só disco, sem banco) e SEMPRE sem cache — o
+    frontend compara essa versão com a embutida no próprio bundle e, se
+    divergirem, força a atualização mesmo quando o sw.js antigo ficou preso
+    no cache HTTP do navegador (cenário em que a auto-atualização normal do
+    service worker nunca dispara).
+    """
+    import json as _json
+    version = None
+    try:
+        vpath = os.path.join(frontend_dist, "version.json")
+        if os.path.isfile(vpath):
+            with open(vpath, "r", encoding="utf-8") as f:
+                version = _json.load(f).get("version")
+    except Exception:
+        version = None
+    return JSONResponse(
+        {"version": version},
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
+
+
 class ImmutableStaticFiles(StaticFiles):
     """Serve os assets com hash no nome (imutáveis) com cache de 1 ano.
 
@@ -2893,6 +2925,7 @@ if os.path.isdir(frontend_dist):
             or base == "sw.js"
             or base.endswith(".webmanifest")
             or base == "registersw.js"
+            or base == "version.json"
         )
 
     @app.get("/{full_path:path}")

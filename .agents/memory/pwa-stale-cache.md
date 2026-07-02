@@ -39,6 +39,15 @@ nunca enxerga um service worker novo → o `registerType:'autoUpdate'` + `regist
 em `index.html`, `sw.js`, `*.webmanifest` e `registerSW.js`. Os assets sob `/assets` têm hash
 no nome (imutáveis) e **devem continuar cacheáveis**. Só toma efeito após republicar.
 
+**Rede de segurança final (version guard, Julho/2026):** mesmo com tudo acima, um
+`sw.js` antigo já preso em cache HTTP nunca deixa a cadeia disparar. A solução definitiva
+é um guarda de versão independente do SW: versão única por build embutida no bundle
+(vite `define`) + `version.json` no dist + endpoint `/api/version` no-store; o app compara
+periodicamente e, em mismatch, tenta `update()` e depois escala para unregister do SW +
+limpeza só dos caches de precache + reload, com anti-loop em localStorage (máx 2 tentativas
+por versão-alvo, resetado quando as versões batem). Nunca apagar os caches de dados runtime.
+Em dev o guard fica inerte (`import.meta.env.DEV` + version null quando não há version.json).
+
 **Nota de diagnóstico:** a réplica de leitura de produção tem lag — a mesma query pode
 retornar contagens diferentes em chamadas seguidas enquanto replica. Não confundir lag de
 réplica com "dados sumindo".
