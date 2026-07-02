@@ -64,6 +64,41 @@ def _normalize_kit_nome(nome: str) -> str:
 _AREAS_CACHE_TTL = 300
 _areas_cache = {"data": None, "ts": 0.0}
 _areas_cache_lock = threading.Lock()
+
+# Caches leves (TTL curto) para endpoints consultados constantemente por todos
+# os usuários com a tela de Projeção aberta (pendências é polled a cada 3 min
+# por usuário). Invalidados em qualquer mutação de projeção/corte.
+_PROJ_LIGHT_CACHE_TTL = 60
+_pendencias_cache: dict = {}  # user_id -> (ts, PendenciasResponse)
+_pendencias_cache_lock = threading.Lock()
+_cutoff_envio_map_cache = {"data": None, "ts": 0.0}
+_cutoff_envio_map_lock = threading.Lock()
+
+# Trava por chave para o caminho de cache-miss do consolidado: evita que
+# várias requisições simultâneas disparem o mesmo recálculo pesado em paralelo.
+_consolidado_miss_locks: dict = {}
+_consolidado_miss_locks_guard = threading.Lock()
+
+
+def _invalidate_projecao_light_caches():
+    with _pendencias_cache_lock:
+        _pendencias_cache.clear()
+    with _cutoff_envio_map_lock:
+        _cutoff_envio_map_cache["data"] = None
+        _cutoff_envio_map_cache["ts"] = 0.0
+
+
+def _pendencias_store(user_id: int, ts: float, resp):
+    """Guarda a resposta de pendências no cache por usuário e a retorna.
+    Poda entradas expiradas para o dict não crescer indefinidamente."""
+    with _pendencias_cache_lock:
+        expired = [uid for uid, (t, _r) in _pendencias_cache.items() if ts - t >= _PROJ_LIGHT_CACHE_TTL]
+        for uid in expired:
+            _pendencias_cache.pop(uid, None)
+        _pendencias_cache[user_id] = (ts, resp)
+    return resp
+
+
 _CUTOFF_RULES_CACHE_TTL = 300
 _cutoff_rules_cache: dict = {}
 _cutoff_rules_cache_lock = threading.Lock()
@@ -1601,16 +1636,61 @@ def _consolidado_cache_key(
 
 
 def invalidate_consolidado_cache():
-    """Limpa todas as variações (filtros) do cache da Visão Consolidada.
+    """Marca o cache da Visão Consolidada como desatualizado (stale) e agenda o
+    recálculo em background, em vez de APAGAR as entradas.
 
-    Chamado após qualquer mutação que altere projeções ou cortes, garantindo
-    que a próxima leitura reflita o estado novo (a recomputação acontece em
-    background via SWR nas leituras seguintes)."""
+    Antes, cada save apagava o cache inteiro e a próxima leitura de qualquer
+    usuário caía num recálculo completo e SÍNCRONO (o gargalo da aba com vários
+    usuários simultâneos). Agora as leituras seguintes continuam instantâneas
+    servindo o valor anterior, enquanto o valor novo é computado em background
+    (single-flight: um recálculo por chave; mutações durante o recálculo
+    disparam uma re-execução ao final, então o último save sempre aparece)."""
+    _invalidate_projecao_light_caches()
     try:
-        from ...core.cache import projecao_consolidado_cache
-        projecao_consolidado_cache.invalidate()
+        from ...core.cache import projecao_consolidado_cache as _cache
+        _cache.mark_stale()
+        ano_atual = str(datetime.now().year)
+        for key in _cache.list_keys():
+            parts = key.split("|")
+            if len(parts) != 6 or parts[0] != ano_atual:
+                continue
+            _cache.submit_background_refresh(key, _make_consolidado_refresh_fn(key, parts))
     except Exception as _e:
         logger.warning(f"[Consolidado] falha ao invalidar cache: {_e}")
+
+
+def _make_consolidado_refresh_fn(cache_key: str, parts: list):
+    """Cria a função de refresh em background para uma chave do consolidado
+    (parseando a chave de volta para os filtros originais)."""
+    _, mes_k, tipo_k, mod_k, area_k, ev_k = parts
+
+    def _refresh():
+        from ...core.database import SessionLocal
+        from ...core.cache import projecao_consolidado_cache as _cache
+        from ...services.snapshot_service import congelar_cortes_para_eventos
+        _db = SessionLocal()
+        try:
+            # Mesma semântica dos outros caminhos de recompute (_swr_refresh e
+            # cache-miss): congela cortes ao vivo ANTES de computar, para que o
+            # cache nunca sirva valores derivados de corte defasados.
+            try:
+                congelar_cortes_para_eventos(_db, evento_ids=None)
+            except Exception as _e:
+                logger.warning(f"[Consolidado] congelamento ao vivo (refresh pós-save) falhou: {_e}")
+                _db.rollback()
+            fresh = _compute_consolidado(
+                _db,
+                mes_k or None,
+                tipo_k or None,
+                mod_k or None,
+                area_k or None,
+                int(ev_k) if ev_k else None,
+            )
+            _cache.set(cache_key, fresh)
+        finally:
+            _db.close()
+
+    return _refresh
 
 
 @router.get("/camiseta-avulsa-info", response_model=CamisetaAvulsaInfoResponse)
@@ -1769,19 +1849,33 @@ def get_consolidado(
         if cached is not None:
             return cached
 
-    # Cache miss ou force_refresh: roda o congelamento ao vivo antes de computar,
-    # igual ao _swr_refresh. Caso típico: cache foi invalidado ao salvar data_corte_1
-    # e a próxima requisição chega aqui sem nenhum valor em cache para ficar stale.
-    from ...services.snapshot_service import congelar_cortes_para_eventos as _freeze
-    try:
-        _freeze(db, evento_ids=None)
-    except Exception as _e:
-        logger.warning(f"[Consolidado] congelamento ao vivo (cache miss) falhou: {_e}")
-        db.rollback()
+    # Cache miss ou force_refresh: recálculo síncrono e pesado. Trava por chave
+    # (anti-estouro): se várias requisições caírem aqui ao mesmo tempo — típico
+    # logo após restart, quando o cache ainda está frio — só a primeira computa;
+    # as demais aguardam e reaproveitam o resultado do cache.
+    with _consolidado_miss_locks_guard:
+        # Poda defensiva: o nº de combinações de filtros é pequeno, mas evita
+        # crescimento sem limite em uptime longo (chaves mudam a cada ano).
+        if len(_consolidado_miss_locks) > 256:
+            _consolidado_miss_locks.clear()
+        _miss_lock = _consolidado_miss_locks.setdefault(cache_key, threading.Lock())
+    with _miss_lock:
+        if not force_refresh:
+            cached, _is_stale = projecao_consolidado_cache.get_or_revalidate(cache_key, refresh_fn=_swr_refresh)
+            if cached is not None:
+                return cached
 
-    result = _compute_consolidado(db, mes, tipo_evento, modalidade, area_projecao_id, evento_id)
-    projecao_consolidado_cache.set(cache_key, result)
-    return result
+        # Roda o congelamento ao vivo antes de computar, igual ao _swr_refresh.
+        from ...services.snapshot_service import congelar_cortes_para_eventos as _freeze
+        try:
+            _freeze(db, evento_ids=None)
+        except Exception as _e:
+            logger.warning(f"[Consolidado] congelamento ao vivo (cache miss) falhou: {_e}")
+            db.rollback()
+
+        result = _compute_consolidado(db, mes, tipo_evento, modalidade, area_projecao_id, evento_id)
+        projecao_consolidado_cache.set(cache_key, result)
+        return result
 
 
 def _aplicar_delta_desc(itens: list, attr: str, delta: int) -> None:
@@ -2121,7 +2215,15 @@ def get_cutoff_envio_map(
     da Projeção de Inscritos para ancorar os marcadores de ponto de corte na
     Data de corte Envio sem depender da aba/consolidado estar carregado —
     mesma âncora que `/projecao/pendencias` usa no backend.
+
+    Cacheado em memória (TTL curto): é chamado no mount da página por todos os
+    usuários. Invalidado em qualquer mutação de projeção/corte.
     """
+    now = _time.time()
+    with _cutoff_envio_map_lock:
+        cached = _cutoff_envio_map_cache["data"]
+        if cached is not None and (now - _cutoff_envio_map_cache["ts"]) < _PROJ_LIGHT_CACHE_TTL:
+            return cached
     rows = (
         db.query(
             ProjecaoCutoffEventoArea.evento_id,
@@ -2131,7 +2233,11 @@ def get_cutoff_envio_map(
         .group_by(ProjecaoCutoffEventoArea.evento_id)
         .all()
     )
-    return {str(eid): dt.isoformat() for eid, dt in rows if dt is not None}
+    result = {str(eid): dt.isoformat() for eid, dt in rows if dt is not None}
+    with _cutoff_envio_map_lock:
+        _cutoff_envio_map_cache["data"] = result
+        _cutoff_envio_map_cache["ts"] = now
+    return result
 
 
 @router.post("/cutoff-rules", response_model=CutoffRuleResponse)
@@ -2251,14 +2357,24 @@ def get_pendencias(
 
     Eventos SEM Data de corte Envio cadastrada NÃO geram alerta (sem fallback
     pela data do evento). Admins enxergam pendências de TODAS as áreas.
+
+    Cacheado em memória por usuário (TTL curto): o frontend faz polling deste
+    endpoint a cada 3 min por usuário logado — é o endpoint mais chamado da
+    tela. Invalidado em qualquer mutação de projeção/corte.
     """
+    _now = _time.time()
+    with _pendencias_cache_lock:
+        _hit = _pendencias_cache.get(current_user.id)
+        if _hit is not None and (_now - _hit[0]) < _PROJ_LIGHT_CACHE_TTL:
+            return _hit[1]
+
     today = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
 
     # Valor único de dias do alerta. 0 (ou config inexistente) = desligado.
     config = _get_corte_config(db)
     n = config.dias_alerta_envio if config else 30
     if not n or n <= 0:
-        return PendenciasResponse(total_eventos=0, total_areas=0, pendencias=[])
+        return _pendencias_store(current_user.id, _now, PendenciasResponse(total_eventos=0, total_areas=0, pendencias=[]))
 
     # Áreas em que o usuário pode editar (admin = todas)
     if is_user_admin(current_user):
@@ -2266,13 +2382,13 @@ def get_pendencias(
     else:
         area_ids = _get_user_area_ids(db, current_user.id)
         if not area_ids:
-            return PendenciasResponse(total_eventos=0, total_areas=0, pendencias=[])
+            return _pendencias_store(current_user.id, _now, PendenciasResponse(total_eventos=0, total_areas=0, pendencias=[]))
         areas_user = db.query(AreaProjecao).filter(
             AreaProjecao.id.in_(area_ids),
             AreaProjecao.ativo == True,
         ).all()
     if not areas_user:
-        return PendenciasResponse(total_eventos=0, total_areas=0, pendencias=[])
+        return _pendencias_store(current_user.id, _now, PendenciasResponse(total_eventos=0, total_areas=0, pendencias=[]))
 
     all_areas_ids = {a.id for a in areas_user}
     areas_nome_by_id = {a.id: a.nome for a in areas_user}
@@ -2293,7 +2409,7 @@ def get_pendencias(
     # Dispara somente quando hoje == data_envio - N (sem fallback por data do evento).
     trigger = {eid: dt for eid, dt in corte_envio_by_evento.items() if (dt - today).days == n}
     if not trigger:
-        return PendenciasResponse(total_eventos=0, total_areas=0, pendencias=[])
+        return _pendencias_store(current_user.id, _now, PendenciasResponse(total_eventos=0, total_areas=0, pendencias=[]))
 
     evs = (
         db.query(CadastroEvento)
@@ -2305,7 +2421,7 @@ def get_pendencias(
         .all()
     )
     if not evs:
-        return PendenciasResponse(total_eventos=0, total_areas=0, pendencias=[])
+        return _pendencias_store(current_user.id, _now, PendenciasResponse(total_eventos=0, total_areas=0, pendencias=[]))
 
     # Projeções já registradas para os eventos candidatos
     evento_ids = {ev.id for ev in evs}
@@ -2350,11 +2466,11 @@ def get_pendencias(
     pendencias.sort(key=lambda p: (p.dias_ate_evento, p.evento_nome))
     total_areas = sum(len(p.areas_pendentes) for p in pendencias)
 
-    return PendenciasResponse(
+    return _pendencias_store(current_user.id, _now, PendenciasResponse(
         total_eventos=len(pendencias),
         total_areas=total_areas,
         pendencias=pendencias,
-    )
+    ))
 
 # ============================================================
 # CUTOFF CUSTOMIZADO POR EVENTO + ÁREA

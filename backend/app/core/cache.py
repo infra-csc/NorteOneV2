@@ -200,6 +200,10 @@ _last_refresh_error = None
 _db_persist_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="cache_persist")
 _swr_executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="cache_swr")
 _swr_in_flight: set = set()
+# Chaves cujo refresh precisa RODAR DE NOVO ao terminar o atual: uma mutação
+# chegou enquanto o refresh estava em andamento, então o resultado dele pode
+# não refletir o estado mais novo do banco.
+_swr_pending_rerun: set = set()
 _swr_lock = threading.Lock()
 
 
@@ -705,14 +709,26 @@ class SmartCache:
         return None, False
 
     def _swr_refresh(self, cache_key: str, refresh_fn: Callable, swr_key: str):
-        try:
-            refresh_fn()
-            logger.info(f"Cache '{self.name}' SWR: background refresh completed for key={cache_key}")
-        except Exception as e:
-            logger.error(f"Cache '{self.name}' SWR: background refresh failed for key={cache_key}: {e}")
-        finally:
+        while True:
+            try:
+                refresh_fn()
+                logger.info(f"Cache '{self.name}' SWR: background refresh completed for key={cache_key}")
+            except Exception as e:
+                logger.error(f"Cache '{self.name}' SWR: background refresh failed for key={cache_key}: {e}")
+                # Em falha, não re-executa: evita loop de erro. A próxima leitura
+                # stale reagenda normalmente.
+                with _swr_lock:
+                    _swr_pending_rerun.discard(swr_key)
+                    _swr_in_flight.discard(swr_key)
+                return
             with _swr_lock:
+                if swr_key in _swr_pending_rerun:
+                    # Uma mutação chegou durante o refresh: roda de novo para
+                    # garantir que o cache reflita o estado mais recente.
+                    _swr_pending_rerun.discard(swr_key)
+                    continue
                 _swr_in_flight.discard(swr_key)
+                return
 
     def set(self, cache_key: str, data: Any):
         with self._lock:
@@ -734,6 +750,49 @@ class SmartCache:
             _db_persist_executor.submit(_persist_to_db, self.name, cache_key, data)
         except RuntimeError:
             logger.warning(f"DB persist executor shutdown, skipping persist for {self.name}/{cache_key}")
+
+    def mark_stale(self, cache_key: str = None):
+        """Marca entradas como desatualizadas SEM removê-las.
+
+        Diferente de invalidate(), a próxima leitura via get_or_revalidate()
+        continua servindo o dado antigo instantaneamente (SWR) enquanto o
+        recálculo acontece em background — evitando cache-miss síncrono e
+        pesado na frente do usuário. A cópia persistida em DB não é apagada;
+        o próximo set() do refresh a sobrescreve."""
+        stale_ts = time.time() - self.ttl
+        with self._lock:
+            if cache_key:
+                if cache_key in self._timestamps and not self._is_permanent(cache_key):
+                    self._timestamps[cache_key] = min(self._timestamps[cache_key], stale_ts)
+            else:
+                for k in list(self._timestamps.keys()):
+                    if not self._is_permanent(k):
+                        self._timestamps[k] = min(self._timestamps[k], stale_ts)
+
+    def list_keys(self) -> list:
+        """Lista as chaves atualmente em memória (sem tocar no DB)."""
+        with self._lock:
+            return list(self._data.keys())
+
+    def submit_background_refresh(self, cache_key: str, refresh_fn: Callable) -> bool:
+        """Agenda um refresh em background com single-flight (mesma infra do SWR).
+
+        Retorna True se o refresh foi agendado, False se já havia um em
+        andamento para esta chave ou se o executor está indisponível."""
+        swr_key = f"{self.name}:{cache_key}"
+        with _swr_lock:
+            if swr_key in _swr_in_flight:
+                # Já tem refresh rodando; marca para re-executar ao terminar,
+                # garantindo que a mutação que motivou ESTA chamada apareça.
+                _swr_pending_rerun.add(swr_key)
+                return False
+            _swr_in_flight.add(swr_key)
+            try:
+                _swr_executor.submit(self._swr_refresh, cache_key, refresh_fn, swr_key)
+                return True
+            except RuntimeError:
+                _swr_in_flight.discard(swr_key)
+                return False
 
     def invalidate(self, cache_key: str = None):
         keys_removed = []
