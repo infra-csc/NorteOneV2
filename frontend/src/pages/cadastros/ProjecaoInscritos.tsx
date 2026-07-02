@@ -3954,9 +3954,9 @@ const ProjecaoInscritos: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => setNotifDraft(d => ({ ...d, ativo: !d.ativo }))}
-                        className={`relative inline-flex h-10 w-20 items-center rounded-xl transition-colors ${notifDraft.ativo ? 'bg-emerald-500' : (isDark ? 'bg-gray-700' : 'bg-gray-300')}`}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${notifDraft.ativo ? 'bg-emerald-500' : (isDark ? 'bg-gray-700' : 'bg-gray-300')}`}
                       >
-                        <span className={`inline-block h-8 w-8 transform rounded-lg bg-white shadow transition-transform ${notifDraft.ativo ? 'translate-x-11' : 'translate-x-1'}`} />
+                        <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${notifDraft.ativo ? 'translate-x-5' : 'translate-x-0.5'}`} />
                       </button>
                     </div>
                     <div>
@@ -3987,9 +3987,9 @@ const ProjecaoInscritos: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setNotifDraft(d => ({ ...d, ativo: !d.ativo }))}
-                      className={`relative inline-flex h-10 w-20 items-center rounded-xl transition-colors ${notifDraft.ativo ? 'bg-emerald-500' : (isDark ? 'bg-gray-700' : 'bg-gray-300')}`}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${notifDraft.ativo ? 'bg-emerald-500' : (isDark ? 'bg-gray-700' : 'bg-gray-300')}`}
                     >
-                      <span className={`inline-block h-8 w-8 transform rounded-lg bg-white shadow transition-transform ${notifDraft.ativo ? 'translate-x-11' : 'translate-x-1'}`} />
+                      <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${notifDraft.ativo ? 'translate-x-5' : 'translate-x-0.5'}`} />
                     </button>
                   </div>
                 )}
