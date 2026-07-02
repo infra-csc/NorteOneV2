@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy import extract, text, func, or_
@@ -1812,6 +1812,7 @@ def get_corte1_distribuicao(
 
 @router.get("/consolidado", response_model=List[ConsolidadoEventoResponse])
 def get_consolidado(
+    response: Response,
     mes: Optional[str] = Query(None),
     tipo_evento: Optional[str] = Query(None),
     modalidade: Optional[str] = Query(None),
@@ -1823,6 +1824,10 @@ def get_consolidado(
 ):
     from ...core.cache import projecao_consolidado_cache
     cache_key = _consolidado_cache_key(mes, tipo_evento, modalidade, area_projecao_id, evento_id)
+    # Sinaliza ao frontend quando a resposta servida é um valor anterior em
+    # atualização (stale/SWR), para que ele rebusque automaticamente até o
+    # número recalculado chegar — evita usuário tomar valor antigo como final.
+    response.headers["X-Consolidado-Stale"] = "0"
 
     def _swr_refresh():
         from ...core.database import SessionLocal
@@ -1847,6 +1852,8 @@ def get_consolidado(
     if not force_refresh:
         cached, _is_stale = projecao_consolidado_cache.get_or_revalidate(cache_key, refresh_fn=_swr_refresh)
         if cached is not None:
+            if _is_stale:
+                response.headers["X-Consolidado-Stale"] = "1"
             return cached
 
     # Cache miss ou force_refresh: recálculo síncrono e pesado. Trava por chave
@@ -1863,6 +1870,8 @@ def get_consolidado(
         if not force_refresh:
             cached, _is_stale = projecao_consolidado_cache.get_or_revalidate(cache_key, refresh_fn=_swr_refresh)
             if cached is not None:
+                if _is_stale:
+                    response.headers["X-Consolidado-Stale"] = "1"
                 return cached
 
         # Roda o congelamento ao vivo antes de computar, igual ao _swr_refresh.

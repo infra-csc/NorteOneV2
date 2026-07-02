@@ -1681,7 +1681,9 @@ export const projecaoService = {
   },
   getConsolidado: async (params?: { mes?: string; tipo_evento?: string; modalidade?: string; area_projecao_id?: string; evento_id?: number; force_refresh?: boolean }) => {
     const response = await api.get('/projecao/consolidado', { params });
-    return response.data;
+    // 'stale' indica que o backend serviu um valor anterior enquanto recalcula
+    // em background (SWR) — o chamador deve rebuscar até vir fresco.
+    return { data: response.data, stale: response.headers?.['x-consolidado-stale'] === '1' };
   },
   getCamisetaAvulsaInfo: async (evento_id: number, area_projecao_id: number): Promise<{ corte1_congelado: boolean; teto: number }> => {
     const response = await api.get('/projecao/camiseta-avulsa-info', { params: { evento_id, area_projecao_id } });

@@ -10,7 +10,7 @@ import {
   Layers, Download, RotateCcw,
   AlertTriangle, Trash, Check, Lock, LockOpen, Clock, Bell, Zap,
   Package, Info, Truck, Mail, MessageSquare,
-  HelpCircle, ArrowLeft, ArrowRight, Sparkles,
+  HelpCircle, ArrowLeft, ArrowRight, Sparkles, RefreshCw,
 } from 'lucide-react';
 
 interface MultiSelectOption {
@@ -789,6 +789,10 @@ const ProjecaoInscritos: React.FC = () => {
   const canDeleteProjecao = canDelete('projecao_inscritos');
 
   const [activeTab, setActiveTab] = useState<'projecoes' | 'consolidado' | 'config' | 'lixeira'>('projecoes');
+  // Ref espelho da aba ativa para guards em callbacks assíncronos (timers/retries)
+  // sem closure sobre estado antigo.
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
   const [showTour, setShowTour] = useState(false);
   const [projecoes, setProjecoes] = useState<Projecao[]>(() => projReadCache('proj_projecoes_v1') || []);
   const [areas, setAreas] = useState<AreaProjecao[]>(() => projReadCache('proj_areas_v1') || []);
@@ -798,6 +802,14 @@ const ProjecaoInscritos: React.FC = () => {
   const [cutoffEnvioMap, setCutoffEnvioMap] = useState<Record<string, string>>(() => projReadCache('proj_cutoff_envio_v1') || {});
   const [consolidadoLoading, setConsolidadoLoading] = useState(false);
   const [consolidadoLoaded, setConsolidadoLoaded] = useState(false);
+  // true quando o backend serviu um valor em recálculo (SWR stale): mostramos
+  // aviso "Atualizando..." e rebuscamos automaticamente até vir o número final.
+  const [consolidadoStale, setConsolidadoStale] = useState(false);
+  const consolidadoStaleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const consolidadoStaleAttemptsRef = useRef(0);
+  // Sequenciamento de requisições: só a resposta da chamada mais recente é
+  // aplicada ao estado (evita corrida entre retry pendente e troca de filtros).
+  const consolidadoReqIdRef = useRef(0);
   const [areasDetail, setAreasDetail] = useState<AreaDetail[]>([]);
   const [userSearch, setUserSearch] = useState('');
   const [userResults, setUserResults] = useState<SimpleUser[]>([]);
@@ -1007,18 +1019,54 @@ const ProjecaoInscritos: React.FC = () => {
     }
   };
 
-  const loadConsolidado = async (force: boolean = false) => {
+  const cancelConsolidadoRetry = () => {
+    if (consolidadoStaleTimerRef.current) {
+      clearTimeout(consolidadoStaleTimerRef.current);
+      consolidadoStaleTimerRef.current = null;
+    }
+  };
+
+  // Ao sair da aba (ou desmontar): além de cancelar o timer, invalida qualquer
+  // resposta em voo (bump do reqId) para que ela não reagende o polling.
+  const stopConsolidadoPolling = () => {
+    cancelConsolidadoRetry();
+    consolidadoReqIdRef.current += 1;
+  };
+
+  const loadConsolidado = async (force: boolean = false, isRetry: boolean = false) => {
+    // Chamadas "novas" (troca de aba/filtros, pós-save) zeram o ciclo de retry;
+    // só as rebuscas automáticas (isRetry) continuam a contagem.
+    if (!isRetry) consolidadoStaleAttemptsRef.current = 0;
+    const reqId = ++consolidadoReqIdRef.current;
+    cancelConsolidadoRetry();
     // Só exibe o spinner enquanto ainda não há nenhum dado carregado; em
     // recargas (filtros/SWR) mantém os dados atuais visíveis para não "piscar".
     if (!consolidadoLoaded) setConsolidadoLoading(true);
     try {
-      const data = await projecaoService.getConsolidado({ ...buildFilters(), ...(force ? { force_refresh: true } : {}) });
-      setConsolidado(data);
+      const res = await projecaoService.getConsolidado({ ...buildFilters(), ...(force ? { force_refresh: true } : {}) });
+      if (reqId !== consolidadoReqIdRef.current) return; // resposta obsoleta: descarta
+      setConsolidado(res.data);
       setConsolidadoLoaded(true);
+      if (res.stale) {
+        // Backend está recalculando em background após uma alteração recente:
+        // mantém o aviso visível e rebusca a cada 2,5s até o número final chegar.
+        setConsolidadoStale(true);
+        if (consolidadoStaleAttemptsRef.current < 8 && activeTabRef.current === 'consolidado') {
+          consolidadoStaleAttemptsRef.current += 1;
+          consolidadoStaleTimerRef.current = setTimeout(() => {
+            if (activeTabRef.current === 'consolidado') loadConsolidado(false, true);
+          }, 2500);
+        }
+        // Se esgotar as tentativas (~20s), o aviso permanece na tela — nunca
+        // esconder que o número pode estar desatualizado.
+      } else {
+        setConsolidadoStale(false);
+        consolidadoStaleAttemptsRef.current = 0;
+      }
     } catch (error) {
       console.error('Erro ao carregar consolidado:', error);
     } finally {
-      setConsolidadoLoading(false);
+      if (reqId === consolidadoReqIdRef.current) setConsolidadoLoading(false);
     }
   };
 
@@ -1458,6 +1506,9 @@ const ProjecaoInscritos: React.FC = () => {
     loadData(hasCached);
     loadEventos();
     loadCutoffEnvioMap();
+    return () => {
+      stopConsolidadoPolling();
+    };
   }, []);
 
   useEffect(() => {
@@ -1467,6 +1518,7 @@ const ProjecaoInscritos: React.FC = () => {
 
   useEffect(() => {
     if (activeTab === 'consolidado') loadConsolidado();
+    else stopConsolidadoPolling(); // saiu da aba: para o polling e invalida respostas em voo
     if (activeTab === 'config' && isAdmin) { loadAreasDetail(); loadAutoLockConfig(); loadCorteConfig(); loadDiagnosticoPosCorte(); fetchNotifHistory(); }
     if (activeTab === 'lixeira' && isAdmin) loadLixeira();
   }, [activeTab]);
@@ -1488,7 +1540,7 @@ const ProjecaoInscritos: React.FC = () => {
     }
     let cancelled = false;
     projecaoService.getConsolidado({ evento_id: selectedEvento.id })
-      .then((data: ConsolidadoEvento[]) => {
+      .then(({ data }: { data: ConsolidadoEvento[]; stale: boolean }) => {
         if (cancelled) return;
         const ev = data[0];
         if (ev) {
@@ -3327,6 +3379,12 @@ const ProjecaoInscritos: React.FC = () => {
 
         {activeTab === 'consolidado' && (
           <div className="space-y-6" data-tour="consolidado">
+            {consolidadoStale && (
+              <div className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm ${isDark ? 'bg-amber-900/25 border-amber-700/40 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
+                <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
+                <span>Atualizando números após uma alteração recente — os valores exibidos podem mudar em instantes.</span>
+              </div>
+            )}
             {consolidadoLoading && filteredConsolidado.length === 0 ? (
               <div className="space-y-4">
                 {[0, 1, 2].map(i => (

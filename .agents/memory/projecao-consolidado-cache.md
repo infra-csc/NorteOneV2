@@ -28,3 +28,11 @@ de corte, novo campo somado, etc.), acrescente a chamada de invalidação como n
 O refresh em background roda em sessão própria — nunca reutilize a `db` do request nele.
 Os endpoints leves da tela (pendências por usuário, cutoff-envio-map) têm cache curto de
 60s limpo pela mesma invalidação central — novos endpoints "polled" devem seguir o padrão.
+
+**Staleness nunca é silenciosa (Julho/2026):** o endpoint sinaliza resposta stale via
+header `X-Consolidado-Stale: 1`; o frontend mostra banner "Atualizando..." e rebusca a
+cada 2,5s (máx. 8) até vir fresco. Se esgotar, o banner PERMANECE — nunca esconder que o
+número pode estar velho (requisito do usuário: ninguém pode tomar valor stale como final).
+O polling usa reqId sequencial + ref da aba ativa: sair da aba faz bump do reqId (descarta
+respostas em voo) e cancela o timer — sem isso, resposta em voo reagendava polling fora
+da aba. Qualquer novo consumidor SWR na UI deve seguir esse padrão.
