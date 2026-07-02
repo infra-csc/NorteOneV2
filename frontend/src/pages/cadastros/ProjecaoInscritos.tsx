@@ -799,7 +799,10 @@ const ProjecaoInscritos: React.FC = () => {
   const [consolidadoLoading, setConsolidadoLoading] = useState(false);
   const [consolidadoLoaded, setConsolidadoLoaded] = useState(false);
   const [areasDetail, setAreasDetail] = useState<AreaDetail[]>([]);
-  const [allUsers, setAllUsers] = useState<SimpleUser[]>([]);
+  const [userSearch, setUserSearch] = useState('');
+  const [userResults, setUserResults] = useState<SimpleUser[]>([]);
+  const [userSearchLoading, setUserSearchLoading] = useState(false);
+  const [knownUsers, setKnownUsers] = useState<Record<number, SimpleUser>>({});
   const [lixeira, setLixeira] = useState<Projecao[]>([]);
   const [loading, setLoading] = useState(() => !projReadCache('proj_projecoes_v1'));
 
@@ -1023,12 +1026,8 @@ const ProjecaoInscritos: React.FC = () => {
 
   const loadAreasDetail = async () => {
     try {
-      const [areasData, usersData] = await Promise.all([
-        projecaoService.listAreasDetail(),
-        usersService.list(),
-      ]);
+      const areasData = await projecaoService.listAreasDetail();
       setAreasDetail(areasData);
-      setAllUsers(usersData);
     } catch (error) {
       console.error('Erro ao carregar config de áreas:', error);
     }
@@ -2134,8 +2133,43 @@ const ProjecaoInscritos: React.FC = () => {
   const openAtribuir = (area: AreaDetail) => {
     setAtribuirArea(area);
     setSelectedUserIds(area.usuarios.map(u => u.usuario_id));
+    setKnownUsers(prev => {
+      const next = { ...prev };
+      area.usuarios.forEach(u => {
+        next[u.usuario_id] = { id: u.usuario_id, nome: u.usuario_nome, email: u.usuario_email };
+      });
+      return next;
+    });
+    setUserSearch('');
     setShowAtribuirModal(true);
   };
+
+  useEffect(() => {
+    if (!showAtribuirModal) return;
+    let cancelled = false;
+    setUserSearchLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const data: SimpleUser[] = await usersService.list({
+          q: userSearch.trim() || undefined,
+          limit: 50,
+          ativo: true,
+        });
+        if (cancelled) return;
+        setUserResults(data);
+        setKnownUsers(prev => {
+          const next = { ...prev };
+          data.forEach(u => { next[u.id] = u; });
+          return next;
+        });
+      } catch (error) {
+        if (!cancelled) console.error('Erro ao buscar usuários:', error);
+      } finally {
+        if (!cancelled) setUserSearchLoading(false);
+      }
+    }, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [showAtribuirModal, userSearch]);
 
   const handleAtribuir = async () => {
     if (!atribuirArea) return;
@@ -5350,37 +5384,91 @@ const ProjecaoInscritos: React.FC = () => {
               <p className={`text-sm mb-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                 Selecione os usuários que podem preencher projeções nesta área:
               </p>
-              <div className="space-y-2">
-                {allUsers
-                  .filter(u => u.ativo !== false)
-                  .map(u => (
-                  <label
-                    key={u.id}
-                    className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-colors ${
-                      selectedUserIds.includes(u.id)
-                        ? isDark ? 'bg-violet-500/20 border border-violet-500/50' : 'bg-violet-50 border border-violet-200'
-                        : isDark ? 'bg-gray-900/30 border border-gray-700/50 hover:bg-gray-700/30' : 'bg-gray-50 border border-gray-200 hover:bg-gray-100'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedUserIds.includes(u.id)}
-                      onChange={() => {
-                        setSelectedUserIds(prev =>
-                          prev.includes(u.id)
-                            ? prev.filter(id => id !== u.id)
-                            : [...prev, u.id]
-                        );
-                      }}
-                      className="w-4 h-4 rounded text-violet-500 focus:ring-violet-500"
-                    />
-                    <div>
-                      <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{u.nome}</p>
-                      <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{u.email}</p>
-                    </div>
-                  </label>
-                ))}
+              {selectedUserIds.length > 0 && (
+                <div className="mb-4">
+                  <p className={`text-xs font-semibold uppercase tracking-wide mb-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                    Selecionados ({selectedUserIds.length})
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedUserIds.map(id => {
+                      const u = knownUsers[id];
+                      return (
+                        <span
+                          key={id}
+                          className={`inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1 rounded-full text-xs font-semibold ${
+                            isDark ? 'bg-violet-500/20 text-violet-200 border border-violet-500/40' : 'bg-violet-50 text-violet-700 border border-violet-200'
+                          }`}
+                          title={u?.email || ''}
+                        >
+                          {u?.nome || `Usuário #${id}`}
+                          <button
+                            type="button"
+                            onClick={() => setSelectedUserIds(prev => prev.filter(x => x !== id))}
+                            className={`p-0.5 rounded-full ${isDark ? 'hover:bg-violet-500/30' : 'hover:bg-violet-100'}`}
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              <div className="relative mb-3">
+                <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
+                <input
+                  type="text"
+                  value={userSearch}
+                  onChange={e => setUserSearch(e.target.value)}
+                  placeholder="Buscar por nome ou e-mail..."
+                  autoFocus
+                  className={`w-full pl-9 pr-3 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-violet-500 ${
+                    isDark ? 'bg-gray-900/50 border-gray-700 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'
+                  }`}
+                />
               </div>
+              {userSearchLoading ? (
+                <p className={`text-sm py-4 text-center ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Buscando usuários...</p>
+              ) : userResults.length === 0 ? (
+                <p className={`text-sm py-4 text-center ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                  Nenhum usuário encontrado{userSearch.trim() ? ` para "${userSearch.trim()}"` : ''}.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {userResults.map(u => (
+                    <label
+                      key={u.id}
+                      className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-colors ${
+                        selectedUserIds.includes(u.id)
+                          ? isDark ? 'bg-violet-500/20 border border-violet-500/50' : 'bg-violet-50 border border-violet-200'
+                          : isDark ? 'bg-gray-900/30 border border-gray-700/50 hover:bg-gray-700/30' : 'bg-gray-50 border border-gray-200 hover:bg-gray-100'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedUserIds.includes(u.id)}
+                        onChange={() => {
+                          setSelectedUserIds(prev =>
+                            prev.includes(u.id)
+                              ? prev.filter(id => id !== u.id)
+                              : [...prev, u.id]
+                          );
+                        }}
+                        className="w-4 h-4 rounded text-violet-500 focus:ring-violet-500"
+                      />
+                      <div>
+                        <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{u.nome}</p>
+                        <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{u.email}</p>
+                      </div>
+                    </label>
+                  ))}
+                  {userResults.length >= 50 && (
+                    <p className={`text-xs pt-2 text-center ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                      Mostrando os primeiros 50 resultados. Refine a busca para encontrar outros usuários.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
             <div className="flex justify-end gap-3 p-6 border-t border-gray-700/50">
               <button

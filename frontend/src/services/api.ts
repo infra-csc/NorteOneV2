@@ -257,8 +257,8 @@ export const categoriasAtletasService = {
 };
 
 export const usersService = {
-  list: async () => {
-    const response = await api.get('/users/');
+  list: async (params?: { q?: string; skip?: number; limit?: number; ativo?: boolean }) => {
+    const response = await api.get('/users/', { params });
     return response.data;
   },
   create: async (data: any) => {

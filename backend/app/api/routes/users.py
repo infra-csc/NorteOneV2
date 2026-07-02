@@ -2,8 +2,9 @@ import io
 import logging
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import Response as RawResponse
+from sqlalchemy import or_, func
 from sqlalchemy.orm import Session, joinedload
-from typing import List
+from typing import List, Optional
 from ...core.database import get_db
 from ...core.security import get_password_hash, require_permission, invalidate_user_sessions
 from ...models.user import Usuario
@@ -37,10 +38,18 @@ def _user_to_response(user: Usuario) -> dict:
 def list_users(
     skip: int = 0,
     limit: int = 100,
+    q: Optional[str] = None,
+    ativo: Optional[bool] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission("admin_usuarios", "pode_visualizar")),
 ):
-    users = db.query(Usuario).options(joinedload(Usuario.perfil_acesso_rel)).offset(skip).limit(limit).all()
+    query = db.query(Usuario).options(joinedload(Usuario.perfil_acesso_rel))
+    if q and q.strip():
+        term = f"%{q.strip()}%"
+        query = query.filter(or_(Usuario.nome.ilike(term), Usuario.email.ilike(term)))
+    if ativo is not None:
+        query = query.filter(Usuario.ativo == ativo)
+    users = query.order_by(func.lower(Usuario.nome)).offset(skip).limit(limit).all()
     return [_user_to_response(u) for u in users]
 
 
