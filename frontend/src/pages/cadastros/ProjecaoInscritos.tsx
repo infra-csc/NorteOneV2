@@ -1961,7 +1961,7 @@ const ProjecaoInscritos: React.FC = () => {
     }
   };
 
-  const loadCorteInfo = (evento_id: number, area_projecao_id: number) => {
+  const loadCorteInfo = (evento_id: number, area_projecao_id: number, proj?: Projecao) => {
     const reqId = ++corte1DistReqRef.current;
     setCorteLoading(true);
     setEditCorte2(false);
@@ -1972,6 +1972,34 @@ const ProjecaoInscritos: React.FC = () => {
         if (corte1DistReqRef.current !== reqId) return;
         setEditCorte2(!!d.em_corte2);
         setCorte1Dist({ evento_id, area_projecao_id, quantidade: d.quantidade, kits: d.kits, clientes: d.clientes, fonte: d.fonte });
+        // Reconciliação do Corte 2: a validação de save exige que distribuições
+        // presentes na baseline do Corte 1 estejam LIGADAS no formulário, mas o
+        // openEdit inicializa os toggles a partir da projeção salva (que pode não
+        // ter kits/clientes próprios — ex.: baseline "aproximado" ou snapshot com
+        // "Kit Básico" fabricado). Sem isto, o toggle fica travado DESLIGADO e o
+        // save é bloqueado (deadlock). Liga o toggle e pré-preenche com a baseline
+        // do Corte 1 (adição zero) apenas quando a projeção não tem valores próprios.
+        if (d.em_corte2 && proj) {
+          const c1Kits = new Map<string, number>();
+          (d.kits ?? []).forEach(k => c1Kits.set(k.nome_kit, (c1Kits.get(k.nome_kit) ?? 0) + (k.quantidade || 0)));
+          if (c1Kits.size > 0 && !(proj.kits && proj.kits.length > 0)) {
+            setFormTemKit(true);
+            const kitsForm = KITS_PADRAO.map(nome => {
+              const q = c1Kits.get(nome) ?? 0;
+              return { nome_kit: nome, quantidade: q > 0 ? String(q) : '' };
+            });
+            c1Kits.forEach((q, nome) => {
+              if (!KITS_PADRAO.includes(nome) && q > 0) kitsForm.push({ nome_kit: nome, quantidade: String(q) });
+            });
+            setFormKits(kitsForm);
+          }
+          const c1Clis = new Map<string, number>();
+          (d.clientes ?? []).forEach(c => c1Clis.set(c.nome_cliente, (c1Clis.get(c.nome_cliente) ?? 0) + (c.quantidade || 0)));
+          if (c1Clis.size > 0 && !(proj.clientes && proj.clientes.length > 0)) {
+            setFormTemCliente(true);
+            setFormClientes(Array.from(c1Clis, ([nome_cliente, q]) => ({ nome_cliente, quantidade: String(q) })));
+          }
+        }
         setCorteLoading(false);
       })
       .catch(() => {
@@ -1984,7 +2012,7 @@ const ProjecaoInscritos: React.FC = () => {
   const openEdit = (p: Projecao) => {
     setEditingProjecao(p);
     setFormQuantidade(String(p.quantidade));
-    loadCorteInfo(p.evento_id, p.area_projecao_id);
+    loadCorteInfo(p.evento_id, p.area_projecao_id, p);
     if (p.clientes && p.clientes.length > 0) {
       setFormTemCliente(true);
       setFormClientes(p.clientes.map(c => ({ nome_cliente: c.nome_cliente, quantidade: String(c.quantidade) })));
@@ -4412,10 +4440,10 @@ const ProjecaoInscritos: React.FC = () => {
                 </div>
                 <button
                   type="button"
-                  disabled={emCorte2 && c1KitMap.size > 0}
-                  onClick={() => { if (!(emCorte2 && c1KitMap.size > 0)) setFormTemKit(v => !v); }}
-                  title={emCorte2 && c1KitMap.size > 0 ? 'No Corte 2 a distribuição por Kit do Corte 1 é mantida e só recebe adições' : undefined}
-                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none ${emCorte2 && c1KitMap.size > 0 ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} ${formTemKit ? 'bg-amber-600' : isDark ? 'bg-gray-600' : 'bg-gray-300'}`}
+                  disabled={emCorte2 && c1KitMap.size > 0 && formTemKit}
+                  onClick={() => { if (!(emCorte2 && c1KitMap.size > 0 && formTemKit)) setFormTemKit(v => !v); }}
+                  title={emCorte2 && c1KitMap.size > 0 && formTemKit ? 'No Corte 2 a distribuição por Kit do Corte 1 é mantida e só recebe adições' : undefined}
+                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none ${emCorte2 && c1KitMap.size > 0 && formTemKit ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} ${formTemKit ? 'bg-amber-600' : isDark ? 'bg-gray-600' : 'bg-gray-300'}`}
                 >
                   <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${formTemKit ? 'translate-x-6' : 'translate-x-1'}`} />
                 </button>
@@ -4544,10 +4572,10 @@ const ProjecaoInscritos: React.FC = () => {
                 </div>
                 <button
                   type="button"
-                  disabled={emCorte2 && c1CliMap.size > 0}
-                  onClick={() => { if (!(emCorte2 && c1CliMap.size > 0)) setFormTemCliente(v => !v); }}
-                  title={emCorte2 && c1CliMap.size > 0 ? 'No Corte 2 a distribuição por cliente do Corte 1 é mantida e só recebe adições' : undefined}
-                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none ${emCorte2 && c1CliMap.size > 0 ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} ${formTemCliente ? 'bg-violet-600' : isDark ? 'bg-gray-600' : 'bg-gray-300'}`}
+                  disabled={emCorte2 && c1CliMap.size > 0 && formTemCliente}
+                  onClick={() => { if (!(emCorte2 && c1CliMap.size > 0 && formTemCliente)) setFormTemCliente(v => !v); }}
+                  title={emCorte2 && c1CliMap.size > 0 && formTemCliente ? 'No Corte 2 a distribuição por cliente do Corte 1 é mantida e só recebe adições' : undefined}
+                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none ${emCorte2 && c1CliMap.size > 0 && formTemCliente ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} ${formTemCliente ? 'bg-violet-600' : isDark ? 'bg-gray-600' : 'bg-gray-300'}`}
                 >
                   <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${formTemCliente ? 'translate-x-6' : 'translate-x-1'}`} />
                 </button>
@@ -4698,7 +4726,7 @@ const ProjecaoInscritos: React.FC = () => {
                       <p className={`text-sm ${isDark ? 'text-red-400' : 'text-red-600'}`}>Não foi possível carregar os dados do corte. A edição fica bloqueada até confirmar a fase do corte.</p>
                       <button
                         type="button"
-                        onClick={() => editingProjecao && loadCorteInfo(editingProjecao.evento_id, editingProjecao.area_projecao_id)}
+                        onClick={() => editingProjecao && loadCorteInfo(editingProjecao.evento_id, editingProjecao.area_projecao_id, editingProjecao)}
                         className={`px-4 py-2 rounded-xl font-semibold text-sm ${isDark ? 'bg-gray-700 text-gray-200 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
                       >
                         Tentar novamente
@@ -4775,10 +4803,10 @@ const ProjecaoInscritos: React.FC = () => {
                 </div>
                 <button
                   type="button"
-                  disabled={emCorte2 && c1KitMap.size > 0}
-                  onClick={() => { if (!(emCorte2 && c1KitMap.size > 0)) setFormTemKit(v => !v); }}
-                  title={emCorte2 && c1KitMap.size > 0 ? 'No Corte 2 a distribuição por Kit do Corte 1 é mantida e só recebe adições' : undefined}
-                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none ${emCorte2 && c1KitMap.size > 0 ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} ${formTemKit ? 'bg-amber-600' : isDark ? 'bg-gray-600' : 'bg-gray-300'}`}
+                  disabled={emCorte2 && c1KitMap.size > 0 && formTemKit}
+                  onClick={() => { if (!(emCorte2 && c1KitMap.size > 0 && formTemKit)) setFormTemKit(v => !v); }}
+                  title={emCorte2 && c1KitMap.size > 0 && formTemKit ? 'No Corte 2 a distribuição por Kit do Corte 1 é mantida e só recebe adições' : undefined}
+                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none ${emCorte2 && c1KitMap.size > 0 && formTemKit ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} ${formTemKit ? 'bg-amber-600' : isDark ? 'bg-gray-600' : 'bg-gray-300'}`}
                 >
                   <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${formTemKit ? 'translate-x-6' : 'translate-x-1'}`} />
                 </button>
@@ -4926,10 +4954,10 @@ const ProjecaoInscritos: React.FC = () => {
                 </div>
                 <button
                   type="button"
-                  disabled={emCorte2 && c1CliMap.size > 0}
-                  onClick={() => { if (!(emCorte2 && c1CliMap.size > 0)) setFormTemCliente(v => !v); }}
-                  title={emCorte2 && c1CliMap.size > 0 ? 'No Corte 2 a distribuição por cliente do Corte 1 é mantida e só recebe adições' : undefined}
-                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none ${emCorte2 && c1CliMap.size > 0 ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} ${formTemCliente ? 'bg-violet-600' : isDark ? 'bg-gray-600' : 'bg-gray-300'}`}
+                  disabled={emCorte2 && c1CliMap.size > 0 && formTemCliente}
+                  onClick={() => { if (!(emCorte2 && c1CliMap.size > 0 && formTemCliente)) setFormTemCliente(v => !v); }}
+                  title={emCorte2 && c1CliMap.size > 0 && formTemCliente ? 'No Corte 2 a distribuição por cliente do Corte 1 é mantida e só recebe adições' : undefined}
+                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none ${emCorte2 && c1CliMap.size > 0 && formTemCliente ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} ${formTemCliente ? 'bg-violet-600' : isDark ? 'bg-gray-600' : 'bg-gray-300'}`}
                 >
                   <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${formTemCliente ? 'translate-x-6' : 'translate-x-1'}`} />
                 </button>
