@@ -2033,7 +2033,18 @@ const ProjecaoInscritos: React.FC = () => {
     }
   };
 
+  const closeEditModal = () => {
+    // Invalida qualquer requisição pendente de loadCorteInfo antes de fechar:
+    // uma resposta atrasada não pode mais mexer no estado do formulário.
+    corte1DistReqRef.current++;
+    setEditingProjecao(null);
+  };
+
   const resetForm = () => {
+    // Invalida qualquer requisição pendente de loadCorteInfo: uma resposta
+    // atrasada que chegasse após fechar o modal poderia alterar toggles,
+    // kits e clientes do formulário em segundo plano.
+    corte1DistReqRef.current++;
     setFormEventoId(selectedEvento ? selectedEvento.id : '');
     setFormAreaId('');
     setFormQuantidade('');
@@ -4714,7 +4725,7 @@ const ProjecaoInscritos: React.FC = () => {
                   {editingProjecao.evento_nome} — {editingProjecao.area_projecao_nome}
                 </p>
               </div>
-              <button onClick={() => setEditingProjecao(null)} className="p-2 rounded-lg hover:bg-gray-700/50">
+              <button onClick={closeEditModal} className="p-2 rounded-lg hover:bg-gray-700/50">
                 <X className={`w-5 h-5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
               </button>
             </div>
@@ -5070,7 +5081,7 @@ const ProjecaoInscritos: React.FC = () => {
               <div className="flex justify-end gap-3 pt-4">
                 <button
                   type="button"
-                  onClick={() => setEditingProjecao(null)}
+                  onClick={closeEditModal}
                   className={`px-4 py-2.5 rounded-xl font-semibold ${isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
                 >
                   Cancelar
