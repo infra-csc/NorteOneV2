@@ -1701,14 +1701,71 @@ def _seed_areas_projecao():
     from app.core.database import SessionLocal
     try:
         db = SessionLocal()
+
+        # Renomeações de áreas (preserva o id, logo todos os vínculos e projeções)
+        renomeacoes = {
+            "Company": "Saúde Corporativa",
+        }
+        for nome_antigo, nome_novo in renomeacoes.items():
+            row_novo = db.execute(
+                text("SELECT id FROM area_projecao WHERE nome = :nome"), {"nome": nome_novo}
+            ).fetchone()
+            row_antigo = db.execute(
+                text("SELECT id FROM area_projecao WHERE nome = :nome"), {"nome": nome_antigo}
+            ).fetchone()
+            if row_antigo and not row_novo:
+                # Caminho normal: rename in-place preserva id e todos os vínculos
+                db.execute(
+                    text("UPDATE area_projecao SET nome = :novo WHERE id = :id"),
+                    {"novo": nome_novo, "id": row_antigo[0]},
+                )
+            elif row_antigo and row_novo:
+                # Ambos existem: migra vínculos do antigo para o novo antes de desativar
+                old_id, new_id = row_antigo[0], row_novo[0]
+                migrados = {}
+                # Tabelas SEM unique constraint em area_projecao_id: migra tudo
+                for tabela in ["projecao_inscritos"]:
+                    r = db.execute(
+                        text(f"UPDATE {tabela} SET area_projecao_id = :new WHERE area_projecao_id = :old"),
+                        {"new": new_id, "old": old_id},
+                    )
+                    migrados[tabela] = r.rowcount
+                # Tabelas COM unique constraint: migra só onde não conflita com registro já existente no novo id
+                uniq_tables = {
+                    "area_projecao_usuario": ["usuario_id"],
+                    "projecao_cutoff_evento_area": ["evento_id"],
+                    "projecao_corte_dist_snapshot": ["evento_id"],
+                    "projecao_kit_corte_snapshot": ["evento_id", "nome_kit"],
+                }
+                for tabela, chaves in uniq_tables.items():
+                    cond = " AND ".join([f"t2.{c} = t1.{c}" for c in chaves])
+                    r = db.execute(
+                        text(
+                            f"UPDATE {tabela} t1 SET area_projecao_id = :new "
+                            f"WHERE t1.area_projecao_id = :old "
+                            f"AND NOT EXISTS (SELECT 1 FROM {tabela} t2 WHERE t2.area_projecao_id = :new AND {cond})"
+                        ),
+                        {"new": new_id, "old": old_id},
+                    )
+                    migrados[tabela] = r.rowcount
+                db.execute(
+                    text("UPDATE area_projecao SET ativo = FALSE WHERE id = :id"),
+                    {"id": old_id},
+                )
+                logger.info(
+                    f"Merge de área '{nome_antigo}' (id={old_id}) → '{nome_novo}' (id={new_id}): "
+                    f"linhas migradas por tabela: {migrados}"
+                )
+
         areas_padrao = [
             "Atendimento",
             "Marketing",
             "Relações Institucionais",
-            "Company",
+            "Saúde Corporativa",
             "Comercial",
             "Cortesia RH",
             "Site",
+            "Proprietário",
         ]
         for nome in areas_padrao:
             exists = db.execute(text("SELECT id FROM area_projecao WHERE nome = :nome"), {"nome": nome}).fetchone()
