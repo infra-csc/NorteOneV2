@@ -888,11 +888,9 @@ const ProjecaoInscritos: React.FC = () => {
   const [savingCorte, setSavingCorte] = useState(false);
   const [corteActionBusy, setCorteActionBusy] = useState<string | null>(null);
 
-  const [notifDraft, setNotifDraft] = useState<{ ativo: boolean; hora: string; canal: string }>({ ativo: false, hora: '8', canal: 'email' });
+  const [notifDraft, setNotifDraft] = useState<{ ativo: boolean; hora: string }>({ ativo: false, hora: '8' });
   const [savingNotif, setSavingNotif] = useState(false);
   const [sendingNotifTest, setSendingNotifTest] = useState(false);
-  const [teamsHealth, setTeamsHealth] = useState<{ ok: boolean; missing_scopes: string[]; error: string | null } | null>(null);
-  const [loadingTeamsHealth, setLoadingTeamsHealth] = useState(false);
 
   type NotifLogEntry = {
     id: number;
@@ -1104,32 +1102,11 @@ const ProjecaoInscritos: React.FC = () => {
       setCorteConfig(data);
       setCorteDraft({ dias1: String(data.dias_corte_1), dias2: String(data.dias_corte_2), ativo: data.ativo });
       setAlertaDraft(String(data.dias_alerta_envio ?? 30));
-      setNotifDraft({ ativo: !!data.notif_email_ativo, hora: String(data.notif_email_hora ?? 8), canal: data.notif_canal ?? 'email' });
+      setNotifDraft({ ativo: !!data.notif_email_ativo, hora: String(data.notif_email_hora ?? 8) });
     } catch {
       // silently ignore — config pode não existir ainda
     }
   };
-
-  const fetchTeamsHealth = async () => {
-    setLoadingTeamsHealth(true);
-    setTeamsHealth(null);
-    try {
-      const data = await projecaoService.getTeamsHealth();
-      setTeamsHealth(data);
-    } catch {
-      setTeamsHealth({ ok: false, missing_scopes: [], error: 'Erro ao verificar permissões' });
-    } finally {
-      setLoadingTeamsHealth(false);
-    }
-  };
-
-  useEffect(() => {
-    if (notifDraft.canal === 'teams' || notifDraft.canal === 'ambos') {
-      fetchTeamsHealth();
-    } else {
-      setTeamsHealth(null);
-    }
-  }, [notifDraft.canal]);
 
   const saveAlertaConfig = async () => {
     const dias = parseInt(alertaDraft, 10);
@@ -1157,13 +1134,12 @@ const ProjecaoInscritos: React.FC = () => {
       showToast('Hora deve ser um número entre 0 e 23');
       return;
     }
-    const canal = notifDraft.canal || 'email';
     setSavingNotif(true);
     try {
-      const updated = await projecaoService.updateNotifConfig({ notif_email_ativo: notifDraft.ativo, notif_email_hora: hora, notif_canal: canal });
+      const updated = await projecaoService.updateNotifConfig({ notif_email_ativo: notifDraft.ativo, notif_email_hora: hora, notif_canal: 'email' });
       setCorteConfig(updated);
-      setNotifDraft({ ativo: !!updated.notif_email_ativo, hora: String(updated.notif_email_hora ?? 8), canal: updated.notif_canal ?? 'email' });
-      showToast('Canal de notificação atualizado', 'success');
+      setNotifDraft({ ativo: !!updated.notif_email_ativo, hora: String(updated.notif_email_hora ?? 8) });
+      showToast('Notificação por e-mail atualizada', 'success');
     } catch (err: any) {
       showToast(err?.response?.data?.detail || 'Erro ao salvar configuração de notificação');
     } finally {
@@ -3819,167 +3795,17 @@ const ProjecaoInscritos: React.FC = () => {
               <div className="flex items-center gap-2">
                 <Mail className={`w-5 h-5 ${isDark ? 'text-violet-400' : 'text-violet-600'}`} />
                 <div>
-                  <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Canal de Notificação</h2>
+                  <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Notificação por E-mail</h2>
                   <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                    Envio diário do resumo de pendências para os responsáveis de cada área. Escolha o canal: cada pessoa recebe apenas as suas áreas pendentes.
+                    Envio diário do resumo de pendências por e-mail para os responsáveis de cada área. Cada pessoa recebe apenas as suas áreas pendentes.
                   </p>
                 </div>
               </div>
 
               <div className={`rounded-2xl p-4 border space-y-4 ${isDark ? 'bg-gray-800/50 border-gray-700/50' : 'bg-white border-gray-200'}`}>
 
-                {/* Seletor de canal */}
-                <div>
-                  <label className={`block text-xs font-bold uppercase tracking-wide mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                    Canal de envio
-                  </label>
-                  <div className={`inline-flex rounded-xl border overflow-hidden ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
-                    {(['email', 'teams', 'ambos'] as const).map(opt => {
-                      const labels: Record<string, string> = { email: 'E-mail', teams: 'Teams', ambos: 'Ambos' };
-                      const active = notifDraft.canal === opt;
-                      return (
-                        <button
-                          key={opt}
-                          type="button"
-                          onClick={() => setNotifDraft(d => ({ ...d, canal: opt }))}
-                          className={`px-4 h-10 text-sm font-semibold transition-colors ${active
-                            ? 'bg-violet-600 text-white'
-                            : (isDark ? 'bg-gray-900 text-gray-300 hover:bg-gray-700' : 'bg-gray-50 text-gray-600 hover:bg-gray-100')
-                          }`}
-                        >
-                          {labels[opt]}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Aviso permissões Teams + badge de health */}
-                {(notifDraft.canal === 'teams' || notifDraft.canal === 'ambos') && (
-                  <div className={`rounded-xl border text-xs overflow-hidden ${
-                    loadingTeamsHealth
-                      ? (isDark ? 'border-gray-700 bg-gray-800/40' : 'border-gray-200 bg-gray-50')
-                      : teamsHealth?.ok
-                        ? (isDark ? 'border-emerald-700/50 bg-emerald-900/20' : 'border-emerald-200 bg-emerald-50')
-                        : teamsHealth
-                          ? (isDark ? 'border-red-700/50 bg-red-900/20' : 'border-red-200 bg-red-50')
-                          : (isDark ? 'border-blue-700/40 bg-blue-900/30' : 'border-blue-200 bg-blue-50')
-                  }`}>
-                    {/* Cabeçalho com badge */}
-                    <div className="flex items-center justify-between gap-2 px-3 pt-3 pb-2">
-                      <div className="flex items-center gap-2">
-                        {loadingTeamsHealth ? (
-                          <span className={`inline-block w-2.5 h-2.5 rounded-full animate-pulse ${isDark ? 'bg-gray-500' : 'bg-gray-400'}`} />
-                        ) : teamsHealth?.ok ? (
-                          <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                        ) : teamsHealth ? (
-                          <span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500" />
-                        ) : (
-                          <span className="inline-block w-2.5 h-2.5 rounded-full bg-blue-400" />
-                        )}
-                        <span className={`font-semibold ${
-                          loadingTeamsHealth
-                            ? (isDark ? 'text-gray-400' : 'text-gray-500')
-                            : teamsHealth?.ok
-                              ? (isDark ? 'text-emerald-300' : 'text-emerald-700')
-                              : teamsHealth
-                                ? (isDark ? 'text-red-300' : 'text-red-700')
-                                : (isDark ? 'text-blue-300' : 'text-blue-700')
-                        }`}>
-                          {loadingTeamsHealth
-                            ? 'Verificando permissões Azure…'
-                            : teamsHealth?.ok
-                              ? 'Permissões Azure verificadas'
-                              : teamsHealth
-                                ? 'Permissões Azure com problema'
-                                : 'Permissões necessárias no App Registration do Azure'}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={fetchTeamsHealth}
-                        disabled={loadingTeamsHealth}
-                        className={`px-2 py-0.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-40 ${
-                          isDark ? 'bg-gray-700 hover:bg-gray-600 text-gray-300' : 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200'
-                        }`}
-                      >
-                        Verificar agora
-                      </button>
-                    </div>
-
-                    {/* Corpo */}
-                    <div className={`px-3 pb-3 ${
-                      teamsHealth?.ok
-                        ? (isDark ? 'text-emerald-300' : 'text-emerald-700')
-                        : teamsHealth?.error
-                          ? (isDark ? 'text-red-300' : 'text-red-700')
-                          : (isDark ? 'text-blue-300' : 'text-blue-700')
-                    }`}>
-                      {teamsHealth?.ok ? (
-                        <p>Token adquirido e permissões <span className="font-mono">User.Read.All</span> e <span className="font-mono">Chat.Create</span> confirmadas.</p>
-                      ) : teamsHealth?.error ? (
-                        <p><span className="font-semibold">Erro:</span> {teamsHealth.error}</p>
-                      ) : teamsHealth && teamsHealth.missing_scopes.length > 0 ? (
-                        <div>
-                          <p className="mb-1">As seguintes permissões estão ausentes no Azure Portal:</p>
-                          <ul className="space-y-0.5 font-mono">
-                            {teamsHealth.missing_scopes.map(s => (
-                              <li key={s} className="flex items-center gap-1.5">
-                                <span className="text-red-400">✕</span> <strong>{s}</strong>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ) : (
-                        <div>
-                          <p className="mb-1">Para enviar mensagens diretas (DM) no Teams, o App Registration precisa ter as seguintes permissões de aplicativo habilitadas no Azure Portal:</p>
-                          <ul className="mt-1.5 space-y-0.5 font-mono">
-                            <li>• <strong>User.Read.All</strong> — localizar usuários pelo e-mail</li>
-                            <li>• <strong>Chat.Create</strong> — criar o chat 1:1</li>
-                            <li>• <strong>ChatMessage.Send</strong> — enviar a mensagem</li>
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Toggle + Hora — visíveis apenas quando canal inclui e-mail (email ou ambos) */}
-                {(notifDraft.canal === 'email' || notifDraft.canal === 'ambos') && (
-                  <div className="flex flex-wrap items-end gap-4">
-                    <div>
-                      <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                        Enviar resumo diário
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => setNotifDraft(d => ({ ...d, ativo: !d.ativo }))}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${notifDraft.ativo ? 'bg-emerald-500' : (isDark ? 'bg-gray-700' : 'bg-gray-300')}`}
-                      >
-                        <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${notifDraft.ativo ? 'translate-x-5' : 'translate-x-0.5'}`} />
-                      </button>
-                    </div>
-                    <div>
-                      <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                        Horário do envio (BRT)
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          min={0}
-                          max={23}
-                          value={notifDraft.hora}
-                          onChange={e => setNotifDraft(d => ({ ...d, hora: e.target.value }))}
-                          className={`w-28 h-10 px-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 ${isDark ? 'bg-gray-900 border-gray-700 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'}`}
-                        />
-                        <span className={`text-sm font-mono ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>:00</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Teams puro: apenas toggle ativo (sem campo de hora — envio é acionado pelo scheduler) */}
-                {notifDraft.canal === 'teams' && (
+                {/* Toggle + Hora */}
+                <div className="flex flex-wrap items-end gap-4">
                   <div>
                     <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
                       Enviar resumo diário
@@ -3992,7 +3818,23 @@ const ProjecaoInscritos: React.FC = () => {
                       <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${notifDraft.ativo ? 'translate-x-5' : 'translate-x-0.5'}`} />
                     </button>
                   </div>
-                )}
+                  <div>
+                    <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      Horário do envio (BRT)
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={0}
+                        max={23}
+                        value={notifDraft.hora}
+                        onChange={e => setNotifDraft(d => ({ ...d, hora: e.target.value }))}
+                        className={`w-28 h-10 px-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 ${isDark ? 'bg-gray-900 border-gray-700 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'}`}
+                      />
+                      <span className={`text-sm font-mono ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>:00</span>
+                    </div>
+                  </div>
+                </div>
 
                 {/* Botões Salvar + Teste */}
                 <div className="flex flex-wrap gap-3 pt-1">
@@ -4015,7 +3857,7 @@ const ProjecaoInscritos: React.FC = () => {
 
                 <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
                   {corteConfig.notif_email_ativo
-                    ? `Resumo diário ativo — canal: ${corteConfig.notif_canal ?? 'email'} — envio às ${corteConfig.notif_email_hora ?? 8}h (BRT).`
+                    ? `Resumo diário ativo — envio por e-mail às ${corteConfig.notif_email_hora ?? 8}h (BRT).`
                     : 'Resumo diário desativado.'}
                 </p>
               </div>

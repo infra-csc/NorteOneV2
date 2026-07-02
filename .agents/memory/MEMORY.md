@@ -28,3 +28,4 @@
 - [Correção autoritativa de inscritos](authoritative-downcorrection.md) — "Atualizar" só baixa inscritos de evento concluído quando leitura é verificada completa (count/revenue "live", sem avisos, não-degradada); sinal vem da mecânica da query, não de comparar com snapshot.
 - [Login SSO button fail-open](login-button-fail-open.md) — botão Microsoft nunca pode ser escondido por checagem de status lenta/falha sob carga; cacheia sso_enabled + timeout + fail-open.
 - [Publish = strict tsc gate](publish-build-tsc-gate.md) — publish roda `tsc -b && vite build`; erros de tipo (lucide `title`, recharts formatter `number|undefined`) quebram só no publish, não no dev. Validar com `npm run build`.
+- [Teams DM app-only impossível](teams-dm-app-only.md) — ChatMessage.Send é delegated-only; Graph bloqueia DM via client credentials. Canal de notificação fixado em e-mail.

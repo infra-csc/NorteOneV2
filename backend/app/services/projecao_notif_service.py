@@ -1,5 +1,5 @@
 """
-Resumo diário das pendências de Projeção de Inscritos por E-mail e/ou Teams DM.
+Resumo diário das pendências de Projeção de Inscritos por E-mail.
 
 Reaproveita exatamente a mesma regra do alerta in-app (`get_pendencias`):
 o alerta dispara no dia em que `hoje == Data de corte Envio - dias_alerta_envio`,
@@ -7,10 +7,13 @@ para eventos 'Em andamento' sem projeção registrada em alguma área. Aqui as
 pendências são agrupadas POR USUÁRIO responsável da área (via
 `area_projecao_usuario`); cada responsável recebe apenas as suas áreas.
 
-Canais suportados (config.notif_canal):
-  'email'  → Microsoft Graph sendMail (MS_SENDER_EMAIL)
-  'teams'  → Microsoft Graph Chat 1:1 (Chat.Create + ChatMessage.Send + User.Read.All)
-  'ambos'  → e-mail E Teams DM; erros de um canal não bloqueiam o outro
+Canal único: e-mail via Microsoft Graph sendMail (MS_SENDER_EMAIL).
+
+NOTA (Jul/2026): o canal Teams DM foi DESCONTINUADO. O Microsoft Graph não
+oferece ChatMessage.Send como permissão de aplicação (apenas delegada), então
+DMs via client-credentials são bloqueadas (403 exigindo Teamwork.Migrate.All).
+As funções send_teams_dm_per_user/check_teams_permissions abaixo permanecem
+apenas como referência histórica e NÃO são mais chamadas.
 """
 import logging
 import os
@@ -534,13 +537,17 @@ def _persist_notif_log(
 
 def enviar_resumo_diario(db: Session, *, force: bool = False) -> dict:
     """
-    Envia o resumo diário pelo(s) canal(is) configurado(s).
+    Envia o resumo diário por e-mail (canal único — Teams descontinuado).
     Quando `force=False` respeita `notif_email_ativo`.
     Retorna sumário { ativo, canal, enviados_email, enviados_teams, falhas, destinatarios, erros, total_eventos }.
     """
     config = db.query(ProjecaoCorteConfig).first()
     ativo = bool(config and config.notif_email_ativo)
-    canal = (getattr(config, 'notif_canal', None) or 'email').strip().lower()
+    # Canal Teams descontinuado (Jul/2026): a Microsoft não oferece ChatMessage.Send
+    # como permissão de aplicação (apenas delegada), então DMs via app-only são
+    # bloqueadas pelo Graph. O envio é sempre por e-mail, independentemente do
+    # valor legado salvo em notif_canal ('teams'/'ambos').
+    canal = 'email'
 
     if not force and not ativo:
         return {

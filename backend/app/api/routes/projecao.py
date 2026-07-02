@@ -730,7 +730,7 @@ def get_corte_config(
         dias_alerta_envio=config.dias_alerta_envio,
         notif_email_ativo=config.notif_email_ativo,
         notif_email_hora=config.notif_email_hora,
-        notif_canal=getattr(config, 'notif_canal', 'email') or 'email',
+        notif_canal='email',  # Teams descontinuado (Graph não permite DM app-only); envio é sempre por e-mail
         ativo=config.ativo,
         updated_by_nome=editor.nome if editor else None,
         updated_at=config.updated_at,
@@ -772,7 +772,7 @@ def update_corte_config(
         dias_alerta_envio=config.dias_alerta_envio,
         notif_email_ativo=config.notif_email_ativo,
         notif_email_hora=config.notif_email_hora,
-        notif_canal=getattr(config, 'notif_canal', 'email') or 'email',
+        notif_canal='email',  # Teams descontinuado (Graph não permite DM app-only); envio é sempre por e-mail
         ativo=config.ativo,
         updated_by_nome=current_user.nome,
         updated_at=config.updated_at,
@@ -813,14 +813,13 @@ def update_alerta_config(
         dias_alerta_envio=config.dias_alerta_envio,
         notif_email_ativo=config.notif_email_ativo,
         notif_email_hora=config.notif_email_hora,
-        notif_canal=getattr(config, 'notif_canal', 'email') or 'email',
+        notif_canal='email',  # Teams descontinuado (Graph não permite DM app-only); envio é sempre por e-mail
         ativo=config.ativo,
         updated_by_nome=current_user.nome,
         updated_at=config.updated_at,
     )
 
 
-_CANAIS_VALIDOS = {'email', 'teams', 'ambos'}
 
 
 @router.put("/notif-config", response_model=CorteConfigResponse)
@@ -837,9 +836,9 @@ def update_notif_config(
         raise HTTPException(status_code=403, detail="Apenas administradores podem alterar a notificação")
     if data.notif_email_hora < 0 or data.notif_email_hora > 23:
         raise HTTPException(status_code=400, detail="Hora deve estar entre 0 e 23")
-    canal = (data.notif_canal or 'email').strip().lower()
-    if canal not in _CANAIS_VALIDOS:
-        raise HTTPException(status_code=400, detail=f"Canal inválido '{canal}'. Use: email, teams ou ambos")
+    # Teams descontinuado (Graph não permite DM app-only); canal é sempre e-mail.
+    # Qualquer valor legado ('teams'/'ambos') é normalizado para 'email' no save.
+    canal = 'email'
 
     config = _get_corte_config(db)
     if config is None:
@@ -863,27 +862,11 @@ def update_notif_config(
         dias_alerta_envio=config.dias_alerta_envio,
         notif_email_ativo=config.notif_email_ativo,
         notif_email_hora=config.notif_email_hora,
-        notif_canal=getattr(config, 'notif_canal', 'email') or 'email',
+        notif_canal='email',  # Teams descontinuado (Graph não permite DM app-only); envio é sempre por e-mail
         ativo=config.ativo,
         updated_by_nome=current_user.nome,
         updated_at=config.updated_at,
     )
-
-
-@router.get("/notif-teams-health")
-def notif_teams_health(
-    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
-):
-    """
-    Verifica se as permissões Azure necessárias para envio de Teams DM estão
-    configuradas (User.Read.All, Chat.Create, ChatMessage.Send).
-    Tenta adquirir token e faz chamadas de dry-run ao Microsoft Graph.
-    Retorna { ok, missing_scopes, error }.
-    """
-    if not is_user_admin(current_user):
-        raise HTTPException(status_code=403, detail="Apenas administradores podem verificar as permissões Teams")
-    from ...services.projecao_notif_service import check_teams_permissions
-    return check_teams_permissions()
 
 
 @router.post("/notif-test")

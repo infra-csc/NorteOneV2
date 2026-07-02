@@ -1778,10 +1778,6 @@ export const projecaoService = {
     const response = await api.post('/projecao/notif-test');
     return response.data;
   },
-  getTeamsHealth: async (): Promise<{ ok: boolean; missing_scopes: string[]; error: string | null }> => {
-    const response = await api.get('/projecao/notif-teams-health');
-    return response.data;
-  },
   getNotifHistory: async (limit = 20) => {
     const response = await api.get('/projecao/notif-history', { params: { limit } });
     return response.data;
