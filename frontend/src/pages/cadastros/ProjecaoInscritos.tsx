@@ -3452,20 +3452,28 @@ const ProjecaoInscritos: React.FC = () => {
                                         const diffAjuste = (corte === 2 && c.corte_valor_1 != null)
                                           ? valorExibido - (c.corte_valor_1 as number)
                                           : null;
+                                        if (diffAjuste != null) {
+                                          const diffColor = diffAjuste > 0
+                                            ? (isDark ? 'text-emerald-300' : 'text-emerald-600')
+                                            : diffAjuste < 0
+                                              ? (isDark ? 'text-rose-300' : 'text-rose-600')
+                                              : (isDark ? 'text-gray-400' : 'text-gray-500');
+                                          return (
+                                            <span className="flex items-baseline gap-2 flex-wrap">
+                                              <span className={`text-3xl font-black tracking-tight tabular-nums ${diffColor}`}>
+                                                {diffAjuste > 0 ? '+' : diffAjuste < 0 ? '−' : ''}{formatNumber(Math.abs(diffAjuste))}
+                                              </span>
+                                              <span className={`text-sm font-semibold tabular-nums ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                                                (total {formatNumber(valorExibido)})
+                                              </span>
+                                            </span>
+                                          );
+                                        }
                                         return (
                                           <span className="flex items-baseline gap-2 flex-wrap">
                                             <span className={`text-3xl font-black tracking-tight ${isFrozen ? text : (isDark ? 'text-gray-400' : 'text-gray-500')}`}>
                                               {formatNumber(valorExibido)}
                                             </span>
-                                            {diffAjuste != null && diffAjuste !== 0 && (
-                                              <span
-                                                className={`text-sm font-bold tabular-nums ${diffAjuste > 0
-                                                  ? (isDark ? 'text-emerald-300' : 'text-emerald-600')
-                                                  : (isDark ? 'text-rose-300' : 'text-rose-600')}`}
-                                              >
-                                                ({diffAjuste > 0 ? '+' : '−'} {formatNumber(Math.abs(diffAjuste))})
-                                              </span>
-                                            )}
                                           </span>
                                         );
                                       })()}
