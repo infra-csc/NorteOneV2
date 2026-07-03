@@ -31,3 +31,4 @@
 - [Publish = strict tsc gate](publish-build-tsc-gate.md) — publish roda `tsc -b && vite build`; erros de tipo (lucide `title`, recharts formatter `number|undefined`) quebram só no publish, não no dev. Validar com `npm run build`.
 - [Teams DM app-only impossível](teams-dm-app-only.md) — ChatMessage.Send é delegated-only; Graph bloqueia DM via client credentials. Canal de notificação fixado em e-mail.
 - [Grace em snapshots por leitura](read-triggered-snapshots-grace.md) — captura/freeze disparado por leitura deve pular entidades com escrita recente; ação manual do admin nunca passa pelo grace.
+- [Foto Corte 1 incompleta = ajuste loop](corte1-foto-incompleta-ajuste-loop.md) — foto bruta ≠ convicta reconciliada trava ajuste fantasma numa área; fix: Reabrir C1 → corrigir área → Congelar agora.
