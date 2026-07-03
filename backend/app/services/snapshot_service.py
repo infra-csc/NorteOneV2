@@ -49,6 +49,23 @@ def _snapshot_lookback_days() -> int:
         return 3
 
 
+def _corte_grace_minutes() -> int:
+    """Período de CARÊNCIA (minutos) do congelamento automático de cortes de
+    projeção. Um evento com escrita de projeção mais recente que isso é pulado
+    pelo auto-freeze naquele ciclo (alguém pode estar no meio da digitação) e
+    congela na próxima leitura/batch, quando a entrada estabilizar.
+
+    Configurável via env ``PROJECAO_CORTE_GRACE_MINUTOS`` (default 10).
+    - 0 desativa a carência (comportamento antigo: congela no primeiro ciclo).
+    - Teto de 120 para o corte nunca ficar adiado indefinidamente por engano.
+    O "Congelar agora" manual do admin NUNCA passa pela carência.
+    """
+    try:
+        return max(0, min(120, int(os.getenv("PROJECAO_CORTE_GRACE_MINUTOS", "10"))))
+    except (TypeError, ValueError):
+        return 10
+
+
 def _rolling_rebuild_count() -> int:
     """Quantos grupos ativos recebem rebuild COMPLETO por ciclo noturno.
 
@@ -2794,6 +2811,27 @@ def congelar_cortes_para_eventos(db: Session, evento_ids: Optional[list] = None)
         .all()
     )
 
+    # Período de CARÊNCIA (grace period): última escrita de projeção por evento.
+    # Se alguém criou/editou/excluiu uma projeção há menos de N minutos, o evento
+    # está potencialmente "no meio da digitação" — o congelamento automático PULA
+    # esse evento neste ciclo e tenta de novo na próxima leitura/batch, quando a
+    # entrada estabilizar. Evita fotos incompletas (caso Eco Run - Recife 2026:
+    # freeze 17s após a 1ª área, antes das outras 4). Considera também linhas
+    # soft-deletadas: uma exclusão recente também indica edição em andamento.
+    # O recongelamento manual do admin ("Congelar agora") NÃO passa por aqui.
+    ultima_escrita_por_evento: dict[int, datetime] = dict(
+        db.query(
+            _Proj.evento_id,
+            sa_func.max(sa_func.greatest(
+                sa_func.coalesce(_Proj.updated_at, _Proj.created_at),
+                sa_func.coalesce(_Proj.created_at, _Proj.updated_at),
+            )),
+        )
+        .filter(_Proj.evento_id.in_(ev_ids))
+        .group_by(_Proj.evento_id)
+        .all()
+    )
+
     snaps = {
         s.evento_id: s
         for s in db.query(_Snap).filter(_Snap.evento_id.in_(ev_ids)).all()
@@ -2866,6 +2904,22 @@ def congelar_cortes_para_eventos(db: Session, evento_ids: Optional[list] = None)
         c2_done = bool(snap and snap.valor_corte_2 is not None) or c2_suppressed
         if (not need_1 or c1_done) and (not need_2 or c2_done):
             continue
+
+        # CARÊNCIA: escrita de projeção muito recente neste evento → alguém pode
+        # estar no meio da digitação. Pula o congelamento neste ciclo (o auto-
+        # descongelamento acima NÃO é afetado); a próxima leitura/batch congela
+        # quando a última escrita tiver mais de N minutos.
+        grace_min = _corte_grace_minutes()
+        if grace_min > 0:
+            ultima_escrita = ultima_escrita_por_evento.get(ev.id)
+            if ultima_escrita is not None:
+                idade_seg = (now - ultima_escrita).total_seconds()
+                if 0 <= idade_seg < grace_min * 60:
+                    logger.info(
+                        "Corte projeção: evento %s pulado por carência (última escrita há %.0fs < %d min) — recongela no próximo ciclo",
+                        ev.id, idade_seg, grace_min,
+                    )
+                    continue
 
         total = int(totais_por_evento.get(ev.id) or 0)
 
