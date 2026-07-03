@@ -61,6 +61,7 @@ The frontend is built with React, TypeScript, and Tailwind CSS, providing a mode
 - **Projeção de Inscritos por Eventos e Áreas:** Allows users to input projected subscriber counts per event across predefined areas, with admin assignment, audit history, and consolidated views, supporting breakdowns by Kit and Client.
 - **Pontos de Corte (Cutoff Rules) para Projeção:** Configurable D-day thresholds that trigger in-app pendency indicators for Projeção Inscritos.
 - **Cortes customizados por (evento, área):** Allows custom cutoff dates per event/area, overriding global D-N rules.
+- **Carência do auto-freeze de cortes (Julho/2026):** O congelamento automático de cortes (`congelar_cortes_para_eventos`) pula eventos com escrita de projeção nos últimos N minutos (`PROJECAO_CORTE_GRACE_MINUTOS`, default 10, teto 120) — evita fotos incompletas quando o usuário está no meio da digitação (caso Eco Run - Recife 2026). O "Congelar agora" manual NÃO passa pela carência e recaptura total + kit snapshot + dist snapshot em lockstep. O card do evento na Projeção de Inscritos exibe UM total único (Corte 2 congelado → `valor_corte_2`; senão total ao vivo) com detalhamento Convicta/Ajuste e linhas de status compactas por corte.
 
 ## External Dependencies
 - **PostgreSQL:** Primary application database.
