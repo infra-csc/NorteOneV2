@@ -855,6 +855,7 @@ const ProjecaoInscritos: React.FC = () => {
   const [newAreaNome, setNewAreaNome] = useState('');
 
   const [expandedConsolidado, setExpandedConsolidado] = useState<Set<number>>(new Set());
+  const [expandedAreaKits, setExpandedAreaKits] = useState<Set<string>>(new Set());
   const [kitBreakdownEvento, setKitBreakdownEvento] = useState<ConsolidadoEvento | null>(null);
 
   const [confirmModal, setConfirmModal] = useState<{
@@ -3609,106 +3610,220 @@ const ProjecaoInscritos: React.FC = () => {
                                   <Package className="w-3 h-3" /> Por tipo de kit
                                 </button>
                               </div>
-                              <div className="space-y-3">
-                                {c.projecoes
-                                  .slice()
-                                  .sort((a, b) => effectiveQtd(b) - effectiveQtd(a))
-                                  .map((p, idx) => {
-                                    const areaColors = [
-                                      { bar: 'from-violet-500 to-purple-500', text: isDark ? 'text-violet-300' : 'text-violet-700', bg: isDark ? 'bg-violet-500/10' : 'bg-violet-50' },
-                                      { bar: 'from-blue-500 to-cyan-500', text: isDark ? 'text-blue-300' : 'text-blue-700', bg: isDark ? 'bg-blue-500/10' : 'bg-blue-50' },
-                                      { bar: 'from-emerald-500 to-teal-500', text: isDark ? 'text-emerald-300' : 'text-emerald-700', bg: isDark ? 'bg-emerald-500/10' : 'bg-emerald-50' },
-                                      { bar: 'from-amber-500 to-orange-500', text: isDark ? 'text-amber-300' : 'text-amber-700', bg: isDark ? 'bg-amber-500/10' : 'bg-amber-50' },
-                                      { bar: 'from-rose-500 to-pink-500', text: isDark ? 'text-rose-300' : 'text-rose-700', bg: isDark ? 'bg-rose-500/10' : 'bg-rose-50' },
-                                      { bar: 'from-indigo-500 to-blue-500', text: isDark ? 'text-indigo-300' : 'text-indigo-700', bg: isDark ? 'bg-indigo-500/10' : 'bg-indigo-50' },
-                                      { bar: 'from-teal-500 to-cyan-500', text: isDark ? 'text-teal-300' : 'text-teal-700', bg: isDark ? 'bg-teal-500/10' : 'bg-teal-50' },
-                                      { bar: 'from-fuchsia-500 to-purple-500', text: isDark ? 'text-fuchsia-300' : 'text-fuchsia-700', bg: isDark ? 'bg-fuchsia-500/10' : 'bg-fuchsia-50' },
-                                    ];
-                                    const color = areaColors[idx % areaColors.length];
-                                    const convictaKits = p.convicta_kits ?? p.kits ?? [];
-                                    const convictaQtd = p.convicta_quantidade ?? p.quantidade;
+                              {(() => {
+                                const areaColors = [
+                                  { dot: 'bg-violet-500', text: isDark ? 'text-violet-300' : 'text-violet-700' },
+                                  { dot: 'bg-blue-500', text: isDark ? 'text-blue-300' : 'text-blue-700' },
+                                  { dot: 'bg-emerald-500', text: isDark ? 'text-emerald-300' : 'text-emerald-700' },
+                                  { dot: 'bg-amber-500', text: isDark ? 'text-amber-300' : 'text-amber-700' },
+                                  { dot: 'bg-rose-500', text: isDark ? 'text-rose-300' : 'text-rose-700' },
+                                  { dot: 'bg-indigo-500', text: isDark ? 'text-indigo-300' : 'text-indigo-700' },
+                                  { dot: 'bg-teal-500', text: isDark ? 'text-teal-300' : 'text-teal-700' },
+                                  { dot: 'bg-fuchsia-500', text: isDark ? 'text-fuchsia-300' : 'text-fuchsia-700' },
+                                ];
+                                const sorted = c.projecoes.slice().sort((a, b) => effectiveQtd(b) - effectiveQtd(a));
+                                const hasConvicta = sorted.some(p => p.convicta_quantidade != null);
+                                // Totais do rodapé usam as MESMAS fontes do cabeçalho do card (valores congelados dos cortes),
+                                // garantindo consistência visual entre o total grande e a linha "Total" da tabela.
+                                const tblC1Frozen = c.corte_valor_1 !== null && c.corte_valor_1 !== undefined;
+                                const tblC2Frozen = c.corte_valor_2 !== null && c.corte_valor_2 !== undefined;
+                                const totalExibido = tblC2Frozen ? (c.corte_valor_2 as number) : c.total_projecoes;
+                                const totalConvicta = tblC1Frozen
+                                  ? (c.corte_valor_1 as number)
+                                  : sorted.reduce((s, p) => s + (p.convicta_quantidade ?? 0), 0);
+                                const totalAjuste = totalExibido - totalConvicta;
+                                const convictaParcial = tblC1Frozen && sorted.some(p => p.convicta_quantidade == null);
 
-                                    const renderKitChips = (kits: { nome_kit: string; quantidade: number }[], isAjuste = false) => {
-                                      if (!kits || kits.length === 0) {
-                                        return <span className={`text-[11px] ${isDark ? 'text-gray-600' : 'text-gray-400'}`}>—</span>;
-                                      }
-                                      return (
-                                        <div className="flex flex-wrap gap-1.5">
-                                          {kits
-                                            .slice()
-                                            .sort((a, b) => b.quantidade - a.quantidade)
-                                            .map((k, kidx) => {
-                                              const nomeExibido = (isAjuste && k.nome_kit === KIT_CAMISETA_ORIGEM) ? KIT_CAMISETA_LABEL : k.nome_kit;
-                                              return (
-                                                <span
-                                                  key={`${k.nome_kit}-${kidx}`}
-                                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium ${isDark ? 'bg-gray-900/40 text-gray-300 border border-gray-700/50' : 'bg-white/70 text-gray-600 border border-gray-200'}`}
-                                                >
-                                                  <Package className="w-2.5 h-2.5 opacity-60" />
-                                                  <span className="truncate max-w-[140px]">{nomeExibido}</span>
-                                                  <span className={`font-bold tabular-nums ${color.text}`}>{formatNumber(k.quantidade)}</span>
+                                const gridCols = hasConvicta
+                                  ? 'grid-cols-[minmax(130px,1fr)_minmax(76px,auto)_minmax(76px,auto)_minmax(76px,auto)_36px]'
+                                  : 'grid-cols-[minmax(130px,1fr)_minmax(76px,auto)_36px]';
+
+                                const diffDisplay = (diff: number, withSign = true) => {
+                                  const cor = diff > 0
+                                    ? (isDark ? 'text-emerald-300' : 'text-emerald-600')
+                                    : diff < 0
+                                      ? (isDark ? 'text-rose-300' : 'text-rose-600')
+                                      : (isDark ? 'text-gray-500' : 'text-gray-400');
+                                  const sinal = diff > 0 ? '+' : diff < 0 ? '−' : '';
+                                  return (
+                                    <span className={`font-black tabular-nums ${cor}`}>
+                                      {diff === 0 ? '0' : `${withSign ? sinal : ''}${formatNumber(Math.abs(diff))}`}
+                                    </span>
+                                  );
+                                };
+
+                                const renderKitChips = (kits: { nome_kit: string; quantidade: number }[], colorText: string, isAjuste = false) => {
+                                  if (!kits || kits.length === 0) {
+                                    return <span className={`text-[11px] ${isDark ? 'text-gray-600' : 'text-gray-400'}`}>—</span>;
+                                  }
+                                  return (
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {kits
+                                        .slice()
+                                        .sort((a, b) => b.quantidade - a.quantidade)
+                                        .map((k, kidx) => {
+                                          const nomeExibido = (isAjuste && k.nome_kit === KIT_CAMISETA_ORIGEM) ? KIT_CAMISETA_LABEL : k.nome_kit;
+                                          return (
+                                            <span
+                                              key={`${k.nome_kit}-${kidx}`}
+                                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium ${isDark ? 'bg-gray-900/40 text-gray-300 border border-gray-700/50' : 'bg-white/70 text-gray-600 border border-gray-200'}`}
+                                            >
+                                              <Package className="w-2.5 h-2.5 opacity-60" />
+                                              <span className="truncate max-w-[140px]">{nomeExibido}</span>
+                                              <span className={`font-bold tabular-nums ${colorText}`}>{formatNumber(k.quantidade)}</span>
+                                            </span>
+                                          );
+                                        })}
+                                    </div>
+                                  );
+                                };
+
+                                const headerCell = `text-[10px] font-bold uppercase tracking-wider ${isDark ? 'text-gray-500' : 'text-gray-400'}`;
+
+                                return (
+                                  <div className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700/60 bg-gray-900/30' : 'border-gray-200 bg-white/60'}`}>
+                                    <div className="overflow-x-auto">
+                                      <div className={hasConvicta ? 'min-w-[480px]' : 'min-w-[320px]'}>
+                                        {/* Cabeçalho */}
+                                        <div className={`grid ${gridCols} items-center gap-2 px-3 py-2 border-b ${isDark ? 'border-gray-700/60 bg-gray-800/60' : 'border-gray-200 bg-gray-50/80'}`}>
+                                          <span className={headerCell}>Área</span>
+                                          {hasConvicta ? (
+                                            <>
+                                              <span className={`${headerCell} text-right`}>Convicta</span>
+                                              <span className={`${headerCell} text-right ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>Ajuste</span>
+                                              <span className={`${headerCell} text-right`}>Total</span>
+                                            </>
+                                          ) : (
+                                            <span className={`${headerCell} text-right`}>Projeção</span>
+                                          )}
+                                          <span />
+                                        </div>
+
+                                        {/* Linhas por área */}
+                                        {sorted.map((p, idx) => {
+                                          const color = areaColors[idx % areaColors.length];
+                                          const areaKey = `${c.evento_id}:${p.area_projecao_id}`;
+                                          const kitsOpen = expandedAreaKits.has(areaKey);
+                                          const temConvicta = p.convicta_quantidade != null;
+                                          const diffArea = temConvicta ? p.quantidade - (p.convicta_quantidade as number) : 0;
+                                          const convictaKits = p.convicta_kits ?? p.kits ?? [];
+                                          const temKits = (p.kits && p.kits.length > 0) || (convictaKits && convictaKits.length > 0);
+
+                                          return (
+                                            <div key={p.area_projecao_id} className={`border-b last:border-b-0 ${isDark ? 'border-gray-700/40' : 'border-gray-100'}`}>
+                                              <div
+                                                className={`grid ${gridCols} items-center gap-2 px-3 py-2 transition-colors ${temKits ? 'cursor-pointer' : ''} ${isDark ? 'hover:bg-gray-800/40' : 'hover:bg-gray-50'}`}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  if (!temKits) return;
+                                                  setExpandedAreaKits(prev => {
+                                                    const next = new Set(prev);
+                                                    if (next.has(areaKey)) next.delete(areaKey); else next.add(areaKey);
+                                                    return next;
+                                                  });
+                                                }}
+                                              >
+                                                <span className="flex items-center gap-2 min-w-0">
+                                                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${color.dot}`} />
+                                                  <span className={`text-sm font-semibold truncate ${color.text}`}>{p.area_projecao_nome}</span>
                                                 </span>
-                                              );
-                                            })}
-                                        </div>
-                                      );
-                                    };
-
-                                    return (
-                                      <div key={p.area_projecao_id} className={`p-3 rounded-xl ${color.bg}`}>
-                                        <div className="flex items-center justify-between mb-2 gap-3">
-                                          <span className={`text-sm font-semibold ${color.text}`}>{p.area_projecao_nome}</span>
-                                        </div>
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-                                          {/* Projeção Convicta (Corte 1) */}
-                                          <div className={`rounded-lg p-2.5 border ${isDark ? 'bg-gray-900/40 border-gray-700/60' : 'bg-white/70 border-gray-200'}`}>
-                                            <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-dashed border-current/10">
-                                              <span className={`text-[10px] font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                                                Convicta
-                                              </span>
-                                              <span className={`text-xs font-black tabular-nums ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
-                                                {formatNumber(convictaQtd)}
-                                              </span>
-                                            </div>
-                                            {renderKitChips(convictaKits)}
-                                          </div>
-                                          {/* Projeção Ajuste (Corte 2 / ao vivo) — exibe apenas a diferença vs Convicta */}
-                                          <div className={`rounded-lg p-2.5 border ${isDark ? 'bg-blue-500/10 border-blue-500/30' : 'bg-blue-50/80 border-blue-200'}`}>
-                                            <div className={`flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-dashed ${isDark ? 'border-blue-500/20' : 'border-blue-200'}`}>
-                                              <span className={`text-[10px] font-bold uppercase tracking-wider ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>
-                                                Ajuste
-                                              </span>
-                                              {(() => {
-                                                if (p.convicta_quantidade == null) {
-                                                  return (
-                                                    <span className={`text-xs font-black tabular-nums ${isDark ? 'text-blue-200' : 'text-blue-700'}`}>
+                                                {hasConvicta ? (
+                                                  <>
+                                                    <span className={`text-sm text-right tabular-nums font-bold ${temConvicta ? (isDark ? 'text-gray-200' : 'text-gray-800') : (isDark ? 'text-gray-600' : 'text-gray-400')}`}>
+                                                      {temConvicta ? formatNumber(p.convicta_quantidade as number) : '—'}
+                                                    </span>
+                                                    <span className="text-sm text-right" title={temConvicta ? `Total ajustado: ${formatNumber(p.quantidade)}` : 'Sem Convicta congelada nesta área'}>
+                                                      {temConvicta ? diffDisplay(diffArea) : <span className={isDark ? 'text-gray-600' : 'text-gray-400'}>—</span>}
+                                                    </span>
+                                                    <span className={`text-sm text-right tabular-nums font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
                                                       {formatNumber(p.quantidade)}
                                                     </span>
-                                                  );
-                                                }
-                                                const diffArea = p.quantidade - p.convicta_quantidade;
-                                                const diffColor = diffArea > 0
-                                                  ? (isDark ? 'text-emerald-300' : 'text-emerald-600')
-                                                  : diffArea < 0
-                                                    ? (isDark ? 'text-rose-300' : 'text-rose-600')
-                                                    : (isDark ? 'text-gray-400' : 'text-gray-500');
-                                                return (
-                                                  <span
-                                                    title={`Total ajustado: ${formatNumber(p.quantidade)}`}
-                                                    className={`text-xs font-black tabular-nums ${diffColor}`}
-                                                  >
-                                                    {diffArea > 0 ? '+' : diffArea < 0 ? '−' : ''}{formatNumber(Math.abs(diffArea))}
+                                                  </>
+                                                ) : (
+                                                  <span className={`text-sm text-right tabular-nums font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                                    {formatNumber(p.quantidade)}
                                                   </span>
-                                                );
-                                              })()}
+                                                )}
+                                                <span className="flex justify-end">
+                                                  {temKits && (
+                                                    <button
+                                                      onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setExpandedAreaKits(prev => {
+                                                          const next = new Set(prev);
+                                                          if (next.has(areaKey)) next.delete(areaKey); else next.add(areaKey);
+                                                          return next;
+                                                        });
+                                                      }}
+                                                      title={kitsOpen ? 'Ocultar kits' : 'Ver kits'}
+                                                      className={`p-1 rounded-lg transition-colors ${isDark ? 'hover:bg-gray-700/60 text-gray-500' : 'hover:bg-gray-100 text-gray-400'}`}
+                                                    >
+                                                      {kitsOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                                                    </button>
+                                                  )}
+                                                </span>
+                                              </div>
+
+                                              {/* Detalhe de kits (expandível) */}
+                                              {kitsOpen && temKits && (
+                                                <div className={`px-3 pb-3 pt-1 ${isDark ? 'bg-gray-900/40' : 'bg-gray-50/60'}`}>
+                                                  {hasConvicta && temConvicta ? (
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                      <div>
+                                                        <span className={`block mb-1.5 text-[10px] font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                          Kits — Convicta
+                                                        </span>
+                                                        {renderKitChips(convictaKits, color.text)}
+                                                      </div>
+                                                      <div>
+                                                        <span className={`block mb-1.5 text-[10px] font-bold uppercase tracking-wider ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>
+                                                          Kits — Ajuste
+                                                        </span>
+                                                        {renderKitChips(p.kits ?? [], color.text, true)}
+                                                      </div>
+                                                    </div>
+                                                  ) : (
+                                                    <div>
+                                                      <span className={`block mb-1.5 text-[10px] font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                        Kits
+                                                      </span>
+                                                      {renderKitChips(p.kits ?? convictaKits, color.text)}
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              )}
                                             </div>
-                                            {renderKitChips(p.kits ?? [], true)}
-                                          </div>
+                                          );
+                                        })}
+
+                                        {/* Linha de totais */}
+                                        <div className={`grid ${gridCols} items-center gap-2 px-3 py-2.5 border-t ${isDark ? 'border-gray-700/60 bg-gray-800/60' : 'border-gray-200 bg-gray-50/80'}`}>
+                                          <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total</span>
+                                          {hasConvicta ? (
+                                            <>
+                                              <span
+                                                title={convictaParcial ? 'Total Convicta congelado no Corte 1 (algumas áreas ainda sem foto individual)' : undefined}
+                                                className={`text-sm text-right tabular-nums font-black ${isDark ? 'text-gray-200' : 'text-gray-800'}`}
+                                              >
+                                                {formatNumber(totalConvicta)}{convictaParcial ? '*' : ''}
+                                              </span>
+                                              <span className="text-sm text-right">{diffDisplay(totalAjuste)}</span>
+                                              <span className={`text-sm text-right tabular-nums font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                                {formatNumber(totalExibido)}
+                                              </span>
+                                            </>
+                                          ) : (
+                                            <span className={`text-sm text-right tabular-nums font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                              {formatNumber(totalExibido)}
+                                            </span>
+                                          )}
+                                          <span />
                                         </div>
                                       </div>
-                                    );
-                                  })}
-                              </div>
+                                    </div>
+                                  </div>
+                                );
+                              })()}
                             </div>
                           </div>
                         )}
