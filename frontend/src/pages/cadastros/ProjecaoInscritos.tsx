@@ -3503,15 +3503,6 @@ const ProjecaoInscritos: React.FC = () => {
                                             <span className={`text-3xl font-black tracking-tight ${totalText}`}>
                                               {formatNumber(totalExibido)}
                                             </span>
-                                            {ajuste != null && ajuste !== 0 && (
-                                              <span
-                                                className={`text-sm font-bold tabular-nums ${ajuste > 0
-                                                  ? (isDark ? 'text-emerald-300' : 'text-emerald-600')
-                                                  : (isDark ? 'text-rose-300' : 'text-rose-600')}`}
-                                              >
-                                                ({ajuste > 0 ? '+' : '−'} {formatNumber(Math.abs(ajuste))})
-                                              </span>
-                                            )}
                                           </span>
                                           <div className={`mt-1.5 flex items-center gap-3 flex-wrap text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                                             <span>
