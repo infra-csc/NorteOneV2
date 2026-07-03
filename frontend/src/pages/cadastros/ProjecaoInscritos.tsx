@@ -2448,7 +2448,8 @@ const ProjecaoInscritos: React.FC = () => {
         body: (
           <div className="space-y-2">
             <p>Aqui as projeções de todas as áreas são <strong>somadas por evento</strong>, mostrando o total projetado e os valores de cada corte (<strong>Projeção Convicta</strong> e <strong>Projeção de Ajuste</strong>).</p>
-            <p>Expanda cada evento para ver o detalhamento por área e acompanhar os cortes já congelados.</p>
+            <p>Expanda um evento para ver a tabela <strong>Projeção por Área</strong>: cada linha traz a área com as colunas <strong>Convicta</strong> (valor congelado no Corte 1), <strong>Ajuste</strong> (diferença após o corte, em <span className="font-semibold">verde</span> quando positiva e em <span className="font-semibold">vermelho</span> quando negativa) e <strong>Total</strong>.</p>
+            <p>Clique na linha da área (ou na setinha) para abrir o <strong>detalhamento por kit</strong>, e confira a linha <strong>Total</strong> no rodapé — ela sempre bate com o número grande do card.</p>
           </div>
         ),
       },
