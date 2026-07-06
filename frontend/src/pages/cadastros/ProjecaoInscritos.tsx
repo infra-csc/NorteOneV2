@@ -3477,9 +3477,14 @@ const ProjecaoInscritos: React.FC = () => {
                                 {(() => {
                                   const c1Frozen = c.corte_valor_1 !== null && c.corte_valor_1 !== undefined;
                                   const c2Frozen = c.corte_valor_2 !== null && c.corte_valor_2 !== undefined;
-                                  // Total exibido: com Corte 2 congelado, o valor oficial do
-                                  // Corte 2; caso contrário, o total ao vivo das projeções.
-                                  const totalExibido = c2Frozen ? (c.corte_valor_2 as number) : c.total_projecoes;
+                                  // Total exibido: SEMPRE o total ao vivo das projeções, para que o
+                                  // número mostrado esteja sempre certo e atualizado. A "Convicta"
+                                  // (Corte 1) permanece congelada como base; o "Ajuste" é a diferença
+                                  // ao vivo sobre essa base. Não usamos mais o valor congelado do
+                                  // Corte 2 aqui: um ajuste feito depois do congelamento (comum
+                                  // quando Corte 1 e Corte 2 congelam juntos, sem janela de ajuste)
+                                  // deixaria o total defasado em relação à soma das áreas.
+                                  const totalExibido = c.total_projecoes;
                                   const convicta = c1Frozen ? (c.corte_valor_1 as number) : null;
                                   const ajuste = convicta !== null ? totalExibido - convicta : null;
                                   const anyFrozen = c1Frozen || c2Frozen;
@@ -3624,11 +3629,14 @@ const ProjecaoInscritos: React.FC = () => {
                                 ];
                                 const sorted = c.projecoes.slice().sort((a, b) => effectiveQtd(b) - effectiveQtd(a));
                                 const hasConvicta = sorted.some(p => p.convicta_quantidade != null);
-                                // Totais do rodapé usam as MESMAS fontes do cabeçalho do card (valores congelados dos cortes),
-                                // garantindo consistência visual entre o total grande e a linha "Total" da tabela.
+                                // Totais do rodapé usam as MESMAS fontes do cabeçalho do card:
+                                // Convicta = Corte 1 congelado (base); Total = ao vivo, garantindo
+                                // consistência entre o total grande, a linha "Total" e as áreas.
                                 const tblC1Frozen = c.corte_valor_1 !== null && c.corte_valor_1 !== undefined;
-                                const tblC2Frozen = c.corte_valor_2 !== null && c.corte_valor_2 !== undefined;
-                                const totalExibido = tblC2Frozen ? (c.corte_valor_2 as number) : c.total_projecoes;
+                                // Total do rodapé = total ao vivo (soma das áreas exibidas acima),
+                                // igual ao card. Nunca o valor congelado do Corte 2, para que a
+                                // linha "Total" sempre bata com a soma das linhas por área.
+                                const totalExibido = c.total_projecoes;
                                 const totalConvicta = tblC1Frozen
                                   ? (c.corte_valor_1 as number)
                                   : sorted.reduce((s, p) => s + (p.convicta_quantidade ?? 0), 0);
