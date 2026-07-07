@@ -568,13 +568,22 @@ def _full_cache_warmup():
         _detail_futures: dict = {}
         _tier1_aux_futures: dict = {}
         _prewarm_detail_fn = None
+        # Nº de workers do pré-aquecimento. O Magento é serializado (semáforo
+        # MAGENTO_MAX_CONCURRENCY=1), então workers extras NÃO aumentam a vazão —
+        # apenas seguram conexões do pool PG ociosas, bloqueados no mesmo slot do
+        # Magento. Isso contribui para o esgotamento do pool quando um deploy
+        # reinicia o servidor à noite. Default enxuto; ajustável por env.
+        try:
+            _warmup_workers = max(1, int(os.getenv("WARMUP_MAX_WORKERS", "2")))
+        except (TypeError, ValueError):
+            _warmup_workers = 2
         if _all_prewarm_ids:
             from app.api.routes.marketing import (
                 get_marketing_event_by_id as _get_evt_detail,
                 get_sales_averages as _get_medias,
                 get_curva_snapshot as _get_curva
             )
-            _detail_prewarm_executor = _TPE(max_workers=min(3, len(_all_prewarm_ids)), thread_name_prefix="warmup_detail")
+            _detail_prewarm_executor = _TPE(max_workers=min(_warmup_workers, len(_all_prewarm_ids)), thread_name_prefix="warmup_detail")
 
             def _prewarm_detail_fn(eid, _ano):
                 from fastapi import HTTPException as _HTTPEx
@@ -601,7 +610,7 @@ def _full_cache_warmup():
             for _eid in _all_prewarm_ids:
                 _detail_futures[_eid] = _detail_prewarm_executor.submit(_prewarm_detail_fn, _eid, ano)
             _detail_prewarm_executor.shutdown(wait=False)
-            logger.info(f"[Warmup] event_detail background pre-warm started for {len(active_evento_ids)} active + {len(recently_completed_ids)} recent events ({min(3, len(_all_prewarm_ids))} workers)")
+            logger.info(f"[Warmup] event_detail background pre-warm started for {len(active_evento_ids)} active + {len(recently_completed_ids)} recent events ({min(_warmup_workers, len(_all_prewarm_ids))} workers)")
 
             # --- Phase 1b-extra: prewarm medias_vendas + curva_comparativa for ALL active events ---
             # Previously this was Tier 1 only. Extended to all active events so that opening
@@ -609,7 +618,7 @@ def _full_cache_warmup():
             from app.api.routes.marketing import get_curva_comparativa_evento as _get_curva_comp
             _aux_target_ids = active_evento_ids
             if _aux_target_ids:
-                _tier1_aux_executor = _TPE(max_workers=min(3, len(_aux_target_ids)), thread_name_prefix="warmup_aux")
+                _tier1_aux_executor = _TPE(max_workers=min(_warmup_workers, len(_aux_target_ids)), thread_name_prefix="warmup_aux")
 
                 def _prewarm_tier1_aux(eid, _ano):
                     if eid in _no_grupo_event_ids:
@@ -634,7 +643,7 @@ def _full_cache_warmup():
                 for _eid in _aux_target_ids:
                     _tier1_aux_futures[_eid] = _tier1_aux_executor.submit(_prewarm_tier1_aux, _eid, ano)
                 _tier1_aux_executor.shutdown(wait=False)
-                logger.info(f"[Warmup] medias+curva pre-warm started for {len(_aux_target_ids)} active events ({min(3, len(_aux_target_ids))} workers)")
+                logger.info(f"[Warmup] medias+curva pre-warm started for {len(_aux_target_ids)} active events ({min(_warmup_workers, len(_aux_target_ids))} workers)")
 
         # --- Phase 1b-early: pre-populate eventos_list with seeded ISC data ---
         # This ensures users see data immediately even while the slow ISC Magento
@@ -712,8 +721,8 @@ def _full_cache_warmup():
                     update_warmup_sub_progress(_done_count)
 
             if _failed_eids:
-                logger.info(f"[Warmup 1d] Second pass: retrying {len(_failed_eids)} failed/timeout events (4 workers, timeout 600s)...")
-                _retry_executor = _TPE(max_workers=min(4, len(_failed_eids)), thread_name_prefix="warmup_retry")
+                logger.info(f"[Warmup 1d] Second pass: retrying {len(_failed_eids)} failed/timeout events ({min(_warmup_workers, len(_failed_eids))} workers, timeout 600s)...")
+                _retry_executor = _TPE(max_workers=min(_warmup_workers, len(_failed_eids)), thread_name_prefix="warmup_retry")
                 _retry_futs = {_eid: _retry_executor.submit(_prewarm_detail_fn, _eid, ano) for _eid in _failed_eids}
                 _retry_executor.shutdown(wait=False)
                 for _eid, _fut in _retry_futs.items():

@@ -2,6 +2,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 import io
+import os
 import socket
 import threading
 import logging
@@ -9,13 +10,42 @@ from .config import settings
 
 _db_logger = logging.getLogger(__name__)
 
+
+def _pool_env_int(name: str, default: int, *, min_val: int = 1) -> int:
+    """Lê um inteiro de env; cai no default se ausente/inválido/abaixo de min_val.
+
+    `min_val=0` permite, por exemplo, DB_MAX_OVERFLOW=0 (sem overflow) para
+    estrangular o pool durante um incidente sem novo deploy.
+    """
+    try:
+        val = int((os.getenv(name) or "").strip())
+        return val if val >= min_val else default
+    except (TypeError, ValueError):
+        return default
+
+
+# Pool do Postgres local. Configurável por env para permitir ajuste em produção
+# SEM novo deploy (ex.: reduzir sob incidente, ou aumentar se houver folga).
+#
+# Invariantes ao ajustar:
+#  - pool_size + max_overflow deve permanecer >= o tamanho do threadpool de
+#    requisições síncronas (anyio, ~64). Se ficar abaixo, uma rajada de handlers
+#    síncronos esgota o pool antes mesmo dos jobs de fundo.
+#  - O Postgres de produção tem max_connections=112. Durante um deploy dois
+#    processos coexistem por instantes; mantenha (pool_size + max_overflow) com
+#    folga para essa sobreposição + conexões administrativas.
+_DB_POOL_SIZE = _pool_env_int("DB_POOL_SIZE", 25)
+_DB_MAX_OVERFLOW = _pool_env_int("DB_MAX_OVERFLOW", 50, min_val=0)
+_DB_POOL_TIMEOUT = _pool_env_int("DB_POOL_TIMEOUT", 30)
+_DB_POOL_RECYCLE = _pool_env_int("DB_POOL_RECYCLE", 300)
+
 engine = create_engine(
     settings.DATABASE_URL,
     pool_pre_ping=True,
-    pool_recycle=300,
-    pool_size=25,
-    max_overflow=50,
-    pool_timeout=30
+    pool_recycle=_DB_POOL_RECYCLE,
+    pool_size=_DB_POOL_SIZE,
+    max_overflow=_DB_MAX_OVERFLOW,
+    pool_timeout=_DB_POOL_TIMEOUT
 ) if settings.DATABASE_URL else None
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine) if engine else None
 Base = declarative_base()

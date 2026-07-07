@@ -1400,6 +1400,19 @@ class CacheRefreshScheduler:
                 except Exception as _exc:
                     _status = "falha"
                     _motivo = _cm_root(_exc)
+                    # Rollback da sessão COMPARTILHADA do batch antes de seguir para o
+                    # próximo passo. Todos os passos reusam a mesma `db`; sem este
+                    # rollback, um passo que deixa a transação em estado de erro
+                    # "envenena" a conexão para todos os passos seguintes, que passam a
+                    # falhar com "Can't reconnect until invalid transaction is rolled
+                    # back" — incluindo as gravações best-effort de sync_log.
+                    try:
+                        db.rollback()
+                    except Exception as _rb_err:
+                        logger.warning(
+                            f"[Daily 02:00] rollback pós-falha de {step_name} "
+                            f"falhou (ignorado): {_rb_err}"
+                        )
                     _le_root(_root_ciclo, _root_job, _status, nivel="grupo", grupo=step_name,
                              motivo=_motivo, detalhes=str(_exc)[:1500],
                              duracao_ms=int((_t_root.time() - _t0) * 1000))
