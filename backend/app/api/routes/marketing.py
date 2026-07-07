@@ -11809,6 +11809,37 @@ def get_marketing_event_by_id(
             grupo_media_7d = 0.0
             grupo_media_30d = 0.0
         
+        # ── Snapshot-first: âncora estável do total de inscritos ─────────────
+        # Para eventos do ano corrente ainda NÃO concluídos (regime hybrid/live),
+        # o total de inscritos deve ter como PISO o snapshot consolidado
+        # (vendas_diaria_snapshot, atualizado no batch noturno + sincronizar_hoje) —
+        # a MESMA fonte da curva diária. Resolve o caso em que a leitura ao vivo /
+        # ISC-cache vem parcial (ex.: Night Run Campo Grande exibindo 1.594 enquanto
+        # o snapshot já tem 1.872) e elimina a oscilação: sem venda nova, o número
+        # servido é sempre o do snapshot. O piso só SOBE (nunca rebaixa) e a leitura
+        # ao vivo de hoje (já aplicada em daily_sales_list acima) pode elevá-lo.
+        # NÃO se aplica a eventos consolidados (concluídos): esses usam a correção
+        # autoritativa PARA BAIXO (force_magento_refresh + leitura verificada) e não
+        # podem ser re-inflados pelo snapshot — cf. Eco Run - Pederneiras.
+        if ano == current_year and detail_regime != "consolidated" and grupo_nome:
+            try:
+                _snap_base = _get_snapshot_metrics_for_grupo(db, grupo_nome, ano=ano)
+            except Exception as _sb_e:
+                logger.warning(f"[SnapshotFirst] Falha ao ler snapshot base '{grupo_nome}': {_sb_e}")
+                _snap_base = None
+            if _snap_base:
+                _snap_qty = int(_snap_base.get('qtd_site') or 0)
+                _snap_rev = float(_snap_base.get('receita_liquida_site') or 0.0)
+                if _snap_qty > current_sales:
+                    logger.info(
+                        f"[SnapshotFirst] '{grupo_nome}': ancorando currentSales "
+                        f"{current_sales} → {_snap_qty} (piso do snapshot consolidado)"
+                    )
+                    current_sales = _snap_qty
+                    # Receita em lockstep para o ticket médio permanecer coerente.
+                    if _snap_rev > current_receita:
+                        current_receita = _snap_rev
+
         avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
         detail_bt_total_receita = 0.0
         detail_bt_total_qtd = 0
@@ -11952,8 +11983,14 @@ def get_marketing_event_by_id(
         # de resposta parcial/stale e sem tabela degradada, autoriza BAIXAR o
         # valor de um evento concluído. Em qualquer outro caso (cache/snapshot/
         # parcial/cooldown), preservamos o piso — exatamente como hoje.
+        # A correção autoritativa PARA BAIXO só faz sentido em evento CONCLUÍDO
+        # (regime consolidated): aí a tabela de kits (bundles Magento mapeados) é
+        # autoritativa. Em evento ainda em venda (live/hybrid) o total legítimo
+        # pode exceder a tabela de kits (Ativo + bundles não mapeados), então uma
+        # leitura Magento parcial "verificada" não pode rebaixar o snapshot-first.
         _live_read_verified_complete = bool(
             force_magento_refresh
+            and detail_regime == "consolidated"
             and _detail_margem_meta.get("count_source") == "live"
             and _detail_margem_meta.get("revenue_source") == "live"
             and not _detail_margem_avisos
@@ -12476,6 +12513,30 @@ def get_marketing_event_by_id(
         current_sales = sales_info.get('qtd_site', 0)
         current_receita = sales_info.get('receita_liquida_site', 0.0)
     
+    # ── Snapshot-first (standalone): mesmo piso estável do caminho de grupo ──
+    # Evento standalone do ano corrente ainda NÃO concluído usa apenas o ISC-cache
+    # (pode vir parcial/defasado). Ancora o total no snapshot consolidado quando
+    # este é maior — só SOBE, nunca rebaixa. Não afeta eventos consolidados.
+    if standalone_detail_regime != "consolidated" and ano == datetime.now().year:
+        _sa_snap_key = standalone_evento_grupo or (normalize_sku(sku) if sku else None)
+        if _sa_snap_key:
+            try:
+                _sa_snap_base = _get_snapshot_metrics_for_grupo(db, _sa_snap_key, ano=ano)
+            except Exception as _sa_sb_e:
+                logger.warning(f"[SnapshotFirst SA] Falha ao ler snapshot base '{_sa_snap_key}': {_sa_sb_e}")
+                _sa_snap_base = None
+            if _sa_snap_base:
+                _sa_snap_qty = int(_sa_snap_base.get('qtd_site') or 0)
+                _sa_snap_rev = float(_sa_snap_base.get('receita_liquida_site') or 0.0)
+                if _sa_snap_qty > current_sales:
+                    logger.info(
+                        f"[SnapshotFirst SA] '{_sa_snap_key}': ancorando currentSales "
+                        f"{current_sales} → {_sa_snap_qty} (piso do snapshot consolidado)"
+                    )
+                    current_sales = _sa_snap_qty
+                    if _sa_snap_rev > current_receita:
+                        current_receita = _sa_snap_rev
+
     sales_goal = get_meta_from_cadastro(detail_standalone_cad) if detail_standalone_cad else get_meta_orcada(db, projeto.id)
     avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
     detail_standalone_bt = round(float(detail_standalone_cad.atletas_site_tkt_medio), 2) if detail_standalone_cad and detail_standalone_cad.atletas_site_tkt_medio and detail_standalone_cad.atletas_site_pago and detail_standalone_cad.atletas_site_pago > 0 else 0.0

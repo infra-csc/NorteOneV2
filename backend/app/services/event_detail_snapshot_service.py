@@ -246,6 +246,90 @@ def apply_today_overlay(db: Session, payload: dict, evento_id: str, ano: int | N
                     evt["averageTicket"] = round(new_rev / new_qty, 2)
             out["evento"] = evt
 
+    # --- Coerência KPI↔snapshot (snapshot-first) ---
+    # Para eventos do ano corrente ainda NÃO concluídos, o currentSales servido
+    # nunca deve ficar abaixo do total do snapshot consolidado (a MESMA âncora
+    # usada no recompute). Garante número correto e ESTÁVEL mesmo quando o snapshot
+    # persistido foi gravado com um currentSales base defasado (ex.: 1.594 vs 1.872)
+    # e ainda não recomputou. Só SOBE (nunca rebaixa) e recomputa averageTicket em
+    # lockstep para o KPI ficar coerente.
+    #
+    # "Concluído" segue a MESMA semântica de get_event_regime: baseia-se no D- de
+    # ENCERRAMENTO (registration-close), NÃO na data do evento — um evento com
+    # dias_encerramento grande pode estar consolidado mesmo com data futura.
+    # Eventos consolidados podem ter passado por correção autoritativa PARA BAIXO
+    # e NÃO podem ser re-inflados pelo snapshot.
+    try:
+        evt_kpi = out.get("evento")
+        if grupo_nome and isinstance(evt_kpi, dict):
+            ev_date_raw2 = evt_kpi.get("date")
+            ev_date2 = None
+            if isinstance(ev_date_raw2, str) and ev_date_raw2:
+                try:
+                    ev_date2 = date.fromisoformat(ev_date_raw2[:10])
+                except Exception:
+                    ev_date2 = None
+            # dias_enc = dMinus - dMinusInscricoes (persistidos); a diferença é
+            # estável mesmo que os valores estejam defasados. Default 2.
+            _d_evt_o = evt_kpi.get("dMinus")
+            _d_ins_o = evt_kpi.get("dMinusInscricoes")
+            if isinstance(_d_evt_o, int) and isinstance(_d_ins_o, int) and _d_evt_o >= _d_ins_o:
+                _dias_enc_kpi = _d_evt_o - _d_ins_o
+            else:
+                _dias_enc_kpi = 2
+            _is_concluido = True
+            if ev_date2 is not None:
+                # get_event_regime: consolidated quando D- de encerramento < -1.
+                _reg_close_d = (ev_date2 - today).days - _dias_enc_kpi
+                _is_concluido = _reg_close_d < -1
+            if not _is_concluido:
+                # Pré-check barato em memória: só faz a query autoritativa quando a
+                # curva já sinaliza discrepância (caso comum já coerente = 0 queries).
+                _cum_curve = 0
+                for _r in (out.get("dailySales") or []):
+                    if not isinstance(_r, dict):
+                        continue
+                    _rd = _r.get("date")
+                    try:
+                        _rdp = date.fromisoformat(_rd[:10]) if isinstance(_rd, str) else None
+                    except Exception:
+                        _rdp = None
+                    if _rdp is not None and _rdp <= today:
+                        _cum_curve += int(_r.get("sales") or 0)
+                _cs_base = int(evt_kpi.get("currentSales") or 0)
+                if _cum_curve > _cs_base:
+                    from sqlalchemy import func as _func_kpi, or_ as _or_kpi
+                    _q_tot = db.query(
+                        _func_kpi.coalesce(_func_kpi.sum(VendasDiariaSnapshot.quantidade), 0),
+                        _func_kpi.coalesce(_func_kpi.sum(VendasDiariaSnapshot.receita), 0.0),
+                    ).filter(
+                        VendasDiariaSnapshot.evento_grupo == grupo_nome,
+                        VendasDiariaSnapshot.fonte == "CONSOLIDADO",
+                        VendasDiariaSnapshot.data_venda <= today,
+                    )
+                    if ano is not None:
+                        _q_tot = _q_tot.filter(
+                            _or_kpi(
+                                VendasDiariaSnapshot.ano == ano,
+                                VendasDiariaSnapshot.ano.is_(None),
+                            )
+                        )
+                    _snap_qty_kpi, _snap_rev_kpi = _q_tot.one()
+                    _snap_qty_kpi = int(_snap_qty_kpi or 0)
+                    _snap_rev_kpi = float(_snap_rev_kpi or 0.0)
+                    if _snap_qty_kpi > _cs_base:
+                        evt_kpi = dict(evt_kpi)
+                        evt_kpi["currentSales"] = _snap_qty_kpi
+                        if _snap_rev_kpi > 0:
+                            evt_kpi["averageTicket"] = round(_snap_rev_kpi / _snap_qty_kpi, 2)
+                        out["evento"] = evt_kpi
+                        logger.info(
+                            f"[Overlay] '{evento_id}': currentSales reconciliado ao "
+                            f"snapshot {_cs_base} → {_snap_qty_kpi} (avgTicket em lockstep)"
+                        )
+    except Exception as e:
+        logger.debug(f"[Overlay] KPI↔snapshot reconcile falhou para '{evento_id}': {e}")
+
     # --- dMinus / dMinusInscricoes overlay ---
     # O snapshot persiste D- calculado no dia em que foi gravado. Sem este
     # overlay, após 1+ dia(s) o detalhe do evento exibe D- defasado (mesma
