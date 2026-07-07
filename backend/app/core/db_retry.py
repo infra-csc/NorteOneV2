@@ -91,6 +91,18 @@ _CIRCUIT_OPEN_DURATION_S = 60.0
 # ---------------------------------------------------------------------------
 _MAGENTO_MAX_CONCURRENCY = max(1, int(os.getenv("MAGENTO_MAX_CONCURRENCY", "1")))
 _MAGENTO_ACQUIRE_TIMEOUT_S = float(os.getenv("MAGENTO_ACQUIRE_TIMEOUT_S", "60"))
+# Teto de fila SEPARADO para chamadas interativas (request/once) que NÃO passam
+# um acquire_timeout explícito (Margem por Kit, Detalhe de Evento, today-by-ids).
+# Antes elas herdavam os 60s do teto geral e, no pico, seguravam a thread do
+# usuário por ~56s antes de cair para o snapshot piso. Um teto curto faz a tela
+# cair cedo para o snapshot em vez de prender a thread por dezenas de segundos —
+# o snapshot persistido é a rede de segurança projetada para exatamente isso.
+# Vale só para o TEMPO NA FILA (esperando o slot); uma vez adquirido, a query
+# roda normalmente. Callers que passam acquire_timeout explícito (ex.: "Atualizar
+# Hoje") continuam mandando no próprio orçamento. Configurável via env.
+_MAGENTO_INTERACTIVE_ACQUIRE_TIMEOUT_S = float(
+    os.getenv("MAGENTO_INTERACTIVE_ACQUIRE_TIMEOUT_S", "20")
+)
 _magento_concurrency_sem = threading.BoundedSemaphore(_MAGENTO_MAX_CONCURRENCY)
 
 # Prioridade interativa sobre background.
@@ -106,6 +118,15 @@ _magento_concurrency_sem = threading.BoundedSemaphore(_MAGENTO_MAX_CONCURRENCY)
 _interactive_waiting_lock = threading.Lock()
 _interactive_waiting = 0
 _BG_YIELD_POLL_S = 0.25  # de quanto em quanto o background re-checa se há interativo na fila
+# Fatia curta de acquire do background. O background NUNCA fica parado num
+# acquire longo (antes usava o mesmo _acq_to de até 60s): se ficasse, um
+# background já bloqueado no semáforo poderia roubar a vaga recém-liberada à
+# frente de um interativo que chegou DEPOIS (inversão de prioridade — a causa
+# das esperas interativas de ~56s no pico). Em vez disso o background tenta o
+# slot em fatias curtas, re-checando _interactive_waiting antes de cada
+# tentativa, de modo que um interativo que chega enquanto o background aguarda
+# sempre ganha o próximo slot em ≤ _BG_ACQUIRE_POLL_S.
+_BG_ACQUIRE_POLL_S = 0.5
 
 # Teto de chamadas que podem estar OCUPANDO uma thread dentro de magento_run
 # ao mesmo tempo (esperando o slot único OU executando). O Magento roda no
@@ -355,7 +376,14 @@ def magento_run(
     # um teto curto alinhado ao seu próprio orçamento de thread, evitando query
     # "zumbi" que continua ocupando o slot (e, sendo interativa, segura o
     # background) muito depois do endpoint já ter caído para snapshot.
-    _acq_to = acquire_timeout if acquire_timeout is not None else _MAGENTO_ACQUIRE_TIMEOUT_S
+    if acquire_timeout is not None:
+        _acq_to = acquire_timeout
+    elif _is_interactive:
+        # Interativo sem orçamento explícito cai cedo para o snapshot em vez de
+        # segurar a thread do usuário ~56s na fila do slot único.
+        _acq_to = _MAGENTO_INTERACTIVE_ACQUIRE_TIMEOUT_S
+    else:
+        _acq_to = _MAGENTO_ACQUIRE_TIMEOUT_S
 
     last_exc: BaseException | None = None
     for attempt in range(1, max_attempts + 1):
@@ -386,37 +414,52 @@ def magento_run(
             # direta). Sem isso, queries em paralelo saturam o servidor remoto e
             # geram timeouts em cascata (erro 3024).
             if _is_interactive:
-                # Sinaliza presença na fila para que o background ceda a vez.
+                # Sinaliza presença na fila para que o background ceda a vez e
+                # adquire o slot diretamente (tem prioridade). Como o background
+                # não fica mais parado num acquire longo (ver abaixo), quando o
+                # slot libera é o interativo que o ganha.
                 with _interactive_waiting_lock:
                     _interactive_waiting += 1
                 _iw_incremented = True
+                try:
+                    _sem_acquired = _magento_concurrency_sem.acquire(timeout=_acq_to)
+                finally:
+                    # Assim que adquirimos (ou desistimos) não estamos mais "na
+                    # fila" — liberamos o background a competir pelo próximo slot.
+                    if _iw_incremented:
+                        with _interactive_waiting_lock:
+                            _interactive_waiting -= 1
+                        _iw_incremented = False
             else:
-                # Background cede enquanto houver interativo esperando, até o
-                # deadline de aquisição (depois prossegue para não travar jobs).
+                # Background: poll em fatias curtas, re-checando se há interativo
+                # na fila ANTES de cada tentativa de acquire. Nunca fica parado
+                # num acquire longo — assim um interativo que chega enquanto o
+                # background aguarda sempre ganha o próximo slot (evita a inversão
+                # de prioridade em que um background já bloqueado no semáforo
+                # roubava a vaga recém-liberada). Cede totalmente enquanto houver
+                # interativo esperando; se em _acq_to não conseguir, desiste (para
+                # não travar jobs à noite, quando não há interativo).
                 _yield_deadline = _wait_started + _acq_to
                 while True:
                     with _interactive_waiting_lock:
                         _iw = _interactive_waiting
-                    if _iw == 0 or time.time() >= _yield_deadline:
+                    _now = time.time()
+                    if _now >= _yield_deadline:
                         break
-                    time.sleep(_BG_YIELD_POLL_S)
-
-            try:
-                _sem_acquired = _magento_concurrency_sem.acquire(
-                    timeout=_acq_to
-                )
-            finally:
-                # Assim que adquirimos (ou desistimos) não estamos mais "na
-                # fila" — liberamos o background a competir pelo próximo slot.
-                if _iw_incremented:
-                    with _interactive_waiting_lock:
-                        _interactive_waiting -= 1
-                    _iw_incremented = False
+                    if _iw > 0:
+                        time.sleep(_BG_YIELD_POLL_S)
+                        continue
+                    _slice = min(_BG_ACQUIRE_POLL_S, _yield_deadline - _now)
+                    if _slice <= 0:
+                        break
+                    if _magento_concurrency_sem.acquire(timeout=_slice):
+                        _sem_acquired = True
+                        break
 
             if not _sem_acquired:
                 logger.warning(
                     f"[Magento][{label}] fila cheia — desistiu após "
-                    f"{_acq_to:.0f}s aguardando vaga. "
+                    f"{_acq_to:.0f}s aguardando vaga (profile={profile}). "
                     f"Cai para snapshot."
                 )
                 raise MagentoEngineUnavailable(
