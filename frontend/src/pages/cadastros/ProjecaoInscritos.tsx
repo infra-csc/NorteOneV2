@@ -154,6 +154,7 @@ interface KitResponse {
 }
 
 const KITS_PADRAO = ['Kit Básico', 'Inscrição Participação', 'Kit Completo - Sem camiseta', 'Kit Vip', 'Kit Plus', 'Kit Super'];
+const KIT_BIKE = 'Kit Bike';
 const KITS_DESCRICOES: Record<string, string> = {
   'Kit Básico': 'Kit padrão da corrida',
   'Inscrição Participação': 'Apenas medalha e n° de peito',
@@ -161,10 +162,16 @@ const KITS_DESCRICOES: Record<string, string> = {
   'Kit Vip': 'Jaqueta',
   'Kit Plus': 'Boné / Viseira',
   'Kit Super': 'Mochila / Bag / Mala tubo',
+  [KIT_BIKE]: 'Kit com bicicleta (eventos de Ciclismo)',
 };
 const KIT_CAMISETA_ORIGEM = 'Kit Completo - Sem camiseta';
 const KIT_CAMISETA_LABEL = 'Camiseta avulsa';
-const buildKitsPadrao = (): KitItem[] => KITS_PADRAO.map(nome => ({ nome_kit: nome, quantidade: '' }));
+const isModalidadeCiclismo = (modalidade?: string | null): boolean =>
+  !!modalidade && modalidade.toLowerCase().includes('ciclismo');
+const kitsPadraoFor = (modalidade?: string | null): string[] =>
+  isModalidadeCiclismo(modalidade) ? [...KITS_PADRAO, KIT_BIKE] : KITS_PADRAO;
+const buildKitsPadrao = (modalidade?: string | null): KitItem[] =>
+  kitsPadraoFor(modalidade).map(nome => ({ nome_kit: nome, quantidade: '' }));
 
 interface Projecao {
   id: number;
@@ -2037,12 +2044,13 @@ const ProjecaoInscritos: React.FC = () => {
           (d.kits ?? []).forEach(k => c1Kits.set(k.nome_kit, (c1Kits.get(k.nome_kit) ?? 0) + (k.quantidade || 0)));
           if (c1Kits.size > 0 && !(proj.kits && proj.kits.length > 0)) {
             setFormTemKit(true);
-            const kitsForm = KITS_PADRAO.map(nome => {
+            const kitsBase = kitsPadraoFor(proj.evento_modalidade);
+            const kitsForm = kitsBase.map(nome => {
               const q = c1Kits.get(nome) ?? 0;
               return { nome_kit: nome, quantidade: q > 0 ? String(q) : '' };
             });
             c1Kits.forEach((q, nome) => {
-              if (!KITS_PADRAO.includes(nome) && q > 0) kitsForm.push({ nome_kit: nome, quantidade: String(q) });
+              if (!kitsBase.includes(nome) && q > 0) kitsForm.push({ nome_kit: nome, quantidade: String(q) });
             });
             setFormKits(kitsForm);
           }
@@ -2076,13 +2084,18 @@ const ProjecaoInscritos: React.FC = () => {
     if (p.kits && p.kits.length > 0) {
       setFormTemKit(true);
       const savedByName = new Map(p.kits.map(k => [k.nome_kit, k.quantidade]));
-      setFormKits(KITS_PADRAO.map(nome => ({
+      const kitsBase = kitsPadraoFor(p.evento_modalidade);
+      const kitsForm = kitsBase.map(nome => ({
         nome_kit: nome,
         quantidade: savedByName.has(nome) ? String(savedByName.get(nome)) : '',
-      })));
+      }));
+      savedByName.forEach((q, nome) => {
+        if (!kitsBase.includes(nome) && q > 0) kitsForm.push({ nome_kit: nome, quantidade: String(q) });
+      });
+      setFormKits(kitsForm);
     } else {
       setFormTemKit(false);
-      setFormKits(buildKitsPadrao());
+      setFormKits(buildKitsPadrao(p.evento_modalidade));
     }
   };
 
@@ -2104,7 +2117,7 @@ const ProjecaoInscritos: React.FC = () => {
     setFormTemCliente(false);
     setFormClientes([{ nome_cliente: '', quantidade: '' }]);
     setFormTemKit(false);
-    setFormKits(buildKitsPadrao());
+    setFormKits(buildKitsPadrao(selectedEvento?.modalidade));
     setEventoSearchTerm('');
     setShowEventoDropdown(false);
     setEditCorte2(false);
@@ -4621,7 +4634,19 @@ const ProjecaoInscritos: React.FC = () => {
                             <button
                               key={ev.id}
                               type="button"
-                              onClick={() => { setFormEventoId(ev.id); setShowEventoDropdown(false); setEventoSearchTerm(''); }}
+                              onClick={() => {
+                                setFormEventoId(ev.id);
+                                setShowEventoDropdown(false);
+                                setEventoSearchTerm('');
+                                setFormKits(prev => {
+                                  const typed = new Map(prev.filter(k => k.quantidade !== '').map(k => [k.nome_kit, k.quantidade]));
+                                  const base = kitsPadraoFor(ev.modalidade);
+                                  // Só kits do padrão do novo evento: ao trocar de um evento
+                                  // Ciclismo para não-Ciclismo, o Kit Bike some do formulário
+                                  // (e não vai no payload).
+                                  return base.map(nome => ({ nome_kit: nome, quantidade: typed.get(nome) ?? '' }));
+                                });
+                              }}
                               className={`w-full text-left px-3 py-2.5 text-sm transition-colors ${
                                 formEventoId === ev.id
                                   ? isDark ? 'bg-violet-500/20 text-violet-300' : 'bg-violet-50 text-violet-700'
