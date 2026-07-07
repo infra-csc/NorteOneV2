@@ -906,6 +906,7 @@ const ProjecaoInscritos: React.FC = () => {
   const [corteConfig, setCorteConfig] = useState<{ dias_corte_1: number; dias_corte_2: number; dias_alerta_envio: number; notif_email_ativo?: boolean; notif_email_hora?: number; notif_canal?: string; ativo: boolean; updated_by_nome?: string | null }>({ dias_corte_1: 30, dias_corte_2: 7, dias_alerta_envio: 30, notif_email_ativo: false, notif_email_hora: 8, notif_canal: 'email', ativo: false });
   const [corteDraft, setCorteDraft] = useState<{ dias1: string; dias2: string; ativo: boolean }>({ dias1: '30', dias2: '7', ativo: false });
   const [savingCorte, setSavingCorte] = useState(false);
+  const [savingProjecao, setSavingProjecao] = useState(false);
   const [corteActionBusy, setCorteActionBusy] = useState<string | null>(null);
 
   const [notifDraft, setNotifDraft] = useState<{ ativo: boolean; hora: string }>({ ativo: false, hora: '8' });
@@ -1842,6 +1843,7 @@ const ProjecaoInscritos: React.FC = () => {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (savingProjecao) return;
     const qty = parseInt(formQuantidade);
     if (!formEventoId || !formAreaId || !qty || qty <= 0) {
       showToast('Informe uma quantidade válida (maior que zero).');
@@ -1871,6 +1873,7 @@ const ProjecaoInscritos: React.FC = () => {
         return;
       }
     }
+    setSavingProjecao(true);
     try {
       const clientes = formTemCliente
         ? formClientes
@@ -1892,14 +1895,18 @@ const ProjecaoInscritos: React.FC = () => {
       projClearCache('proj_projecoes_v1');
       setShowCreateModal(false);
       resetForm();
+      showToast('Projeção salva com sucesso', 'success');
       loadData();
     } catch (error: any) {
       showToast(error.response?.data?.detail || 'Erro ao criar projeção');
+    } finally {
+      setSavingProjecao(false);
     }
   };
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (savingProjecao) return;
     const qty = parseInt(formQuantidade);
     if (!editingProjecao || !qty || qty <= 0) {
       showToast('Informe uma quantidade válida (maior que zero).');
@@ -1944,6 +1951,7 @@ const ProjecaoInscritos: React.FC = () => {
         return;
       }
     }
+    setSavingProjecao(true);
     try {
       const clientes = formTemCliente
         ? formClientes
@@ -1959,9 +1967,12 @@ const ProjecaoInscritos: React.FC = () => {
       projClearCache('proj_projecoes_v1');
       setEditingProjecao(null);
       resetForm();
+      showToast('Projeção salva com sucesso', 'success');
       loadData();
     } catch (error: any) {
       showToast(error.response?.data?.detail || 'Erro ao atualizar projeção');
+    } finally {
+      setSavingProjecao(false);
     }
   };
 
@@ -4586,7 +4597,7 @@ const ProjecaoInscritos: React.FC = () => {
           <div className={`w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl ${isDark ? 'bg-gray-800 border border-gray-700' : 'bg-white'}`}>
             <div className="flex items-center justify-between p-6 border-b border-gray-700/50">
               <h2 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Projeção Convicta</h2>
-              <button onClick={() => setShowCreateModal(false)} className="p-2 rounded-lg hover:bg-gray-700/50">
+              <button onClick={() => { if (!savingProjecao) setShowCreateModal(false); }} disabled={savingProjecao} className={`p-2 rounded-lg hover:bg-gray-700/50 ${savingProjecao ? 'opacity-50 cursor-not-allowed' : ''}`}>
                 <X className={`w-5 h-5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
               </button>
             </div>
@@ -4949,15 +4960,22 @@ const ProjecaoInscritos: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className={`px-4 py-2.5 rounded-xl font-semibold ${isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                  disabled={savingProjecao}
+                  className={`px-4 py-2.5 rounded-xl font-semibold ${savingProjecao ? 'opacity-50 cursor-not-allowed' : ''} ${isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 text-white font-semibold shadow-lg hover:shadow-xl transition-all"
+                  disabled={savingProjecao}
+                  className={`px-6 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 text-white font-semibold shadow-lg transition-all ${savingProjecao ? 'opacity-70 cursor-wait' : 'hover:shadow-xl'}`}
                 >
-                  Criar
+                  {savingProjecao ? (
+                    <span className="flex items-center gap-2">
+                      <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                      Salvando...
+                    </span>
+                  ) : 'Criar'}
                 </button>
               </div>
             </form>
@@ -4976,7 +4994,7 @@ const ProjecaoInscritos: React.FC = () => {
                   {editingProjecao.evento_nome} — {editingProjecao.area_projecao_nome}
                 </p>
               </div>
-              <button onClick={closeEditModal} className="p-2 rounded-lg hover:bg-gray-700/50">
+              <button onClick={() => { if (!savingProjecao) closeEditModal(); }} disabled={savingProjecao} className={`p-2 rounded-lg hover:bg-gray-700/50 ${savingProjecao ? 'opacity-50 cursor-not-allowed' : ''}`}>
                 <X className={`w-5 h-5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
               </button>
             </div>
@@ -5333,16 +5351,22 @@ const ProjecaoInscritos: React.FC = () => {
                 <button
                   type="button"
                   onClick={closeEditModal}
-                  className={`px-4 py-2.5 rounded-xl font-semibold ${isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                  disabled={savingProjecao}
+                  className={`px-4 py-2.5 rounded-xl font-semibold ${savingProjecao ? 'opacity-50 cursor-not-allowed' : ''} ${isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  disabled={editGateBlocked}
-                  className={`px-6 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 text-white font-semibold shadow-lg transition-all ${editGateBlocked ? 'opacity-50 cursor-not-allowed' : 'hover:shadow-xl'}`}
+                  disabled={editGateBlocked || savingProjecao}
+                  className={`px-6 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 text-white font-semibold shadow-lg transition-all ${editGateBlocked ? 'opacity-50 cursor-not-allowed' : savingProjecao ? 'opacity-70 cursor-wait' : 'hover:shadow-xl'}`}
                 >
-                  Salvar
+                  {savingProjecao ? (
+                    <span className="flex items-center gap-2">
+                      <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                      Salvando...
+                    </span>
+                  ) : 'Salvar'}
                 </button>
               </div>
             </form>
