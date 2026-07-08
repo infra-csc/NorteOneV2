@@ -1688,6 +1688,24 @@ def _run_column_migrations():
             )
             """,
             "CREATE INDEX IF NOT EXISTS ix_alteracao_notif_area ON projecao_alteracao_notif_config (area_projecao_id)",
+            # Debounce persistido do aviso de alteração (multi-worker safe, Task #122)
+            """
+            CREATE TABLE IF NOT EXISTS projecao_alteracao_notif_pending (
+                id SERIAL PRIMARY KEY,
+                evento_id INTEGER NOT NULL,
+                area_projecao_id INTEGER NOT NULL,
+                usuario_id INTEGER NOT NULL,
+                baseline_qtd INTEGER NOT NULL,
+                baseline_kits_json TEXT,
+                nova_qtd INTEGER NOT NULL,
+                novos_kits_json TEXT,
+                meta_json TEXT,
+                ultima_em TIMESTAMP NOT NULL DEFAULT NOW(),
+                flush_after TIMESTAMP NOT NULL,
+                CONSTRAINT uq_alteracao_notif_pending_chave UNIQUE (evento_id, area_projecao_id, usuario_id)
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS ix_alteracao_notif_pending_flush ON projecao_alteracao_notif_pending (flush_after)",
         ]
         kit_basico_idx = [
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_kit_basico_per_evento ON kit_config (id_evento) WHERE is_kit_basico = TRUE",

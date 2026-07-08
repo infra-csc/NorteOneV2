@@ -10,6 +10,15 @@ Regras (Task #120):
 - O envio roda em background (threading.Timer) e NUNCA quebra o save:
   qualquer falha só loga.
 
+Multi-worker safe (Task #122): o estado do debounce é PERSISTIDO em
+`projecao_alteracao_notif_pending` (UPSERT que preserva o baseline da 1ª
+alteração da janela e empurra `flush_after`). Cada worker agenda um timer
+local, mas o envio só acontece para quem vencer o claim atômico
+(DELETE ... WHERE flush_after <= now RETURNING) — mesmo com múltiplos
+workers/instâncias, sai UM e-mail por janela, agrupando saves que caíram em
+processos diferentes. Linhas órfãs (worker morreu antes do timer disparar)
+são varridas oportunisticamente a cada novo save.
+
 Detalhamento por kit: quando a distribuição por kit está envolvida, o e-mail
 lista cada kit alterado (anterior → novo), incluindo ligar/desligar o toggle
 (dict vazio ↔ dict preenchido).
@@ -18,8 +27,10 @@ import json
 import logging
 import os
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+
+from sqlalchemy import text
 
 from ..models.projecao import ProjecaoAlteracaoNotifConfig
 from .email_service import send_email, EmailError
@@ -38,10 +49,40 @@ def _debounce_seconds() -> float:
         return 120.0
 
 
-# Estado de debounce: chave (evento_id, area_id, usuario_id) → entry.
-# entry = { baseline_qtd, baseline_kits, nova_qtd, novos_kits, meta, timer }
-_pending: dict[tuple[int, int, int], dict] = {}
+# Timers locais por chave (só para não acumular N timers por save neste
+# worker; a correção entre workers vem do claim atômico no banco).
+_timers: dict[tuple[int, int, int], threading.Timer] = {}
 _lock = threading.Lock()
+
+
+def _dumps_kits(kits: dict[str, int]) -> str:
+    return json.dumps(kits or {}, ensure_ascii=False)
+
+
+def _loads_json(raw: str | None, default):
+    if not raw:
+        return default
+    try:
+        v = json.loads(raw)
+        return v if isinstance(v, type(default)) else default
+    except (ValueError, TypeError):
+        return default
+
+
+def _row_to_entry(row) -> dict:
+    """Converte uma linha claimed de projecao_alteracao_notif_pending em entry."""
+    return {
+        "baseline_qtd": row.baseline_qtd,
+        "baseline_kits": _loads_json(row.baseline_kits_json, {}),
+        "nova_qtd": row.nova_qtd,
+        "novos_kits": _loads_json(row.novos_kits_json, {}),
+        "ultima_em": row.ultima_em,
+        "meta": _loads_json(row.meta_json, {}) or {
+            "evento_nome": f"Evento #{row.evento_id}",
+            "area_nome": f"Área #{row.area_projecao_id}",
+            "usuario_nome": f"Usuário #{row.usuario_id}",
+        },
+    }
 
 
 def _parse_emails(emails_json: str | None) -> list[str]:
@@ -189,16 +230,100 @@ def _render_email_alteracao(entry: dict) -> tuple[str, str, str]:
     return subject, html, txt
 
 
+_CLAIM_SQL = text("""
+    DELETE FROM projecao_alteracao_notif_pending
+    WHERE evento_id = :evento_id
+      AND area_projecao_id = :area_id
+      AND usuario_id = :usuario_id
+      AND flush_after <= :now
+    RETURNING evento_id, area_projecao_id, usuario_id,
+              baseline_qtd, baseline_kits_json, nova_qtd, novos_kits_json,
+              meta_json, ultima_em
+""")
+
+# Varredura de órfãs: linhas cujo flush_after passou há mais que a folga
+# (worker que agendou o timer morreu/reiniciou). O RETURNING garante que só
+# um worker pega cada linha.
+_SWEEP_SQL = text("""
+    DELETE FROM projecao_alteracao_notif_pending
+    WHERE flush_after <= :cutoff
+    RETURNING evento_id, area_projecao_id, usuario_id,
+              baseline_qtd, baseline_kits_json, nova_qtd, novos_kits_json,
+              meta_json, ultima_em
+""")
+
+_UPSERT_SQL = text("""
+    INSERT INTO projecao_alteracao_notif_pending
+        (evento_id, area_projecao_id, usuario_id,
+         baseline_qtd, baseline_kits_json, nova_qtd, novos_kits_json,
+         meta_json, ultima_em, flush_after)
+    VALUES (:evento_id, :area_id, :usuario_id,
+            :baseline_qtd, :baseline_kits_json, :nova_qtd, :novos_kits_json,
+            :meta_json, :ultima_em, :flush_after)
+    ON CONFLICT (evento_id, area_projecao_id, usuario_id) DO UPDATE SET
+        nova_qtd = EXCLUDED.nova_qtd,
+        novos_kits_json = EXCLUDED.novos_kits_json,
+        meta_json = EXCLUDED.meta_json,
+        ultima_em = EXCLUDED.ultima_em,
+        flush_after = EXCLUDED.flush_after
+""")
+
+
+def _now_naive_brt() -> datetime:
+    return datetime.now(_BRT).replace(tzinfo=None)
+
+
 def _flush(key: tuple[int, int, int]) -> None:
-    """Timer callback: envia o e-mail agrupado da chave (roda em thread própria)."""
+    """Timer callback: tenta o claim atômico da chave e envia se vencer."""
     with _lock:
-        entry = _pending.pop(key, None)
-    if entry is None:
-        return
+        _timers.pop(key, None)
     try:
-        _send_entry(key, entry)
+        from ..core.database import SessionLocal
+        if SessionLocal is None:
+            logger.warning("[ProjecaoAlteracaoNotif] SessionLocal indisponível — flush abortado")
+            return
+        evento_id, area_id, usuario_id = key
+        db = SessionLocal()
+        try:
+            row = db.execute(_CLAIM_SQL, {
+                "evento_id": evento_id,
+                "area_id": area_id,
+                "usuario_id": usuario_id,
+                "now": _now_naive_brt(),
+            }).first()
+            db.commit()
+        finally:
+            db.close()
+        if row is None:
+            # Outro worker já enviou, ou um save posterior empurrou flush_after
+            # (o timer daquele save cuidará do envio).
+            return
+        _send_entry(key, _row_to_entry(row))
     except Exception as exc:  # nunca propaga — envio é best-effort
         logger.warning("[ProjecaoAlteracaoNotif] Falha inesperada no envio (%s): %s", key, exc)
+
+
+def _sweep_orfas() -> None:
+    """Envia pendências órfãs (flush_after vencido há mais que a folga)."""
+    try:
+        from ..core.database import SessionLocal
+        if SessionLocal is None:
+            return
+        cutoff = _now_naive_brt() - timedelta(seconds=max(30.0, _debounce_seconds() * 0.5))
+        db = SessionLocal()
+        try:
+            rows = db.execute(_SWEEP_SQL, {"cutoff": cutoff}).fetchall()
+            db.commit()
+        finally:
+            db.close()
+        for row in rows:
+            key = (row.evento_id, row.area_projecao_id, row.usuario_id)
+            try:
+                _send_entry(key, _row_to_entry(row))
+            except Exception as exc:
+                logger.warning("[ProjecaoAlteracaoNotif] Falha no envio de órfã %s: %s", key, exc)
+    except Exception as exc:
+        logger.warning("[ProjecaoAlteracaoNotif] Falha na varredura de órfãs: %s", exc)
 
 
 def _send_entry(key: tuple[int, int, int], entry: dict) -> None:
@@ -258,38 +383,52 @@ def notificar_alteracao_projecao(
     """
     try:
         key = (evento_id, area_projecao_id, usuario_id)
-        now = datetime.now(_BRT).replace(tzinfo=None)
+        now = _now_naive_brt()
         delay = _debounce_seconds()
+
+        from ..core.database import SessionLocal
+        if SessionLocal is None:
+            logger.warning("[ProjecaoAlteracaoNotif] SessionLocal indisponível — aviso descartado")
+            return
+        db = SessionLocal()
+        try:
+            db.execute(_UPSERT_SQL, {
+                "evento_id": evento_id,
+                "area_id": area_projecao_id,
+                "usuario_id": usuario_id,
+                "baseline_qtd": old_qtd,
+                "baseline_kits_json": _dumps_kits(old_kits),
+                "nova_qtd": new_qtd,
+                "novos_kits_json": _dumps_kits(new_kits),
+                "meta_json": json.dumps({
+                    "evento_nome": evento_nome,
+                    "area_nome": area_nome,
+                    "usuario_nome": usuario_nome,
+                }, ensure_ascii=False),
+                "ultima_em": now,
+                "flush_after": now + timedelta(seconds=delay),
+            })
+            db.commit()
+        finally:
+            db.close()
+
+        # Timer local (best-effort): claim atômico no flush decide quem envia.
+        # Pequena folga sobre a janela para o flush_after já ter vencido.
         with _lock:
-            existing = _pending.get(key)
-            if existing is not None:
-                # Agrupa: mantém baseline (estado antes da 1ª alteração da janela),
-                # atualiza estado final e reinicia o timer.
+            old_timer = _timers.pop(key, None)
+            if old_timer is not None:
                 try:
-                    existing["timer"].cancel()
+                    old_timer.cancel()
                 except Exception:
                     pass
-                existing["nova_qtd"] = new_qtd
-                existing["novos_kits"] = dict(new_kits)
-                existing["ultima_em"] = now
-                entry = existing
-            else:
-                entry = {
-                    "baseline_qtd": old_qtd,
-                    "baseline_kits": dict(old_kits),
-                    "nova_qtd": new_qtd,
-                    "novos_kits": dict(new_kits),
-                    "ultima_em": now,
-                    "meta": {
-                        "evento_nome": evento_nome,
-                        "area_nome": area_nome,
-                        "usuario_nome": usuario_nome,
-                    },
-                }
-                _pending[key] = entry
-            timer = threading.Timer(delay, _flush, args=(key,))
+            timer = threading.Timer(delay + 1.0, _flush, args=(key,))
             timer.daemon = True
-            entry["timer"] = timer
+            _timers[key] = timer
             timer.start()
+
+        # Varre órfãs de workers que morreram antes do próprio timer (thread
+        # separada para não segurar o request).
+        sweeper = threading.Thread(target=_sweep_orfas, daemon=True)
+        sweeper.start()
     except Exception as exc:
         logger.warning("[ProjecaoAlteracaoNotif] Falha ao agendar notificação: %s", exc)

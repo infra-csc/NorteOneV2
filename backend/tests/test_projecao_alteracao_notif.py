@@ -37,6 +37,7 @@ from app.models.projecao import (
     ProjecaoKitCorteSnapshot,
     ProjecaoAutoLockConfig,
     ProjecaoAlteracaoNotifConfig,
+    ProjecaoAlteracaoNotifPending,
 )
 from app.schemas.projecao import (
     ProjecaoInscritosCreate,
@@ -63,6 +64,7 @@ TABLES = [
     ProjecaoKitCorteSnapshot.__table__,
     ProjecaoAutoLockConfig.__table__,
     ProjecaoAlteracaoNotifConfig.__table__,
+    ProjecaoAlteracaoNotifPending.__table__,
 ]
 
 
@@ -90,23 +92,23 @@ def db(engine):
         session.close()
 
 
+def _cancel_timers():
+    with notif_service._lock:
+        for timer in notif_service._timers.values():
+            try:
+                timer.cancel()
+            except Exception:
+                pass
+        notif_service._timers.clear()
+
+
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch):
-    """Isola efeitos colaterais pesados e limpa o estado de debounce."""
+    """Isola efeitos colaterais pesados e limpa o estado de debounce local."""
     monkeypatch.setattr(projecao_routes, "invalidate_consolidado_cache", lambda: None)
-    with notif_service._lock:
-        for entry in notif_service._pending.values():
-            timer = entry.get("timer")
-            if timer is not None:
-                timer.cancel()
-        notif_service._pending.clear()
+    _cancel_timers()
     yield
-    with notif_service._lock:
-        for entry in notif_service._pending.values():
-            timer = entry.get("timer")
-            if timer is not None:
-                timer.cancel()
-        notif_service._pending.clear()
+    _cancel_timers()
 
 
 @pytest.fixture
@@ -277,16 +279,36 @@ def test_update_sem_mudanca_nao_dispara(db, notif_calls):
 # ---------------------------------------------------------------------------
 
 
-def test_net_zero_na_janela_suprime_email(monkeypatch):
+def _bind_session_local(monkeypatch, engine):
+    import app.core.database as core_db
+    monkeypatch.setattr(
+        core_db, "SessionLocal",
+        sessionmaker(bind=engine, autocommit=False, autoflush=False),
+    )
+
+
+def _vencer_flush_after(db, key):
+    """Coloca flush_after no passado para o claim do flush vencer no teste."""
+    from datetime import timedelta
+    row = db.query(ProjecaoAlteracaoNotifPending).filter_by(
+        evento_id=key[0], area_projecao_id=key[1], usuario_id=key[2],
+    ).first()
+    assert row is not None
+    row.flush_after = notif_service._now_naive_brt() - timedelta(seconds=1)
+    db.commit()
+
+
+def test_net_zero_na_janela_suprime_email(db, engine, monkeypatch):
     sent = []
     monkeypatch.setattr(notif_service, "send_email", lambda *a, **kw: sent.append((a, kw)))
     # Se o flush tentar buscar destinatários, o teste deve falhar: a supressão
-    # net-zero acontece ANTES de qualquer acesso a banco.
+    # net-zero acontece ANTES de qualquer consulta de destinatários.
     monkeypatch.setattr(
         notif_service, "get_destinatarios_area",
         lambda *a, **kw: pytest.fail("net-zero não deve consultar destinatários"),
     )
     monkeypatch.setenv("PROJECAO_ALTERACAO_NOTIF_DEBOUNCE_SEGUNDOS", "600")
+    _bind_session_local(monkeypatch, engine)
 
     common = dict(
         evento_id=1, area_projecao_id=2, usuario_id=3,
@@ -298,20 +320,84 @@ def test_net_zero_na_janela_suprime_email(monkeypatch):
     notif_service.notificar_alteracao_projecao(
         **common, old_qtd=15, new_qtd=10, old_kits={}, new_kits={},
     )
+    _cancel_timers()
 
     key = (1, 2, 3)
-    with notif_service._lock:
-        entry = notif_service._pending.get(key)
-        assert entry is not None
-        # Baseline preservada da 1ª alteração; estado final agrupado.
-        assert entry["baseline_qtd"] == 10
-        assert entry["nova_qtd"] == 10
-        entry["timer"].cancel()
+    # Estado persistido: UMA linha só, baseline preservada da 1ª alteração,
+    # estado final agrupado.
+    rows = db.query(ProjecaoAlteracaoNotifPending).all()
+    assert len(rows) == 1
+    assert rows[0].baseline_qtd == 10
+    assert rows[0].nova_qtd == 10
 
+    _vencer_flush_after(db, key)
     notif_service._flush(key)
     assert sent == [], "Mudança líquida nula deve suprimir o e-mail"
-    with notif_service._lock:
-        assert key not in notif_service._pending
+    db.expire_all()
+    assert db.query(ProjecaoAlteracaoNotifPending).count() == 0
+
+
+def test_flush_claim_atomico_apenas_um_envio(db, engine, monkeypatch):
+    """Simula timers de múltiplos workers: só um vence o claim e envia."""
+    enviados = []
+    monkeypatch.setattr(
+        notif_service, "_send_entry",
+        lambda key, entry: enviados.append((key, entry["baseline_qtd"], entry["nova_qtd"])),
+    )
+    monkeypatch.setenv("PROJECAO_ALTERACAO_NOTIF_DEBOUNCE_SEGUNDOS", "600")
+    _bind_session_local(monkeypatch, engine)
+
+    common = dict(
+        evento_id=7, area_projecao_id=8, usuario_id=9,
+        evento_nome="Eco Run", area_nome="Comercial", usuario_nome="Ana",
+    )
+    notif_service.notificar_alteracao_projecao(
+        **common, old_qtd=100, new_qtd=110, old_kits={}, new_kits={},
+    )
+    notif_service.notificar_alteracao_projecao(
+        **common, old_qtd=110, new_qtd=130, old_kits={}, new_kits={"A": 5},
+    )
+    _cancel_timers()
+
+    key = (7, 8, 9)
+
+    # Antes da janela vencer, nenhum flush envia (claim exige flush_after <= now).
+    notif_service._flush(key)
+    assert enviados == []
+
+    _vencer_flush_after(db, key)
+    # "Dois workers" disparam o flush: apenas um vence o claim.
+    notif_service._flush(key)
+    notif_service._flush(key)
+    assert enviados == [(key, 100, 130)]
+    db.expire_all()
+    assert db.query(ProjecaoAlteracaoNotifPending).count() == 0
+
+
+def test_sweep_envia_orfas(db, engine, monkeypatch):
+    """Linha órfã (flush_after vencido além da folga) é enviada pela varredura."""
+    from datetime import timedelta
+    enviados = []
+    monkeypatch.setattr(
+        notif_service, "_send_entry",
+        lambda key, entry: enviados.append((key, entry["baseline_qtd"], entry["nova_qtd"])),
+    )
+    _bind_session_local(monkeypatch, engine)
+
+    agora = notif_service._now_naive_brt()
+    db.add(ProjecaoAlteracaoNotifPending(
+        evento_id=1, area_projecao_id=2, usuario_id=3,
+        baseline_qtd=10, nova_qtd=20,
+        meta_json=json.dumps({"evento_nome": "X", "area_nome": "Y", "usuario_nome": "Z"}),
+        ultima_em=agora - timedelta(minutes=10),
+        flush_after=agora - timedelta(minutes=9),
+    ))
+    db.commit()
+
+    notif_service._sweep_orfas()
+    assert enviados == [((1, 2, 3), 10, 20)]
+    db.expire_all()
+    assert db.query(ProjecaoAlteracaoNotifPending).count() == 0
 
 
 # ---------------------------------------------------------------------------

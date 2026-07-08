@@ -328,6 +328,38 @@ class ProjecaoAlteracaoNotifConfig(Base):
     )
 
 
+class ProjecaoAlteracaoNotifPending(Base):
+    """
+    Debounce PERSISTIDO do aviso de alteração de projeção (multi-worker safe).
+
+    Cada save de edição faz UPSERT aqui: mantém o baseline (estado ANTES da
+    1ª alteração da janela), atualiza o estado final e empurra `flush_after`.
+    Um timer local em cada worker tenta o flush após a janela; o envio só
+    acontece para quem conseguir o claim atômico (DELETE ... WHERE flush_after
+    <= now RETURNING), então mesmo com múltiplos workers/instâncias sai UM
+    e-mail por janela. Linhas órfãs (worker morreu antes do timer) são
+    varridas oportunisticamente no próximo save de qualquer usuário.
+    """
+    __tablename__ = "projecao_alteracao_notif_pending"
+
+    id = Column(Integer, primary_key=True, index=True)
+    evento_id = Column(Integer, nullable=False)
+    area_projecao_id = Column(Integer, nullable=False)
+    usuario_id = Column(Integer, nullable=False)
+    baseline_qtd = Column(Integer, nullable=False)
+    baseline_kits_json = Column(Text, nullable=True)
+    nova_qtd = Column(Integer, nullable=False)
+    novos_kits_json = Column(Text, nullable=True)
+    meta_json = Column(Text, nullable=True)
+    ultima_em = Column(DateTime, nullable=False, default=_now_brasilia)
+    flush_after = Column(DateTime, nullable=False, index=True)
+
+    __table_args__ = (
+        UniqueConstraint("evento_id", "area_projecao_id", "usuario_id",
+                         name="uq_alteracao_notif_pending_chave"),
+    )
+
+
 class SimuladorProjetadoFaixas(Base):
     __tablename__ = "simulador_projetado_faixas"
 
