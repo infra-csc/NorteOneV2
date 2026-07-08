@@ -929,6 +929,49 @@ const ProjecaoInscritos: React.FC = () => {
   const [loadingNotifHistory, setLoadingNotifHistory] = useState(false);
   const [expandedNotifLogId, setExpandedNotifLogId] = useState<number | null>(null);
 
+  // Aviso de ALTERAÇÃO de projeção por área (destinatários próprios)
+  type AlteracaoNotifItem = { area_projecao_id: number; area_projecao_nome: string | null; ativo: boolean; emails: string[]; updated_by_nome: string | null; updated_at: string | null };
+  const [alteracaoNotifConfig, setAlteracaoNotifConfig] = useState<AlteracaoNotifItem[]>([]);
+  const [alteracaoNotifDrafts, setAlteracaoNotifDrafts] = useState<Record<number, { ativo: boolean; emailsText: string }>>({});
+  const [savingAlteracaoNotifArea, setSavingAlteracaoNotifArea] = useState<number | null>(null);
+  const [loadingAlteracaoNotif, setLoadingAlteracaoNotif] = useState(false);
+
+  const loadAlteracaoNotifConfig = async () => {
+    setLoadingAlteracaoNotif(true);
+    try {
+      const data = await projecaoService.listAlteracaoNotifConfig();
+      setAlteracaoNotifConfig(data);
+      const drafts: Record<number, { ativo: boolean; emailsText: string }> = {};
+      data.forEach(item => { drafts[item.area_projecao_id] = { ativo: item.ativo, emailsText: item.emails.join(', ') }; });
+      setAlteracaoNotifDrafts(drafts);
+    } catch {
+      // silencioso — seção é admin-only
+    } finally {
+      setLoadingAlteracaoNotif(false);
+    }
+  };
+
+  const saveAlteracaoNotifArea = async (areaId: number) => {
+    const draft = alteracaoNotifDrafts[areaId];
+    if (!draft) return;
+    const emails = draft.emailsText.split(/[,;\n]/).map(e => e.trim()).filter(Boolean);
+    if (draft.ativo && emails.length === 0) {
+      showToast('Informe ao menos um e-mail para ativar o aviso desta área');
+      return;
+    }
+    setSavingAlteracaoNotifArea(areaId);
+    try {
+      const updated = await projecaoService.upsertAlteracaoNotifConfig({ area_projecao_id: areaId, ativo: draft.ativo, emails });
+      setAlteracaoNotifConfig(prev => prev.map(i => i.area_projecao_id === areaId ? { ...i, ativo: updated.ativo, emails: updated.emails, updated_by_nome: updated.updated_by_nome, updated_at: updated.updated_at } : i));
+      setAlteracaoNotifDrafts(prev => ({ ...prev, [areaId]: { ativo: updated.ativo, emailsText: (updated.emails as string[]).join(', ') } }));
+      showToast('Aviso de alteração atualizado', 'success');
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail || 'Erro ao salvar aviso de alteração');
+    } finally {
+      setSavingAlteracaoNotifArea(null);
+    }
+  };
+
   type DiagnosticoPosCorteItem = {
     projecao_id: number;
     evento_id: number;
@@ -1528,7 +1571,7 @@ const ProjecaoInscritos: React.FC = () => {
   useEffect(() => {
     if (activeTab === 'consolidado') loadConsolidado();
     else stopConsolidadoPolling(); // saiu da aba: para o polling e invalida respostas em voo
-    if (activeTab === 'config' && isAdmin) { loadAreasDetail(); loadAutoLockConfig(); loadCorteConfig(); loadDiagnosticoPosCorte(); fetchNotifHistory(); }
+    if (activeTab === 'config' && isAdmin) { loadAreasDetail(); loadAutoLockConfig(); loadCorteConfig(); loadDiagnosticoPosCorte(); fetchNotifHistory(); loadAlteracaoNotifConfig(); }
     if (activeTab === 'lixeira' && isAdmin) loadLixeira();
   }, [activeTab]);
 
@@ -4149,6 +4192,74 @@ const ProjecaoInscritos: React.FC = () => {
                     ? `Resumo diário ativo — envio por e-mail às ${corteConfig.notif_email_hora ?? 8}h (BRT).`
                     : 'Resumo diário desativado.'}
                 </p>
+              </div>
+            </div>
+
+            {/* ── Aviso de Alteração de Projeção (por área) ── */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Mail className={`w-5 h-5 ${isDark ? 'text-amber-400' : 'text-amber-600'}`} />
+                <div>
+                  <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Aviso de Alteração de Projeção</h2>
+                  <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Quando alguém ALTERAR a quantidade projetada de um evento/área, um e-mail imediato é enviado aos destinatários abaixo (lista própria, separada dos responsáveis das pendências). Criações não disparam aviso; salvamentos consecutivos são agrupados num único e-mail.
+                  </p>
+                </div>
+              </div>
+
+              <div className={`rounded-2xl border overflow-hidden ${isDark ? 'bg-gray-800/50 border-gray-700/50' : 'bg-white border-gray-200'}`}>
+                {loadingAlteracaoNotif ? (
+                  <p className={`p-4 text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Carregando…</p>
+                ) : alteracaoNotifConfig.length === 0 ? (
+                  <p className={`p-4 text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Nenhuma área ativa encontrada.</p>
+                ) : (
+                  <div className={`divide-y ${isDark ? 'divide-gray-700/50' : 'divide-gray-100'}`}>
+                    {alteracaoNotifConfig.map(item => {
+                      const draft = alteracaoNotifDrafts[item.area_projecao_id] || { ativo: false, emailsText: '' };
+                      const dirty = draft.ativo !== item.ativo || draft.emailsText.split(/[,;\n]/).map(e => e.trim()).filter(Boolean).join(',') !== item.emails.join(',');
+                      return (
+                        <div key={item.area_projecao_id} className="p-4 space-y-2">
+                          <div className="flex flex-wrap items-center gap-3">
+                            <span className={`text-sm font-semibold min-w-[140px] ${isDark ? 'text-white' : 'text-gray-900'}`}>{item.area_projecao_nome}</span>
+                            <button
+                              type="button"
+                              onClick={() => setAlteracaoNotifDrafts(prev => ({ ...prev, [item.area_projecao_id]: { ...draft, ativo: !draft.ativo } }))}
+                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${draft.ativo ? 'bg-emerald-500' : (isDark ? 'bg-gray-700' : 'bg-gray-300')}`}
+                              title={draft.ativo ? 'Aviso ativo' : 'Aviso desativado'}
+                            >
+                              <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${draft.ativo ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                            </button>
+                            <span className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                              {draft.ativo ? 'Ativo' : 'Desativado'}
+                            </span>
+                            <div className="flex-1" />
+                            <button
+                              onClick={() => saveAlteracaoNotifArea(item.area_projecao_id)}
+                              disabled={savingAlteracaoNotifArea === item.area_projecao_id || !dirty}
+                              className={`h-9 px-4 rounded-xl text-sm font-semibold transition-all disabled:opacity-50 ${dirty ? 'bg-gradient-to-r from-rose-600 to-orange-600 text-white hover:shadow-lg' : (isDark ? 'border border-gray-600 text-gray-400' : 'border border-gray-300 text-gray-400')}`}
+                            >
+                              {savingAlteracaoNotifArea === item.area_projecao_id ? 'Salvando…' : 'Salvar'}
+                            </button>
+                          </div>
+                          <div>
+                            <textarea
+                              rows={2}
+                              value={draft.emailsText}
+                              onChange={e => setAlteracaoNotifDrafts(prev => ({ ...prev, [item.area_projecao_id]: { ...draft, emailsText: e.target.value } }))}
+                              placeholder="destinatarios@empresa.com, outro@empresa.com (separe por vírgula)"
+                              className={`w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 resize-y ${isDark ? 'bg-gray-900 border-gray-700 text-white placeholder-gray-600' : 'bg-gray-50 border-gray-200 text-gray-900 placeholder-gray-400'}`}
+                            />
+                            {item.updated_by_nome && (
+                              <p className={`text-[11px] mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                                Última alteração por {item.updated_by_nome}{item.updated_at ? ` em ${new Date(item.updated_at).toLocaleString('pt-BR')}` : ''}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
 

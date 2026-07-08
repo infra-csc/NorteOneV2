@@ -302,6 +302,32 @@ class ProjecaoNotifLog(Base):
     usuario_teste = relationship("Usuario", foreign_keys=[usuario_teste_id])
 
 
+class ProjecaoAlteracaoNotifConfig(Base):
+    """
+    Config por ÁREA do aviso imediato de ALTERAÇÃO de projeção (Task: notificar
+    edições de quantidade por e-mail). Lista de destinatários própria — separada
+    do vínculo área↔usuário usado pelas pendências (`area_projecao_usuario`).
+
+    emails_json: lista JSON de e-mails ["a@x.com", ...].
+    ativo: liga/desliga o aviso para a área (default False).
+    """
+    __tablename__ = "projecao_alteracao_notif_config"
+
+    id = Column(Integer, primary_key=True, index=True)
+    area_projecao_id = Column(Integer, ForeignKey("area_projecao.id", ondelete="CASCADE"), nullable=False, index=True)
+    ativo = Column(Boolean, default=False, nullable=False)
+    emails_json = Column(Text, nullable=True)
+    updated_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True)
+    updated_at = Column(DateTime, default=_now_brasilia, onupdate=_now_brasilia)
+
+    area = relationship("AreaProjecao")
+    editor = relationship("Usuario", foreign_keys=[updated_by])
+
+    __table_args__ = (
+        UniqueConstraint("area_projecao_id", name="uq_alteracao_notif_area"),
+    )
+
+
 class SimuladorProjetadoFaixas(Base):
     __tablename__ = "simulador_projetado_faixas"
 

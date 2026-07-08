@@ -334,6 +334,21 @@ class NotifConfigUpdate(BaseModel):
     notif_canal: str = 'email'
 
 
+class AlteracaoNotifAreaUpsert(BaseModel):
+    area_projecao_id: int
+    ativo: bool
+    emails: List[str] = []
+
+
+class AlteracaoNotifAreaResponse(BaseModel):
+    area_projecao_id: int
+    area_projecao_nome: Optional[str] = None
+    ativo: bool = False
+    emails: List[str] = []
+    updated_by_nome: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+
 class CorteSnapshotResponse(BaseModel):
     evento_id: int
     valor_corte_1: Optional[int] = None

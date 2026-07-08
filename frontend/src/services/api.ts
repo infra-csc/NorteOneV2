@@ -1776,6 +1776,14 @@ export const projecaoService = {
     const response = await api.put('/projecao/notif-config', data);
     return response.data;
   },
+  listAlteracaoNotifConfig: async (): Promise<{ area_projecao_id: number; area_projecao_nome: string | null; ativo: boolean; emails: string[]; updated_by_nome: string | null; updated_at: string | null }[]> => {
+    const response = await api.get('/projecao/alteracao-notif-config');
+    return response.data;
+  },
+  upsertAlteracaoNotifConfig: async (data: { area_projecao_id: number; ativo: boolean; emails: string[] }) => {
+    const response = await api.put('/projecao/alteracao-notif-config', data);
+    return response.data;
+  },
   sendNotifTest: async () => {
     const response = await api.post('/projecao/notif-test');
     return response.data;

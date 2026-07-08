@@ -1675,6 +1675,19 @@ def _run_column_migrations():
             # pi_pai_min_price: valor bruto do índice Magento (catalog_product_index_price.min_price)
             # separado do special_price (COALESCE) para bypass da Regra B no ticket ISC
             "ALTER TABLE kit_mapping_snapshot ADD COLUMN IF NOT EXISTS pi_pai_min_price NUMERIC(12,2)",
+            # Aviso imediato de ALTERAÇÃO de projeção — destinatários por área (Task #120)
+            """
+            CREATE TABLE IF NOT EXISTS projecao_alteracao_notif_config (
+                id SERIAL PRIMARY KEY,
+                area_projecao_id INTEGER NOT NULL REFERENCES area_projecao(id) ON DELETE CASCADE,
+                ativo BOOLEAN DEFAULT FALSE NOT NULL,
+                emails_json TEXT,
+                updated_by INTEGER REFERENCES dim_usuario(id),
+                updated_at TIMESTAMP DEFAULT NOW(),
+                CONSTRAINT uq_alteracao_notif_area UNIQUE (area_projecao_id)
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS ix_alteracao_notif_area ON projecao_alteracao_notif_config (area_projecao_id)",
         ]
         kit_basico_idx = [
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_kit_basico_per_evento ON kit_config (id_evento) WHERE is_kit_basico = TRUE",

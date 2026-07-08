@@ -22,6 +22,7 @@ from ...models.projecao import (
     ProjecaoCutoffEventoArea, ProjecaoAutoLockConfig,
     ProjecaoCorteConfig, ProjecaoCorteSnapshot, ProjecaoKitCorteSnapshot,
     ProjecaoCorteDistSnapshot, ProjecaoNotifLog,
+    ProjecaoAlteracaoNotifConfig,
     KIT_CAMISETA_AVULSA_ORIGEM,
 )
 from ...models.cadastro_evento import CadastroEvento
@@ -41,6 +42,7 @@ from ...schemas.projecao import (
     AutoLockConfigUpdate, AutoLockConfigResponse,
     CorteConfigUpdate, CorteConfigResponse, AlertaConfigUpdate,
     NotifConfigUpdate,
+    AlteracaoNotifAreaUpsert, AlteracaoNotifAreaResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -904,6 +906,110 @@ def update_notif_config(
     )
 
 
+# ============================================================
+# AVISO DE ALTERAÇÃO DE PROJEÇÃO (destinatários por área) — Task #120
+# ============================================================
+
+def _emails_validos(emails: List[str]) -> List[str]:
+    """Normaliza (trim/lower/dedup) e valida formato básico dos e-mails."""
+    out: List[str] = []
+    seen = set()
+    for e in emails or []:
+        e2 = (e or "").strip().lower()
+        if not e2:
+            continue
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", e2):
+            raise HTTPException(status_code=400, detail=f"E-mail inválido: {e2}")
+        if e2 not in seen:
+            seen.add(e2)
+            out.append(e2)
+    return out
+
+
+@router.get("/alteracao-notif-config", response_model=List[AlteracaoNotifAreaResponse])
+def list_alteracao_notif_config(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
+):
+    """Config do aviso de alteração por área (todas as áreas ativas). Apenas admin."""
+    import json as _json
+    if not is_user_admin(current_user):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem consultar esta configuração")
+
+    areas = db.query(AreaProjecao).filter(AreaProjecao.ativo == True).order_by(AreaProjecao.nome).all()
+    configs = {c.area_projecao_id: c for c in db.query(ProjecaoAlteracaoNotifConfig).all()}
+    editores = {}
+    editor_ids = {c.updated_by for c in configs.values() if c.updated_by}
+    if editor_ids:
+        editores = {u.id: u.nome for u in db.query(Usuario).filter(Usuario.id.in_(editor_ids)).all()}
+
+    resp = []
+    for a in areas:
+        c = configs.get(a.id)
+        emails: List[str] = []
+        if c and c.emails_json:
+            try:
+                raw = _json.loads(c.emails_json)
+                emails = [e for e in raw if isinstance(e, str)] if isinstance(raw, list) else []
+            except ValueError:
+                emails = []
+        resp.append(AlteracaoNotifAreaResponse(
+            area_projecao_id=a.id,
+            area_projecao_nome=a.nome,
+            ativo=bool(c and c.ativo),
+            emails=emails,
+            updated_by_nome=editores.get(c.updated_by) if c else None,
+            updated_at=c.updated_at if c else None,
+        ))
+    return resp
+
+
+@router.put("/alteracao-notif-config", response_model=AlteracaoNotifAreaResponse)
+def upsert_alteracao_notif_config(
+    data: AlteracaoNotifAreaUpsert,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
+):
+    """Define destinatários e ativo/inativo do aviso de alteração para uma área. Apenas admin."""
+    import json as _json
+    if not is_user_admin(current_user):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem alterar esta configuração")
+
+    area = db.query(AreaProjecao).filter(AreaProjecao.id == data.area_projecao_id).first()
+    if not area:
+        raise HTTPException(status_code=404, detail="Área de projeção não encontrada")
+
+    emails = _emails_validos(data.emails)
+    if data.ativo and not emails:
+        raise HTTPException(status_code=400, detail="Informe ao menos um e-mail para ativar o aviso desta área")
+
+    cfg = db.query(ProjecaoAlteracaoNotifConfig).filter(
+        ProjecaoAlteracaoNotifConfig.area_projecao_id == data.area_projecao_id
+    ).first()
+    if cfg is None:
+        cfg = ProjecaoAlteracaoNotifConfig(
+            area_projecao_id=data.area_projecao_id,
+            ativo=data.ativo,
+            emails_json=_json.dumps(emails, ensure_ascii=False),
+            updated_by=current_user.id,
+        )
+        db.add(cfg)
+    else:
+        cfg.ativo = data.ativo
+        cfg.emails_json = _json.dumps(emails, ensure_ascii=False)
+        cfg.updated_by = current_user.id
+    db.commit()
+    db.refresh(cfg)
+    return AlteracaoNotifAreaResponse(
+        area_projecao_id=cfg.area_projecao_id,
+        area_projecao_nome=area.nome,
+        ativo=cfg.ativo,
+        emails=emails,
+        updated_by_nome=current_user.nome,
+        updated_at=cfg.updated_at,
+    )
+
+
 @router.post("/notif-test")
 def enviar_notif_teste(
     db: Session = Depends(get_db),
@@ -1169,6 +1275,8 @@ def update_projecao(
     _validate_camiseta_avulsa_teto(db, projecao.evento_id, projecao.area_projecao_id, data.kits)
 
     old_qtd = projecao.quantidade
+    # Snapshot do estado ANTES da mutação (para o aviso de alteração por e-mail).
+    _notif_old_kits = {k.nome_kit: k.quantidade for k in projecao.kits}
     if data.quantidade != old_qtd:
         _record_history(db, projecao.id, "EDICAO", current_user.id,
                         campo="quantidade", anterior=str(old_qtd), novo=str(data.quantidade))
@@ -1248,6 +1356,31 @@ def update_projecao(
     db.commit()
     db.refresh(projecao)
     invalidate_consolidado_cache()
+
+    # Aviso de alteração por e-mail (Task #120): só EDIÇÕES com mudança de
+    # quantidade e/ou de kits. Debounce + envio em background — nunca quebra o save.
+    try:
+        _notif_new_kits = (
+            {k.nome_kit.strip(): k.quantidade for k in data.kits}
+            if data.kits is not None else dict(_notif_old_kits)
+        )
+        _kits_mudaram = _notif_new_kits != _notif_old_kits
+        if data.quantidade != old_qtd or _kits_mudaram:
+            from ...services.projecao_alteracao_notif_service import notificar_alteracao_projecao
+            notificar_alteracao_projecao(
+                evento_id=projecao.evento_id,
+                area_projecao_id=projecao.area_projecao_id,
+                usuario_id=current_user.id,
+                evento_nome=projecao.evento.nome if projecao.evento else f"Evento #{projecao.evento_id}",
+                area_nome=projecao.area_projecao.nome if projecao.area_projecao else f"Área #{projecao.area_projecao_id}",
+                usuario_nome=current_user.nome or current_user.email or f"Usuário #{current_user.id}",
+                old_qtd=old_qtd,
+                new_qtd=data.quantidade,
+                old_kits=_notif_old_kits,
+                new_kits=_notif_new_kits,
+            )
+    except Exception as _notif_exc:
+        logger.warning("[ProjecaoAlteracaoNotif] Falha ao agendar aviso de alteração: %s", _notif_exc)
 
     clientes_atuais = db.query(ProjecaoInscritosCliente).filter(
         ProjecaoInscritosCliente.projecao_id == projecao.id
