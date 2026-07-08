@@ -3435,6 +3435,18 @@ const ProjecaoInscritos: React.FC = () => {
                               </td>
                             </tr>
                           ))}
+                          {/* Subtotal row */}
+                          <tr className={isDark ? 'bg-violet-500/10' : 'bg-violet-50'}>
+                            <td className="px-4 py-3 pl-6">
+                              <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-violet-300' : 'text-violet-700'}`}>
+                                Subtotal ({group.length} {group.length === 1 ? 'área' : 'áreas'})
+                              </span>
+                            </td>
+                            <td className={`px-4 py-3 text-sm font-bold ${isDark ? 'text-violet-300' : 'text-violet-700'}`}>
+                              {formatNumber(group.reduce((sum, p) => sum + (p.quantidade || 0), 0))}
+                            </td>
+                            <td colSpan={3} />
+                          </tr>
                         </React.Fragment>
                       );
                     })}
