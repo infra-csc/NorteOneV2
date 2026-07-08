@@ -587,11 +587,17 @@ def create_projecao(
 
         kits_salvos = []
         if data.kits:
+            # Agrega por nome — nomes duplicados no payload somam, evitando
+            # violar o índice único (projecao_id, nome_kit).
+            kits_agg: dict[str, int] = {}
             for k in data.kits:
+                nome = k.nome_kit.strip()
+                kits_agg[nome] = kits_agg.get(nome, 0) + k.quantidade
+            for nome, qtd in kits_agg.items():
                 kit = ProjecaoInscritosKit(
                     projecao_id=projecao.id,
-                    nome_kit=k.nome_kit.strip(),
-                    quantidade=k.quantidade,
+                    nome_kit=nome,
+                    quantidade=qtd,
                 )
                 db.add(kit)
                 kits_salvos.append(kit)
@@ -1344,16 +1350,32 @@ def update_projecao(
         db.query(ProjecaoInscritosKit).filter(
             ProjecaoInscritosKit.projecao_id == projecao.id
         ).delete()
+        # Agrega por nome — evita duplicatas no payload e violação do índice
+        # único (projecao_id, nome_kit).
+        _kits_agg: dict[str, int] = {}
         for k in data.kits:
+            _nome = k.nome_kit.strip()
+            _kits_agg[_nome] = _kits_agg.get(_nome, 0) + k.quantidade
+        for _nome, _qtd in _kits_agg.items():
             db.add(ProjecaoInscritosKit(
                 projecao_id=projecao.id,
-                nome_kit=k.nome_kit.strip(),
-                quantidade=k.quantidade,
+                nome_kit=_nome,
+                quantidade=_qtd,
             ))
         if not projecao.updated_by:
             projecao.updated_by = current_user.id
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Corrida entre dois saves concorrentes da mesma projeção: o índice
+        # único (projecao_id, nome_kit) bloqueia a duplicata. O outro save já
+        # gravou — devolve conflito claro em vez de 500 genérico.
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Esta projeção foi salva por outra requisição ao mesmo tempo. Recarregue e tente novamente.",
+        )
     db.refresh(projecao)
     invalidate_consolidado_cache()
 

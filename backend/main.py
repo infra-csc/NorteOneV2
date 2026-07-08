@@ -1706,6 +1706,17 @@ def _run_column_migrations():
             )
             """,
             "CREATE INDEX IF NOT EXISTS ix_alteracao_notif_pending_flush ON projecao_alteracao_notif_pending (flush_after)",
+            # Kits duplicados por corrida de saves concorrentes (delete+insert sem
+            # constraint): limpa duplicatas mantendo a linha mais recente (maior id)
+            # por (projecao_id, nome_kit) e trava recorrência com índice único.
+            """
+            DELETE FROM projecao_inscritos_kit k
+            USING projecao_inscritos_kit k2
+            WHERE k.projecao_id = k2.projecao_id
+              AND k.nome_kit = k2.nome_kit
+              AND k.id < k2.id
+            """,
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_projecao_kit_nome ON projecao_inscritos_kit (projecao_id, nome_kit)",
         ]
         kit_basico_idx = [
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_kit_basico_per_evento ON kit_config (id_evento) WHERE is_kit_basico = TRUE",

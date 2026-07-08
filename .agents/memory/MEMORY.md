@@ -33,3 +33,4 @@
 - [Teams DM app-only impossível](teams-dm-app-only.md) — ChatMessage.Send é delegated-only; Graph bloqueia DM via client credentials. Canal de notificação fixado em e-mail.
 - [Grace em snapshots por leitura](read-triggered-snapshots-grace.md) — captura/freeze disparado por leitura deve pular entidades com escrita recente; ação manual do admin nunca passa pelo grace.
 - [Foto Corte 1 incompleta = ajuste loop](corte1-foto-incompleta-ajuste-loop.md) — foto bruta ≠ convicta reconciliada trava ajuste fantasma numa área; fix: Reabrir C1 → corrigir área → Congelar agora.
+- [Delete+insert child rows race](delete-insert-child-race.md) — padrão DELETE+INSERT de linhas filhas sem unique index duplica sob saves concorrentes (READ COMMITTED); fix = unique index + dedupe payload + 409 no conflito.
