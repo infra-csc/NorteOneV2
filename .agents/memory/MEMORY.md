@@ -33,4 +33,5 @@
 - [Teams DM app-only impossível](teams-dm-app-only.md) — ChatMessage.Send é delegated-only; Graph bloqueia DM via client credentials. Canal de notificação fixado em e-mail.
 - [Grace em snapshots por leitura](read-triggered-snapshots-grace.md) — captura/freeze disparado por leitura deve pular entidades com escrita recente; ação manual do admin nunca passa pelo grace.
 - [Foto Corte 1 incompleta = ajuste loop](corte1-foto-incompleta-ajuste-loop.md) — foto bruta ≠ convicta reconciliada trava ajuste fantasma numa área; fix: Reabrir C1 → corrigir área → Congelar agora.
+- [Auth dedicated PG pool](auth-dedicated-pg-pool.md) — login/sessão em pool PG separado, sessão curta, current_user detached; writes devem recarregar via db.get. Evita 500 no login sob pool esgotado.
 - [Delete+insert child rows race](delete-insert-child-race.md) — padrão DELETE+INSERT de linhas filhas sem unique index duplica sob saves concorrentes (READ COMMITTED); fix = unique index + dedupe payload + 409 no conflito.

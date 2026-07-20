@@ -6,7 +6,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta, datetime
-from ...core.database import get_db
+from ...core.database import get_db_auth
 from ...core.security import (
     verify_password,
     create_access_token,
@@ -94,7 +94,7 @@ def _frontend_redirect(request: Request, *, token: str = "", error: str = "") ->
 
 
 @router.post("/login", response_model=Token)
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db_auth)):
     user = db.query(Usuario).filter(Usuario.email == form_data.username).first()
     # Contas gerenciadas pela Microsoft NUNCA autenticam por senha local, mesmo
     # que ainda tenham senha_hash residual — assim a desprovisão no diretório
@@ -172,7 +172,7 @@ def microsoft_callback(
     state: str = "",
     error: str = "",
     error_description: str = "",
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_auth),
 ):
     """Callback do SSO: valida o state, troca o código, provisiona/encontra o
     usuário, emite o token da aplicação e redireciona ao frontend."""
@@ -223,7 +223,7 @@ def microsoft_callback(
 @router.post("/logout")
 def logout(
     token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_auth),
 ):
     try:
         payload = decode_token(token)

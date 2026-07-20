@@ -8,7 +8,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from .config import settings
-from .database import get_db
+from .database import get_db_auth
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
@@ -68,10 +68,21 @@ def invalidate_user_sessions(user_id: int, db: Session) -> int:
 _ACTIVITY_THROTTLE_SECONDS = 60
 
 
-async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    """Valida o token e carrega o usuário usando o pool DEDICADO de auth.
+
+    A sessão é aberta e fechada AQUI DENTRO (não via Depends) para que a
+    conexão volte ao pool imediatamente após a validação — nunca fica presa
+    durante a requisição inteira. O usuário retornado é DESANEXADO (detached):
+    todos os atributos e relações necessários (perfil_acesso_rel, permissoes,
+    permissoes_campo) são carregados de forma eager antes do close. Endpoints
+    que precisem GRAVAR no usuário devem recarregá-lo na própria sessão
+    (ex.: db.get(Usuario, current_user.id))."""
     from ..models.user import Usuario
     from ..models.user_session import UserSession
-    from sqlalchemy.orm import joinedload
+    from ..models.perfil_acesso import PerfilAcesso
+    from sqlalchemy.orm import joinedload, selectinload
+    from .database import SessionLocalAuth
 
     payload = decode_token(token)
 
@@ -90,41 +101,54 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    session = db.query(UserSession).filter(UserSession.jti == jti).first()
-    if session is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Sessão encerrada. Faça login novamente.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    if SessionLocalAuth is None:
+        raise HTTPException(status_code=500, detail="Banco de dados não configurado")
 
-    user_id = int(user_id_str)
-    user = (
-        db.query(Usuario)
-        .options(joinedload(Usuario.perfil_acesso_rel))
-        .filter(Usuario.id == user_id)
-        .first()
-    )
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Usuario nao encontrado",
-        )
-    if not user.ativo:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Usuario inativo",
-        )
+    db = SessionLocalAuth()
+    try:
+        session = db.query(UserSession).filter(UserSession.jti == jti).first()
+        if session is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Sessão encerrada. Faça login novamente.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
-    now = datetime.utcnow()
-    if user.last_activity is None or (now - user.last_activity).total_seconds() > _ACTIVITY_THROTTLE_SECONDS:
-        try:
-            user.last_activity = now
-            db.commit()
-        except Exception:
-            db.rollback()
+        user_id = int(user_id_str)
+        user = (
+            db.query(Usuario)
+            .options(
+                joinedload(Usuario.perfil_acesso_rel).selectinload(PerfilAcesso.permissoes),
+                joinedload(Usuario.perfil_acesso_rel).selectinload(PerfilAcesso.permissoes_campo),
+            )
+            .filter(Usuario.id == user_id)
+            .first()
+        )
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Usuario nao encontrado",
+            )
+        if not user.ativo:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Usuario inativo",
+            )
 
-    return user
+        now = datetime.utcnow()
+        if user.last_activity is None or (now - user.last_activity).total_seconds() > _ACTIVITY_THROTTLE_SECONDS:
+            try:
+                user.last_activity = now
+                db.commit()
+            except Exception:
+                db.rollback()
+
+        # Desanexa com atributos/relacões carregados — a conexão volta ao pool
+        # imediatamente e o objeto segue legível pelo resto da requisição.
+        db.expunge(user)
+        return user
+    finally:
+        db.close()
 
 
 def is_user_admin(user) -> bool:

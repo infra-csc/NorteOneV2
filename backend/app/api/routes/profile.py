@@ -41,7 +41,11 @@ def change_password(
         raise HTTPException(status_code=400, detail="Senha atual incorreta")
     if len(data.new_password) < 6:
         raise HTTPException(status_code=400, detail="A nova senha deve ter pelo menos 6 caracteres")
-    current_user.senha_hash = get_password_hash(data.new_password)
+    # current_user é detached (pool de auth); grava no usuário DESTA sessão
+    user = db.get(Usuario, current_user.id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    user.senha_hash = get_password_hash(data.new_password)
     db.commit()
     return {"message": "Senha alterada com sucesso"}
 
@@ -63,11 +67,14 @@ async def upload_photo(
     mime_type = MIME_MAP.get(ext, "image/jpeg")
     filename = f"{current_user.id}_{uuid.uuid4().hex[:8]}{ext}"
 
-    current_user.foto_perfil = f"/api/profile/photo/{filename}"
-    current_user.foto_perfil_data = contents
-    current_user.foto_perfil_mime = mime_type
+    user = db.get(Usuario, current_user.id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    user.foto_perfil = f"/api/profile/photo/{filename}"
+    user.foto_perfil_data = contents
+    user.foto_perfil_mime = mime_type
     db.commit()
-    return {"foto_perfil": current_user.foto_perfil}
+    return {"foto_perfil": user.foto_perfil}
 
 
 @router.delete("/photo")
@@ -75,9 +82,12 @@ def delete_photo(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    current_user.foto_perfil = None
-    current_user.foto_perfil_data = None
-    current_user.foto_perfil_mime = None
+    user = db.get(Usuario, current_user.id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    user.foto_perfil = None
+    user.foto_perfil_data = None
+    user.foto_perfil_mime = None
     db.commit()
     return {"message": "Foto removida"}
 

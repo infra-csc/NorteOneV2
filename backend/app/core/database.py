@@ -119,6 +119,45 @@ def get_db():
         _unregister_local_session(db)
         db.close()
 
+# --- Pool DEDICADO de autenticação -----------------------------------------
+# Login e validação de sessão (get_current_user) NUNCA devem competir pelo
+# pool principal: quando jobs de fundo + requisições lentas esgotam o pool
+# (QueuePool limit reached), /auth/login e /auth/me passam a falhar com 500 e
+# ninguém consegue entrar no sistema — exatamente quando o admin mais precisa.
+# Este pool pequeno e separado garante que a autenticação sempre tenha
+# conexões próprias. Consultas de auth são pontuais e rápidas (~1-3 queries),
+# então um pool pequeno basta.
+_DB_AUTH_POOL_SIZE = _pool_env_int("DB_AUTH_POOL_SIZE", 5)
+_DB_AUTH_MAX_OVERFLOW = _pool_env_int("DB_AUTH_MAX_OVERFLOW", 5, min_val=0)
+_DB_AUTH_POOL_TIMEOUT = _pool_env_int("DB_AUTH_POOL_TIMEOUT", 10)
+
+engine_auth = create_engine(
+    settings.DATABASE_URL,
+    pool_pre_ping=True,
+    pool_recycle=_DB_POOL_RECYCLE,
+    pool_size=_DB_AUTH_POOL_SIZE,
+    max_overflow=_DB_AUTH_MAX_OVERFLOW,
+    pool_timeout=_DB_AUTH_POOL_TIMEOUT,
+) if settings.DATABASE_URL else None
+# expire_on_commit=False: o get_current_user desanexa (expunge) o usuário após
+# o commit de last_activity — os atributos/relações eager-carregados precisam
+# permanecer legíveis depois que a sessão fecha.
+SessionLocalAuth = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=engine_auth) if engine_auth else None
+
+
+def get_db_auth():
+    """Sessão do pool dedicado de autenticação. Use APENAS em rotas/dep de
+    auth (login, sessão, /me) — não registrar no release de conexões locais,
+    pois essas sessões nunca esperam por I/O externo."""
+    if SessionLocalAuth is None:
+        raise Exception("DATABASE_URL not configured")
+    db = SessionLocalAuth()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
 engine_ativo = None
 SessionLocalAtivo = None
 
