@@ -246,6 +246,10 @@ interface ConsolidadoEvento {
   reaberto_manual_corte_1?: boolean;
   reaberto_manual_corte_2?: boolean;
   em_corte2?: boolean;
+  // Última ocorrência de escrita fora do prazo entre as projeções do evento
+  fora_prazo_trava?: string | null;
+  fora_prazo_em?: string | null;
+  fora_prazo_por_nome?: string | null;
 }
 
 interface AreaDetail {
@@ -912,6 +916,7 @@ const ProjecaoInscritos: React.FC = () => {
   const cutoffsLoadTokenRef = useRef(0);
 
   const [selectedEventoCorteSnap, setSelectedEventoCorteSnap] = useState<{ congelado_corte_1_em: string | null; reaberto_manual_corte_1: boolean; congelado_corte_2_em: string | null; reaberto_manual_corte_2: boolean } | null>(null);
+  const [formEventoCorteSnap, setFormEventoCorteSnap] = useState<{ eventoId: number; congelado_corte_1_em: string | null; reaberto_manual_corte_1: boolean; congelado_corte_2_em: string | null; reaberto_manual_corte_2: boolean } | null>(null);
 
   const [autoLockConfig, setAutoLockConfig] = useState<AutoLockConfig>({ dias_antes_evento: 0, hora_trava: '00:00', ativo: false });
   const [autoLockDraft, setAutoLockDraft] = useState<{ dias: string; hora: string; ativo: boolean }>({ dias: '0', hora: '00:00', ativo: false });
@@ -1623,6 +1628,36 @@ const ProjecaoInscritos: React.FC = () => {
       .catch(() => { if (!cancelled) setSelectedEventoCorteSnap(null); });
     return () => { cancelled = true; };
   }, [selectedEvento?.id]);
+
+  // Snapshot de corte do evento escolhido no MODAL de criação (quando aberto sem
+  // evento pré-selecionado): garante o aviso pré-salvamento "fora do prazo" por
+  // corte congelado também nesse fluxo (antes só a trava D-N era detectada).
+  useEffect(() => {
+    const evId = typeof formEventoId === 'number' ? formEventoId : null;
+    if (!showCreateModal || evId == null || (selectedEvento && selectedEvento.id === evId)) {
+      setFormEventoCorteSnap(null);
+      return;
+    }
+    let cancelled = false;
+    projecaoService.getConsolidado({ evento_id: evId })
+      .then(({ data }: { data: ConsolidadoEvento[]; stale: boolean }) => {
+        if (cancelled) return;
+        const ev = data[0];
+        if (ev) {
+          setFormEventoCorteSnap({
+            eventoId: evId,
+            congelado_corte_1_em: ev.corte_congelado_1_em ?? null,
+            reaberto_manual_corte_1: !!ev.reaberto_manual_corte_1,
+            congelado_corte_2_em: ev.corte_congelado_2_em ?? null,
+            reaberto_manual_corte_2: !!ev.reaberto_manual_corte_2,
+          });
+        } else {
+          setFormEventoCorteSnap(null);
+        }
+      })
+      .catch(() => { if (!cancelled) setFormEventoCorteSnap(null); });
+    return () => { cancelled = true; };
+  }, [showCreateModal, formEventoId, selectedEvento?.id]);
 
   useEffect(() => {
     const eventoId = editingProjecao ? editingProjecao.evento_id : (typeof formEventoId === 'number' ? formEventoId : null);
@@ -3557,6 +3592,15 @@ const ProjecaoInscritos: React.FC = () => {
                                     Saída caminhão: {formatDate(c.data_saida_caminhao)}
                                   </span>
                                 )}
+                                {c.fora_prazo_em && (
+                                  <span
+                                    title={`Última alteração fora do prazo (${travaPrazoLabel(c.fora_prazo_trava)}) por ${c.fora_prazo_por_nome || '—'} em ${formatDateTime(c.fora_prazo_em)}`}
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase tracking-wide ${isDark ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40' : 'bg-amber-100 text-amber-700 border border-amber-300'}`}
+                                  >
+                                    <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+                                    Fora do prazo
+                                  </span>
+                                )}
                               </div>
 
                               <div className="mt-4">
@@ -4735,7 +4779,9 @@ const ProjecaoInscritos: React.FC = () => {
               {(() => {
                 const evId = selectedEvento?.id ?? (formEventoId ? Number(formEventoId) : null);
                 if (!evId) return null;
-                const snap = selectedEvento && selectedEvento.id === evId ? selectedEventoCorteSnap : null;
+                const snap = selectedEvento && selectedEvento.id === evId
+                  ? selectedEventoCorteSnap
+                  : (formEventoCorteSnap && formEventoCorteSnap.eventoId === evId ? formEventoCorteSnap : null);
                 const corte2Frozen = !!(snap?.congelado_corte_2_em) && !snap?.reaberto_manual_corte_2;
                 const corte1Frozen = !!(snap?.congelado_corte_1_em) && !snap?.reaberto_manual_corte_1;
                 const autoLocked = autoLockedEventoIds.has(evId);

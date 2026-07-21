@@ -1844,8 +1844,13 @@ def _consolidado_cache_key(
     area_projecao_id: Optional[str],
     evento_id: Optional[int],
 ) -> str:
-    """Chave estável por combinação de filtros + ano-edição corrente."""
+    """Chave estável por combinação de filtros + ano-edição corrente.
+
+    O prefixo de versão ("v2") deve ser incrementado sempre que o SHAPE da
+    resposta cacheada mudar (novos campos etc.), para que entradas persistidas
+    com o formato antigo virem miss em vez de servir payload incompleto."""
     return "|".join([
+        "v2",
         str(datetime.now().year),
         (mes or "").strip(),
         (tipo_evento or "").strip(),
@@ -1872,7 +1877,7 @@ def invalidate_consolidado_cache():
         ano_atual = str(datetime.now().year)
         for key in _cache.list_keys():
             parts = key.split("|")
-            if len(parts) != 6 or parts[0] != ano_atual:
+            if len(parts) != 7 or parts[0] != "v2" or parts[1] != ano_atual:
                 continue
             _cache.submit_background_refresh(key, _make_consolidado_refresh_fn(key, parts))
     except Exception as _e:
@@ -1882,7 +1887,7 @@ def invalidate_consolidado_cache():
 def _make_consolidado_refresh_fn(cache_key: str, parts: list):
     """Cria a função de refresh em background para uma chave do consolidado
     (parseando a chave de volta para os filtros originais)."""
-    _, mes_k, tipo_k, mod_k, area_k, ev_k = parts
+    _, _, mes_k, tipo_k, mod_k, area_k, ev_k = parts
 
     def _refresh():
         from ...core.database import SessionLocal
@@ -2178,6 +2183,7 @@ def _compute_consolidado(
     # Fetch all projections for all events in a single query (avoids N+1)
     proj_query = db.query(ProjecaoInscritos).options(
         joinedload(ProjecaoInscritos.area_projecao),
+        joinedload(ProjecaoInscritos.fora_prazo_usuario),
         selectinload(ProjecaoInscritos.kits),
     ).filter(
         ProjecaoInscritos.evento_id.in_(evento_ids),
@@ -2257,6 +2263,15 @@ def _compute_consolidado(
         projecoes = projecoes_by_evento.get(evento.id)
         if not projecoes:
             continue
+
+        # Última ocorrência "fora do prazo" entre as projeções ativas do evento
+        # (alimenta o selo + tooltip no card da Visão Consolidada).
+        fora_prazo_p = None
+        for _fp in projecoes:
+            if _fp.fora_prazo_em is not None and (
+                fora_prazo_p is None or _fp.fora_prazo_em > fora_prazo_p.fora_prazo_em
+            ):
+                fora_prazo_p = _fp
 
         inscritos_reais = 0
         if evento.sku:
@@ -2400,6 +2415,13 @@ def _compute_consolidado(
             # usa como fonte autoritativa — começa assim que o Corte 1 foi congelado.
             em_corte2=bool(
                 snap and (snap.valor_corte_1 is not None or snap.congelado_corte_1_em is not None)
+            ),
+            fora_prazo_trava=fora_prazo_p.fora_prazo_trava if fora_prazo_p else None,
+            fora_prazo_em=fora_prazo_p.fora_prazo_em if fora_prazo_p else None,
+            fora_prazo_por_nome=(
+                fora_prazo_p.fora_prazo_usuario.nome
+                if fora_prazo_p and fora_prazo_p.fora_prazo_usuario
+                else None
             ),
         ))
 

@@ -214,6 +214,11 @@ class ConsolidadoEventoResponse(BaseModel):
     # True quando o Corte 1 está congelado — sinaliza ao frontend que a divisão
     # Convicta x Ajuste é significativa (antes disso ambas são iguais ao vivo).
     em_corte2: bool = False
+    # Última ocorrência de escrita "fora do prazo" entre as projeções do evento
+    # (para o selo no card da Visão Consolidada). None = nenhuma ocorrência.
+    fora_prazo_trava: Optional[str] = None
+    fora_prazo_em: Optional[datetime] = None
+    fora_prazo_por_nome: Optional[str] = None
 
 
 class CutoffRuleCreate(BaseModel):
