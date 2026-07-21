@@ -195,6 +195,9 @@ interface Projecao {
   updated_at: string | null;
   deleted_at: string | null;
   deleted_by_nome: string | null;
+  fora_prazo_trava: string | null;
+  fora_prazo_em: string | null;
+  fora_prazo_por_nome: string | null;
 }
 
 interface HistoricoItem {
@@ -207,7 +210,18 @@ interface HistoricoItem {
   usuario_id: number;
   usuario_nome: string | null;
   created_at: string | null;
+  fora_prazo: boolean;
+  trava_ativa: string | null;
 }
+
+// Task #126 — rótulos amigáveis das travas de prazo (fora do prazo)
+const TRAVA_PRAZO_LABELS: Record<string, string> = {
+  corte_1: 'Corte 1 congelado',
+  corte_2: 'Corte 2 congelado',
+  auto_lock: 'Trava automática D-N',
+};
+const travaPrazoLabel = (trava?: string | null): string =>
+  trava ? (TRAVA_PRAZO_LABELS[trava] ?? trava) : '';
 
 interface ConsolidadoEvento {
   evento_id: number;
@@ -2401,7 +2415,7 @@ const ProjecaoInscritos: React.FC = () => {
           body: (
             <div className="space-y-2">
               <p>Dentro do evento você vê as projeções já cadastradas por área, os cortes e o total projetado.</p>
-              <p>Indicadores de <strong>corte congelado</strong> ou <strong>trava automática (D-N)</strong> aparecem aqui quando o evento não aceita mais edições.</p>
+              <p>Indicadores de <strong>corte congelado</strong> ou <strong>trava automática (D-N)</strong> aparecem aqui quando o evento está fora do prazo — você ainda pode editar, mas as alterações ficam marcadas permanentemente como <strong>fora do prazo</strong>.</p>
             </div>
           ),
         },
@@ -2413,7 +2427,7 @@ const ProjecaoInscritos: React.FC = () => {
           needsEvento: true,
           body: (
             <div className="space-y-2">
-              <p>Use o botão <strong>Nova Projeção</strong> para lançar a projeção de uma área. Ele só aparece quando o evento <strong>não está travado</strong> (nem por corte congelado, nem pela trava automática D-N).</p>
+              <p>Use o botão <strong>Nova Projeção</strong> para lançar a projeção de uma área. Se o evento estiver com <strong>corte congelado</strong> ou dentro da <strong>trava automática D-N</strong>, você ainda pode lançar e editar — mas a alteração fica registrada permanentemente como <strong>fora do prazo</strong>.</p>
               <p>Vou abrir o formulário para te mostrar cada campo.</p>
             </div>
           ),
@@ -2485,7 +2499,7 @@ const ProjecaoInscritos: React.FC = () => {
             <div className="space-y-2">
               <p><strong>Corte 1 (Convicta)</strong>: primeira fotografia da projeção. Ao ser congelado, os valores viram base e não voltam a zero.</p>
               <p><strong>Corte 2 (Ajuste)</strong>: é <strong>aditivo</strong> — soma-se ao que foi congelado no Corte 1 para chegar ao total.</p>
-              <p>Eventos podem ser <strong>travados automaticamente</strong> a D-N (dias antes do evento); depois disso não é possível editar, exceto para administradores.</p>
+              <p>Eventos entram na <strong>trava automática</strong> a D-N (dias antes do evento); depois disso ainda é possível editar, mas cada alteração é registrada permanentemente como <strong>fora do prazo</strong> (vale para todos, inclusive administradores).</p>
             </div>
           ),
         },
@@ -2646,46 +2660,39 @@ const ProjecaoInscritos: React.FC = () => {
               const corteSnap = selectedEventoCorteSnap;
               const corte2Frozen = !!(corteSnap?.congelado_corte_2_em) && !corteSnap?.reaberto_manual_corte_2;
               const corte1Frozen = !!(corteSnap?.congelado_corte_1_em) && !corteSnap?.reaberto_manual_corte_1;
-              const corteFrozen = !isAdmin && (corte2Frozen || corte1Frozen);
-              const corteLabel = corte2Frozen ? 'Corte 2' : 'Corte 1';
-              const corteDate = corte2Frozen
-                ? (corteSnap?.congelado_corte_2_em ? new Date(corteSnap.congelado_corte_2_em).toLocaleDateString('pt-BR') : '')
-                : (corteSnap?.congelado_corte_1_em ? new Date(corteSnap.congelado_corte_1_em).toLocaleDateString('pt-BR') : '');
+              const autoLocked = autoLockedEventoIds.has(selectedEvento.id);
+              const travaLabel = corte2Frozen
+                ? 'Corte 2 congelado'
+                : corte1Frozen
+                  ? 'Corte 1 congelado'
+                  : autoLocked
+                    ? `Trava D-${autoLockConfig.dias_antes_evento}`
+                    : null;
 
-              if (!isAdmin && autoLockedEventoIds.has(selectedEvento.id)) {
-                return (
-                  <div
-                    title={`Trava automática ativa: D-${autoLockConfig.dias_antes_evento}`}
-                    className="flex items-center gap-2 px-6 py-3 rounded-2xl font-semibold text-sm cursor-not-allowed bg-amber-500/20 text-amber-400 border border-amber-500/40"
-                  >
-                    <Lock className="w-4 h-4" />
-                    Evento travado (D-{autoLockConfig.dias_antes_evento})
-                  </div>
-                );
-              }
-              if (corteFrozen) {
-                return (
-                  <div
-                    title={`${corteLabel} congelado em ${corteDate} — novas projeções não são permitidas`}
-                    className="flex items-center gap-2 px-6 py-3 rounded-2xl font-semibold text-sm cursor-not-allowed bg-rose-500/20 text-rose-400 border border-rose-500/40"
-                  >
-                    <Lock className="w-4 h-4" />
-                    {corteLabel} congelado
-                  </div>
-                );
-              }
               return (
-                <button
-                  data-tour="btn-nova-projecao"
-                  onClick={() => { resetForm(); setFormEventoId(selectedEvento.id); setShowCreateModal(true); }}
-                  className="group relative px-6 py-3 bg-gradient-to-r from-violet-600 via-blue-600 to-cyan-500 text-white rounded-2xl font-semibold shadow-xl shadow-violet-500/30 hover:shadow-violet-500/50 transition-all duration-300 hover:scale-105 overflow-hidden"
-                >
-                  <div className="absolute inset-0 bg-gradient-to-r from-violet-400 via-blue-400 to-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                  <span className="relative flex items-center gap-2">
-                    <Plus className="w-5 h-5" />
-                    Nova Projeção
-                  </span>
-                </button>
+                <div className="flex items-center gap-3">
+                  {travaLabel && (
+                    <div
+                      title={`${travaLabel} — novas projeções e edições são permitidas, mas ficam registradas permanentemente como "fora do prazo"`}
+                      className="flex items-center gap-2 px-4 py-3 rounded-2xl font-semibold text-xs bg-amber-500/20 text-amber-500 border border-amber-500/40"
+                    >
+                      <AlertTriangle className="w-4 h-4" />
+                      <span className="hidden sm:inline">{travaLabel} — alterações serão marcadas como fora do prazo</span>
+                      <span className="sm:hidden">{travaLabel}</span>
+                    </div>
+                  )}
+                  <button
+                    data-tour="btn-nova-projecao"
+                    onClick={() => { resetForm(); setFormEventoId(selectedEvento.id); setShowCreateModal(true); }}
+                    className="group relative px-6 py-3 bg-gradient-to-r from-violet-600 via-blue-600 to-cyan-500 text-white rounded-2xl font-semibold shadow-xl shadow-violet-500/30 hover:shadow-violet-500/50 transition-all duration-300 hover:scale-105 overflow-hidden"
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-r from-violet-400 via-blue-400 to-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                    <span className="relative flex items-center gap-2">
+                      <Plus className="w-5 h-5" />
+                      Nova Projeção
+                    </span>
+                  </button>
+                </div>
               );
             })()}
           </div>
@@ -3153,22 +3160,13 @@ const ProjecaoInscritos: React.FC = () => {
 
             {/* Banner de trava automática */}
             {autoLockConfig.ativo && autoLockConfig.dias_antes_evento > 0 && autoLockedEventoIds.has(selectedEvento.id) && (
-              isAdmin ? (
-                <div className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-xs ${isDark ? 'bg-amber-500/10 border border-amber-500/20 text-amber-300' : 'bg-amber-50 border border-amber-200 text-amber-700'}`}>
-                  <Lock className="w-3.5 h-3.5 flex-shrink-0" />
-                  <span>
-                    <strong>Trava automática ativa (D-{autoLockConfig.dias_antes_evento} às {autoLockConfig.hora_trava || '00:00'})</strong> — como administrador, você ainda pode criar e editar projeções neste evento.
-                  </span>
-                </div>
-              ) : (
-                <div className={`flex items-center gap-2.5 px-4 py-3 rounded-xl text-sm font-medium ${isDark ? 'bg-amber-500/15 border border-amber-500/30 text-amber-300' : 'bg-amber-100 border border-amber-300 text-amber-800'}`}>
-                  <Lock className="w-4 h-4 flex-shrink-0" />
-                  <span>
-                    Este evento está dentro do período de <strong>trava automática (D-{autoLockConfig.dias_antes_evento} às {autoLockConfig.hora_trava || '00:00'})</strong>.
-                    Criação, edição e exclusão de projeções estão bloqueadas.
-                  </span>
-                </div>
-              )
+              <div className={`flex items-center gap-2.5 px-4 py-3 rounded-xl text-sm font-medium ${isDark ? 'bg-amber-500/15 border border-amber-500/30 text-amber-300' : 'bg-amber-100 border border-amber-300 text-amber-800'}`}>
+                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                <span>
+                  Este evento está dentro do período de <strong>trava automática (D-{autoLockConfig.dias_antes_evento} às {autoLockConfig.hora_trava || '00:00'})</strong>.
+                  Você ainda pode criar, editar e excluir projeções, mas cada alteração fica registrada permanentemente como <strong>fora do prazo</strong>.
+                </span>
+              </div>
             )}
 
             {(() => {
@@ -3369,11 +3367,20 @@ const ProjecaoInscritos: React.FC = () => {
                           {group.map(p => (
                             <tr key={p.id} className={`transition-colors ${p.locked_at ? (isDark ? 'opacity-75' : 'opacity-80') : ''} ${isDark ? 'hover:bg-gray-700/30' : 'hover:bg-gray-50'}`}>
                               <td className="px-4 py-3 pl-6">
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
                                   {p.locked_at && <Lock className={`w-3 h-3 flex-shrink-0 ${isDark ? 'text-red-400' : 'text-red-500'}`} />}
                                   <span className={`inline-flex px-2.5 py-1 rounded-lg text-xs font-semibold ${isDark ? 'bg-violet-500/20 text-violet-300' : 'bg-violet-100 text-violet-700'}`}>
                                     {p.area_projecao_nome}
                                   </span>
+                                  {p.fora_prazo_em && (
+                                    <span
+                                      title={`Última alteração fora do prazo (${travaPrazoLabel(p.fora_prazo_trava)}) por ${p.fora_prazo_por_nome || '—'} em ${formatDateTime(p.fora_prazo_em)}`}
+                                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase tracking-wide ${isDark ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40' : 'bg-amber-100 text-amber-700 border border-amber-300'}`}
+                                    >
+                                      <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+                                      Fora do prazo
+                                    </span>
+                                  )}
                                 </div>
                               </td>
                               <td className={`px-4 py-3 text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
@@ -3404,7 +3411,7 @@ const ProjecaoInscritos: React.FC = () => {
                               </td>
                               <td className="px-4 py-3">
                                 <div className="flex items-center gap-1">
-                                  {canEditProjecao && myAreaIds.has(p.area_projecao_id) && !p.locked_at && !(!isAdmin && selectedEvento && autoLockedEventoIds.has(selectedEvento.id)) && (
+                                  {canEditProjecao && myAreaIds.has(p.area_projecao_id) && !p.locked_at && (
                                     <button
                                       onClick={() => openEdit(p)}
                                       className="p-1.5 rounded-lg hover:bg-blue-500/20 text-blue-400 transition-colors"
@@ -3422,7 +3429,7 @@ const ProjecaoInscritos: React.FC = () => {
                                       <History className="w-4 h-4" />
                                     </button>
                                   )}
-                                  {canDeleteProjecao && myAreaIds.has(p.area_projecao_id) && !p.locked_at && !(!isAdmin && selectedEvento && autoLockedEventoIds.has(selectedEvento.id)) && (
+                                  {canDeleteProjecao && myAreaIds.has(p.area_projecao_id) && !p.locked_at && (
                                     <button
                                       onClick={() => handleDelete(p.id)}
                                       className="p-1.5 rounded-lg hover:bg-red-500/20 text-red-400 transition-colors"
@@ -4725,6 +4732,30 @@ const ProjecaoInscritos: React.FC = () => {
               </button>
             </div>
             <form onSubmit={handleCreate} className="p-6 space-y-4" data-tour="modal-form">
+              {(() => {
+                const evId = selectedEvento?.id ?? (formEventoId ? Number(formEventoId) : null);
+                if (!evId) return null;
+                const snap = selectedEvento && selectedEvento.id === evId ? selectedEventoCorteSnap : null;
+                const corte2Frozen = !!(snap?.congelado_corte_2_em) && !snap?.reaberto_manual_corte_2;
+                const corte1Frozen = !!(snap?.congelado_corte_1_em) && !snap?.reaberto_manual_corte_1;
+                const autoLocked = autoLockedEventoIds.has(evId);
+                const label = corte2Frozen
+                  ? 'Corte 2 congelado'
+                  : corte1Frozen
+                    ? 'Corte 1 congelado'
+                    : autoLocked
+                      ? `Trava automática D-${autoLockConfig.dias_antes_evento}`
+                      : null;
+                if (!label) return null;
+                return (
+                  <div className={`flex items-start gap-2.5 p-3 rounded-xl border text-xs ${isDark ? 'bg-amber-500/10 border-amber-500/40 text-amber-300' : 'bg-amber-50 border-amber-300 text-amber-800'}`}>
+                    <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold">Fora do prazo:</span> este evento está com <span className="font-semibold">{label}</span>. Você pode salvar normalmente, mas a alteração ficará registrada de forma permanente como fora do prazo (trava, autor e data).
+                    </div>
+                  </div>
+                );
+              })()}
               <div>
                 <label className={`block text-sm font-semibold mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Evento</label>
                 {selectedEvento ? (
@@ -5141,6 +5172,29 @@ const ProjecaoInscritos: React.FC = () => {
                 </div>
               ) : (
               <>
+              {(() => {
+                const evId = editingProjecao.evento_id;
+                const snap = selectedEvento && selectedEvento.id === evId ? selectedEventoCorteSnap : null;
+                const corte2Frozen = !!(snap?.congelado_corte_2_em) && !snap?.reaberto_manual_corte_2;
+                const corte1Frozen = !!(snap?.congelado_corte_1_em) && !snap?.reaberto_manual_corte_1;
+                const autoLocked = autoLockedEventoIds.has(evId);
+                const label = corte2Frozen
+                  ? 'Corte 2 congelado'
+                  : corte1Frozen
+                    ? 'Corte 1 congelado'
+                    : autoLocked
+                      ? `Trava automática D-${autoLockConfig.dias_antes_evento}`
+                      : null;
+                if (!label) return null;
+                return (
+                  <div className={`flex items-start gap-2.5 p-3 rounded-xl border text-xs ${isDark ? 'bg-amber-500/10 border-amber-500/40 text-amber-300' : 'bg-amber-50 border-amber-300 text-amber-800'}`}>
+                    <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold">Fora do prazo:</span> este evento está com <span className="font-semibold">{label}</span>. Você pode salvar normalmente, mas a alteração ficará registrada de forma permanente como fora do prazo (trava, autor e data).
+                    </div>
+                  </div>
+                );
+              })()}
               {emCorte2 ? (
                 <div>
                   <div className="flex items-center justify-between mb-1">
@@ -5528,14 +5582,23 @@ const ProjecaoInscritos: React.FC = () => {
                     };
                     const cfg = acaoConfig[h.acao] || acaoConfig.EDICAO;
                     return (
-                    <div key={h.id} className={`flex gap-4 p-4 rounded-xl ${isDark ? 'bg-gray-900/50' : 'bg-gray-50'}`}>
+                    <div key={h.id} className={`flex gap-4 p-4 rounded-xl ${h.fora_prazo ? (isDark ? 'bg-amber-500/5 border border-amber-500/40' : 'bg-amber-50/60 border border-amber-300') : (isDark ? 'bg-gray-900/50' : 'bg-gray-50')}`}>
                       <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${cfg.bg}`}>
                         {cfg.icon}
                       </div>
                       <div className="flex-1">
-                        <div className="flex items-center justify-between">
-                          <span className={`font-semibold text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className={`font-semibold text-sm flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
                             {cfg.label}
+                            {h.fora_prazo && (
+                              <span
+                                title={h.trava_ativa ? `Alteração feita com ${travaPrazoLabel(h.trava_ativa)} ativo` : 'Alteração feita fora do prazo'}
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide ${isDark ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40' : 'bg-amber-100 text-amber-700 border border-amber-300'}`}
+                              >
+                                <AlertTriangle className="w-3 h-3" />
+                                Fora do prazo{h.trava_ativa ? ` — ${travaPrazoLabel(h.trava_ativa)}` : ''}
+                              </span>
+                            )}
                           </span>
                           <span className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
                             {formatDateTime(h.created_at)}

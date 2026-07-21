@@ -149,7 +149,8 @@ def _check_area_permission(db: Session, user, area_projecao_id: int):
 
 
 def _record_history(db: Session, projecao_id: int, acao: str, usuario_id: int,
-                    campo: str = None, anterior: str = None, novo: str = None):
+                    campo: str = None, anterior: str = None, novo: str = None,
+                    fora_prazo: bool = False, trava: str = None):
     hist = ProjecaoInscritosHistorico(
         projecao_id=projecao_id,
         acao=acao,
@@ -157,6 +158,8 @@ def _record_history(db: Session, projecao_id: int, acao: str, usuario_id: int,
         valor_anterior=anterior,
         valor_novo=novo,
         usuario_id=usuario_id,
+        fora_prazo=fora_prazo,
+        trava_ativa=trava,
     )
     db.add(hist)
 
@@ -300,6 +303,7 @@ def list_projecoes(
             joinedload(ProjecaoInscritos.criador),
             joinedload(ProjecaoInscritos.editor),
             joinedload(ProjecaoInscritos.travador),
+            joinedload(ProjecaoInscritos.fora_prazo_usuario),
             selectinload(ProjecaoInscritos.clientes),
             selectinload(ProjecaoInscritos.kits),
         )
@@ -358,6 +362,9 @@ def list_projecoes(
             locked_by_nome=p.travador.nome if p.travador else None,
             created_at=p.created_at,
             updated_at=p.updated_at,
+            fora_prazo_trava=p.fora_prazo_trava,
+            fora_prazo_em=p.fora_prazo_em,
+            fora_prazo_por_nome=p.fora_prazo_usuario.nome if p.fora_prazo_usuario else None,
         ))
     return result
 
@@ -366,49 +373,41 @@ def _get_auto_lock_config(db: Session) -> Optional[ProjecaoAutoLockConfig]:
     return db.query(ProjecaoAutoLockConfig).first()
 
 
-def _check_corte_congelado(db: Session, evento_id: int, current_user: Usuario):
-    """Rejeita criação de novas projeções para não-admins quando o Corte 1 (ou Corte 2)
-    do evento já foi congelado e não foi reaberto manualmente."""
-    if is_user_admin(current_user):
-        return
+def _corte_trava_ativa(db: Session, evento_id: int) -> Optional[str]:
+    """Detecta (sem levantar exceção) se o Corte 1/2 do evento está congelado e
+    não foi reaberto manualmente. Retorna 'corte_2' | 'corte_1' | None
+    (prioridade: corte_2 > corte_1). Task #126: em vez de bloquear a escrita
+    (antigo 423), o resultado é usado para marcar a operação como fora do prazo."""
     snap = db.query(ProjecaoCorteSnapshot).filter(
         ProjecaoCorteSnapshot.evento_id == evento_id
     ).first()
     if not snap:
-        return
+        return None
     corte1_congelado = (snap.congelado_corte_1_em is not None or snap.valor_corte_1 is not None)
     corte2_congelado = (snap.congelado_corte_2_em is not None or snap.valor_corte_2 is not None)
     if corte2_congelado and not snap.reaberto_manual_corte_2:
-        em = snap.congelado_corte_2_em
-        data_str = em.strftime('%d/%m/%Y às %H:%M') if em else 'data desconhecida'
-        raise HTTPException(
-            status_code=423,
-            detail=f"O Corte 2 deste evento foi congelado em {data_str}. Não é possível adicionar novas projeções.",
-        )
+        return 'corte_2'
     if corte1_congelado and not snap.reaberto_manual_corte_1:
-        em = snap.congelado_corte_1_em
-        data_str = em.strftime('%d/%m/%Y às %H:%M') if em else 'data desconhecida'
-        raise HTTPException(
-            status_code=423,
-            detail=f"O Corte 1 deste evento foi congelado em {data_str}. Não é possível adicionar novas projeções.",
-        )
+        return 'corte_1'
+    return None
 
 
-def _check_auto_lock(db: Session, evento: CadastroEvento, current_user: Usuario):
-    """Rejeita a operação se o evento está dentro do período de trava automática (não-admins)."""
-    if is_user_admin(current_user):
-        return
+def _auto_lock_ativo(db: Session, evento: CadastroEvento) -> bool:
+    """Detecta (sem levantar exceção) se o evento está dentro do período de
+    trava automática D-N. Mesma lógica de tempo do antigo _check_auto_lock,
+    mas sem skip de admin — a detecção vale para TODOS (o registro de
+    auditoria deve ser fiel também para escritas de admins)."""
     config = _get_auto_lock_config(db)
     if not config or not config.ativo:
-        return
+        return False
     if not evento.data_evento:
-        return
+        return False
     now = datetime.now(ZoneInfo('America/Sao_Paulo'))
     dias = (evento.data_evento - now.date()).days
     hora_str = getattr(config, 'hora_trava', None) or "00:00"
     if dias < config.dias_antes_evento:
-        locked = True
-    elif dias == config.dias_antes_evento:
+        return True
+    if dias == config.dias_antes_evento:
         # No dia exato D-N a trava só vale a partir do horário configurado (BRT).
         try:
             hh, mm = (int(x) for x in hora_str.split(':'))
@@ -416,14 +415,32 @@ def _check_auto_lock(db: Session, evento: CadastroEvento, current_user: Usuario)
         except (ValueError, TypeError):
             # Valor persistido inválido (edição manual/legado) → trava o dia inteiro.
             gatilho = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        locked = now >= gatilho
-    else:
-        locked = False
-    if locked:
-        raise HTTPException(
-            status_code=423,
-            detail=f"Este evento está dentro do período de trava automática (D-{config.dias_antes_evento} às {hora_str}). Não é possível criar, editar ou excluir projeções.",
-        )
+        return now >= gatilho
+    return False
+
+
+def _detectar_trava_ativa(db: Session, evento: Optional[CadastroEvento]) -> Optional[str]:
+    """Trava vigente para fins de auditoria 'fora do prazo' (Task #126).
+
+    Retorna 'corte_2' | 'corte_1' | 'auto_lock' | None, nessa ordem de
+    prioridade. Aplica-se a todos os usuários (inclusive admins). A trava
+    manual por projeção (locked_at) NÃO passa por aqui — continua sendo
+    bloqueio duro (423) nos endpoints."""
+    if not evento:
+        return None
+    trava = _corte_trava_ativa(db, evento.id)
+    if trava:
+        return trava
+    if _auto_lock_ativo(db, evento):
+        return 'auto_lock'
+    return None
+
+
+def _marcar_fora_prazo(projecao: ProjecaoInscritos, trava: str, usuario_id: int):
+    """Grava na projeção o resumo da última escrita fora do prazo."""
+    projecao.fora_prazo_trava = trava
+    projecao.fora_prazo_em = datetime.now(ZoneInfo('America/Sao_Paulo')).replace(tzinfo=None)
+    projecao.fora_prazo_por = usuario_id
 
 
 def _validate_distribuicao_sums(quantidade: int, clientes, kits):
@@ -549,8 +566,10 @@ def create_projecao(
     if not evento:
         raise HTTPException(status_code=404, detail="Evento não encontrado")
 
-    _check_auto_lock(db, evento, current_user)
-    _check_corte_congelado(db, data.evento_id, current_user)
+    # Task #126: travas de prazo (corte congelado / D-N) não bloqueiam mais a
+    # escrita — a operação é permitida e marcada permanentemente como fora do
+    # prazo (histórico + resumo na projeção), inclusive para admins.
+    trava_ativa = _detectar_trava_ativa(db, evento)
 
     area = db.query(AreaProjecao).filter(AreaProjecao.id == data.area_projecao_id, AreaProjecao.ativo == True).first()
     if not area:
@@ -573,6 +592,8 @@ def create_projecao(
         )
         db.add(projecao)
         db.flush()
+        if trava_ativa:
+            _marcar_fora_prazo(projecao, trava_ativa, current_user.id)
 
         clientes_salvos = []
         if data.clientes:
@@ -603,15 +624,18 @@ def create_projecao(
                 kits_salvos.append(kit)
 
         _record_history(db, projecao.id, "CRIACAO", current_user.id,
-                        campo="quantidade", novo=str(data.quantidade))
+                        campo="quantidade", novo=str(data.quantidade),
+                        fora_prazo=bool(trava_ativa), trava=trava_ativa)
         for c in clientes_salvos:
             _record_history(db, projecao.id, "CRIACAO", current_user.id,
                             campo="Cliente adicionado",
-                            anterior=None, novo=f"{c.nome_cliente} ({c.quantidade})")
+                            anterior=None, novo=f"{c.nome_cliente} ({c.quantidade})",
+                            fora_prazo=bool(trava_ativa), trava=trava_ativa)
         for k in kits_salvos:
             _record_history(db, projecao.id, "CRIACAO", current_user.id,
                             campo="Kit adicionado",
-                            anterior=None, novo=f"{k.nome_kit} ({k.quantidade})")
+                            anterior=None, novo=f"{k.nome_kit} ({k.quantidade})",
+                            fora_prazo=bool(trava_ativa), trava=trava_ativa)
         db.commit()
         invalidate_consolidado_cache()
         return projecao, clientes_salvos, kits_salvos
@@ -661,6 +685,9 @@ def create_projecao(
         updated_by_nome=None,
         created_at=projecao.created_at,
         updated_at=projecao.updated_at,
+        fora_prazo_trava=projecao.fora_prazo_trava,
+        fora_prazo_em=projecao.fora_prazo_em,
+        fora_prazo_por_nome=current_user.nome if projecao.fora_prazo_por else None,
     )
 
 
@@ -1271,8 +1298,9 @@ def update_projecao(
 
     _check_area_permission(db, current_user, projecao.area_projecao_id)
 
-    if projecao.evento:
-        _check_auto_lock(db, projecao.evento, current_user)
+    # Task #126: travas de prazo (corte congelado / D-N) não bloqueiam mais a
+    # edição — a operação é permitida e marcada como fora do prazo.
+    trava_ativa = _detectar_trava_ativa(db, projecao.evento)
 
     if data.quantidade is None or data.quantidade <= 0:
         raise HTTPException(status_code=400, detail="Quantidade deve ser maior que zero.")
@@ -1281,10 +1309,13 @@ def update_projecao(
     _validate_camiseta_avulsa_teto(db, projecao.evento_id, projecao.area_projecao_id, data.kits)
 
     old_qtd = projecao.quantidade
-    # Snapshot do estado ANTES da mutação (para o aviso de alteração por e-mail).
+    # Snapshot do estado ANTES da mutação (para o aviso de alteração por e-mail
+    # e para detectar se houve mudança real — marcação de fora do prazo).
     _notif_old_kits = {k.nome_kit: k.quantidade for k in projecao.kits}
+    _old_clientes_snapshot = {c.nome_cliente: c.quantidade for c in projecao.clientes}
     if data.quantidade != old_qtd:
         _record_history(db, projecao.id, "EDICAO", current_user.id,
+                        fora_prazo=bool(trava_ativa), trava=trava_ativa,
                         campo="quantidade", anterior=str(old_qtd), novo=str(data.quantidade))
         projecao.quantidade = data.quantidade
         projecao.updated_by = current_user.id
@@ -1298,17 +1329,20 @@ def update_projecao(
 
         for nome in old_names - new_names:
             _record_history(db, projecao.id, "EDICAO", current_user.id,
+                        fora_prazo=bool(trava_ativa), trava=trava_ativa,
                             campo="Cliente removido",
                             anterior=f"{nome} ({old_clientes[nome]})", novo=None)
 
         for nome in new_names - old_names:
             _record_history(db, projecao.id, "EDICAO", current_user.id,
+                        fora_prazo=bool(trava_ativa), trava=trava_ativa,
                             campo="Cliente adicionado",
                             anterior=None, novo=f"{nome} ({new_clientes[nome]})")
 
         for nome in old_names & new_names:
             if old_clientes[nome] != new_clientes[nome]:
                 _record_history(db, projecao.id, "EDICAO", current_user.id,
+                        fora_prazo=bool(trava_ativa), trava=trava_ativa,
                                 campo=f"Cliente: {nome}",
                                 anterior=str(old_clientes[nome]), novo=str(new_clientes[nome]))
 
@@ -1333,17 +1367,20 @@ def update_projecao(
 
         for nome in old_kit_names - new_kit_names:
             _record_history(db, projecao.id, "EDICAO", current_user.id,
+                        fora_prazo=bool(trava_ativa), trava=trava_ativa,
                             campo="Kit removido",
                             anterior=f"{nome} ({old_kits[nome]})", novo=None)
 
         for nome in new_kit_names - old_kit_names:
             _record_history(db, projecao.id, "EDICAO", current_user.id,
+                        fora_prazo=bool(trava_ativa), trava=trava_ativa,
                             campo="Kit adicionado",
                             anterior=None, novo=f"{nome} ({new_kits[nome]})")
 
         for nome in old_kit_names & new_kit_names:
             if old_kits[nome] != new_kits[nome]:
                 _record_history(db, projecao.id, "EDICAO", current_user.id,
+                        fora_prazo=bool(trava_ativa), trava=trava_ativa,
                                 campo=f"Kit: {nome}",
                                 anterior=str(old_kits[nome]), novo=str(new_kits[nome]))
 
@@ -1364,6 +1401,18 @@ def update_projecao(
             ))
         if not projecao.updated_by:
             projecao.updated_by = current_user.id
+
+    # Task #126: marca o resumo de fora do prazo na projeção apenas quando a
+    # edição mudou algo de fato (quantidade, clientes ou kits).
+    _houve_alteracao = (
+        data.quantidade != old_qtd
+        or (data.clientes is not None
+            and {c.nome_cliente.strip(): c.quantidade for c in data.clientes} != _old_clientes_snapshot)
+        or (data.kits is not None
+            and {k.nome_kit.strip(): k.quantidade for k in data.kits} != _notif_old_kits)
+    )
+    if trava_ativa and _houve_alteracao:
+        _marcar_fora_prazo(projecao, trava_ativa, current_user.id)
 
     try:
         db.commit()
@@ -1400,6 +1449,7 @@ def update_projecao(
                 new_qtd=data.quantidade,
                 old_kits=_notif_old_kits,
                 new_kits=_notif_new_kits,
+                fora_prazo_trava=trava_ativa,
             )
     except Exception as _notif_exc:
         logger.warning("[ProjecaoAlteracaoNotif] Falha ao agendar aviso de alteração: %s", _notif_exc)
@@ -1439,6 +1489,9 @@ def update_projecao(
         locked_by_nome=projecao.travador.nome if projecao.travador else None,
         created_at=projecao.created_at,
         updated_at=projecao.updated_at,
+        fora_prazo_trava=projecao.fora_prazo_trava,
+        fora_prazo_em=projecao.fora_prazo_em,
+        fora_prazo_por_nome=projecao.fora_prazo_usuario.nome if projecao.fora_prazo_usuario else None,
     )
 
 
@@ -1470,6 +1523,8 @@ def get_historico(
             usuario_id=h.usuario_id,
             usuario_nome=h.usuario.nome if h.usuario else None,
             created_at=h.created_at,
+            fora_prazo=bool(h.fora_prazo),
+            trava_ativa=h.trava_ativa,
         )
         for h in historicos
     ]
@@ -1496,11 +1551,17 @@ def delete_projecao(
     projecao_com_evento = db.query(ProjecaoInscritos).options(
         joinedload(ProjecaoInscritos.evento)
     ).filter(ProjecaoInscritos.id == projecao_id).first()
-    if projecao_com_evento and projecao_com_evento.evento:
-        _check_auto_lock(db, projecao_com_evento.evento, current_user)
+    # Task #126: travas de prazo não bloqueiam mais a exclusão — a operação é
+    # permitida e marcada como fora do prazo (histórico + resumo na projeção).
+    trava_ativa = _detectar_trava_ativa(
+        db, projecao_com_evento.evento if projecao_com_evento else None
+    )
 
     _record_history(db, projecao.id, "DELECAO", current_user.id,
-                    campo="quantidade", anterior=str(projecao.quantidade), novo=None)
+                    campo="quantidade", anterior=str(projecao.quantidade), novo=None,
+                    fora_prazo=bool(trava_ativa), trava=trava_ativa)
+    if trava_ativa:
+        _marcar_fora_prazo(projecao, trava_ativa, current_user.id)
 
     projecao.deleted_at = datetime.now(ZoneInfo('America/Sao_Paulo')).replace(tzinfo=None)
     projecao.updated_by = current_user.id
@@ -1581,6 +1642,7 @@ def list_lixeira(
             joinedload(ProjecaoInscritos.area_projecao),
             joinedload(ProjecaoInscritos.criador),
             joinedload(ProjecaoInscritos.editor),
+            joinedload(ProjecaoInscritos.fora_prazo_usuario),
         )
         .filter(ProjecaoInscritos.deleted_at.isnot(None))
         .order_by(ProjecaoInscritos.deleted_at.desc())
@@ -1612,6 +1674,9 @@ def list_lixeira(
             updated_at=p.updated_at,
             deleted_at=p.deleted_at,
             deleted_by_nome=deleted_by_nome,
+            fora_prazo_trava=p.fora_prazo_trava,
+            fora_prazo_em=p.fora_prazo_em,
+            fora_prazo_por_nome=p.fora_prazo_usuario.nome if p.fora_prazo_usuario else None,
         ))
     return result
 

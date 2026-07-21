@@ -60,12 +60,20 @@ class ProjecaoInscritos(Base):
     updated_at = Column(DateTime, onupdate=_now_brasilia)
     locked_at = Column(DateTime, nullable=True, index=True)
     deleted_at = Column(DateTime, nullable=True, index=True)
+    # Resumo da ÚLTIMA escrita "fora do prazo" (Task #126): trava que estava
+    # ativa ('corte_1' | 'corte_2' | 'auto_lock'), quando e por quem. Permite
+    # exibir o selo na listagem sem varrer o histórico. O registro permanente
+    # e completo fica em ProjecaoInscritosHistorico (fora_prazo/trava_ativa).
+    fora_prazo_trava = Column(String(20), nullable=True)
+    fora_prazo_em = Column(DateTime, nullable=True)
+    fora_prazo_por = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True)
 
     evento = relationship("CadastroEvento")
     area_projecao = relationship("AreaProjecao", back_populates="projecoes")
     criador = relationship("Usuario", foreign_keys=[created_by])
     editor = relationship("Usuario", foreign_keys=[updated_by])
     travador = relationship("Usuario", foreign_keys=[locked_by])
+    fora_prazo_usuario = relationship("Usuario", foreign_keys=[fora_prazo_por])
     historico = relationship("ProjecaoInscritosHistorico", back_populates="projecao")
     clientes = relationship("ProjecaoInscritosCliente", back_populates="projecao", cascade="all, delete-orphan")
     kits = relationship("ProjecaoInscritosKit", back_populates="projecao", cascade="all, delete-orphan")
@@ -82,6 +90,11 @@ class ProjecaoInscritosHistorico(Base):
     valor_novo = Column(Text, nullable=True)
     usuario_id = Column(Integer, ForeignKey("dim_usuario.id"), nullable=False, index=True)
     created_at = Column(DateTime, default=_now_brasilia, index=True)
+    # Auditoria "fora do prazo" (Task #126): True quando a operação foi feita
+    # com Corte 1/2 congelado ou trava automática D-N ativa. trava_ativa guarda
+    # qual trava estava vigente ('corte_1' | 'corte_2' | 'auto_lock').
+    fora_prazo = Column(Boolean, default=False, nullable=False)
+    trava_ativa = Column(String(20), nullable=True)
 
     projecao = relationship("ProjecaoInscritos", back_populates="historico")
     usuario = relationship("Usuario")
@@ -353,6 +366,9 @@ class ProjecaoAlteracaoNotifPending(Base):
     meta_json = Column(Text, nullable=True)
     ultima_em = Column(DateTime, nullable=False, default=_now_brasilia)
     flush_after = Column(DateTime, nullable=False, index=True)
+    # Sticky: se QUALQUER save da janela de debounce foi fora do prazo, o e-mail
+    # agrupado sinaliza (COALESCE no UPSERT preserva o primeiro valor não-nulo).
+    fora_prazo_trava = Column(String(20), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("evento_id", "area_projecao_id", "usuario_id",

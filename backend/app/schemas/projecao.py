@@ -115,6 +115,10 @@ class ProjecaoInscritosResponse(BaseModel):
     updated_at: Optional[datetime] = None
     deleted_at: Optional[datetime] = None
     deleted_by_nome: Optional[str] = None
+    # Última escrita fora do prazo (Task #126): 'corte_1' | 'corte_2' | 'auto_lock'
+    fora_prazo_trava: Optional[str] = None
+    fora_prazo_em: Optional[datetime] = None
+    fora_prazo_por_nome: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -130,6 +134,9 @@ class HistoricoResponse(BaseModel):
     usuario_id: int
     usuario_nome: Optional[str] = None
     created_at: Optional[datetime] = None
+    # Auditoria fora do prazo (Task #126)
+    fora_prazo: bool = False
+    trava_ativa: Optional[str] = None
 
     class Config:
         from_attributes = True

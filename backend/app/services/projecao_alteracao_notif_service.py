@@ -77,12 +77,20 @@ def _row_to_entry(row) -> dict:
         "nova_qtd": row.nova_qtd,
         "novos_kits": _loads_json(row.novos_kits_json, {}),
         "ultima_em": row.ultima_em,
+        "fora_prazo_trava": getattr(row, "fora_prazo_trava", None),
         "meta": _loads_json(row.meta_json, {}) or {
             "evento_nome": f"Evento #{row.evento_id}",
             "area_nome": f"Área #{row.area_projecao_id}",
             "usuario_nome": f"Usuário #{row.usuario_id}",
         },
     }
+
+
+_TRAVA_LABELS = {
+    "corte_1": "Corte 1 congelado",
+    "corte_2": "Corte 2 congelado",
+    "auto_lock": "Trava automática D-N",
+}
 
 
 def _parse_emails(emails_json: str | None) -> list[str]:
@@ -184,6 +192,20 @@ def _render_email_alteracao(entry: dict) -> tuple[str, str, str]:
         if toggle_msg else ""
     )
 
+    # Task #126: sinaliza quando alguma alteração da janela foi feita FORA DO
+    # PRAZO (corte congelado ou trava D-N vigente no momento do save).
+    trava = entry.get("fora_prazo_trava")
+    fora_prazo_msg = None
+    if trava:
+        trava_label = _TRAVA_LABELS.get(trava, trava)
+        fora_prazo_msg = (
+            f"ATENÇÃO: alteração registrada FORA DO PRAZO — trava vigente: {trava_label}."
+        )
+    fora_prazo_html = (
+        f'<p style="margin:14px 0 0;color:#991b1b;background:#fee2e2;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;">&#9888;&#65039; {fora_prazo_msg}</p>'
+        if fora_prazo_msg else ""
+    )
+
     html = f"""<!DOCTYPE html>
 <html lang="pt-br"><head><meta charset="utf-8"></head>
 <body style="margin:0;background:#f5f6f8;font-family:Arial,Helvetica,sans-serif;color:#222;">
@@ -206,6 +228,7 @@ def _render_email_alteracao(entry: dict) -> tuple[str, str, str]:
           <tr><td style="padding:8px 12px;color:#666;">Data/Hora</td><td style="padding:8px 12px;">{quando} (BRT)</td></tr>
         </tbody>
       </table>
+      {fora_prazo_html}
       {toggle_html}
       {linhas_kit_html}
       <p style="margin:22px 0 0;color:#999;font-size:12px;">
@@ -217,6 +240,7 @@ def _render_email_alteracao(entry: dict) -> tuple[str, str, str]:
 
     txt_kits = ("\nAlterações por kit:\n" + "\n".join(linhas_kit_txt) + "\n") if linhas_kit_txt else ""
     txt_toggle = f"\n{toggle_msg}\n" if toggle_msg else ""
+    txt_fora_prazo = f"\n{fora_prazo_msg}\n" if fora_prazo_msg else ""
     txt = (
         "Alteração de Projeção de Inscritos\n\n"
         f"Evento: {evento}\n"
@@ -224,7 +248,7 @@ def _render_email_alteracao(entry: dict) -> tuple[str, str, str]:
         f"Alterado por: {usuario}\n"
         f"Quantidade: {old_q} → {new_q}\n"
         f"Data/Hora: {quando} (BRT)\n"
-        f"{txt_toggle}{txt_kits}\n"
+        f"{txt_fora_prazo}{txt_toggle}{txt_kits}\n"
         f'Você recebeu este e-mail porque está na lista de avisos de alteração da área "{area}" no Norte One.'
     )
     return subject, html, txt
@@ -238,7 +262,7 @@ _CLAIM_SQL = text("""
       AND flush_after <= :now
     RETURNING evento_id, area_projecao_id, usuario_id,
               baseline_qtd, baseline_kits_json, nova_qtd, novos_kits_json,
-              meta_json, ultima_em
+              meta_json, ultima_em, fora_prazo_trava
 """)
 
 # Varredura de órfãs: linhas cujo flush_after passou há mais que a folga
@@ -249,23 +273,29 @@ _SWEEP_SQL = text("""
     WHERE flush_after <= :cutoff
     RETURNING evento_id, area_projecao_id, usuario_id,
               baseline_qtd, baseline_kits_json, nova_qtd, novos_kits_json,
-              meta_json, ultima_em
+              meta_json, ultima_em, fora_prazo_trava
 """)
 
+# fora_prazo_trava é STICKY na janela: COALESCE preserva a primeira marcação
+# não-nula mesmo que saves seguintes da mesma janela estejam dentro do prazo.
 _UPSERT_SQL = text("""
     INSERT INTO projecao_alteracao_notif_pending
         (evento_id, area_projecao_id, usuario_id,
          baseline_qtd, baseline_kits_json, nova_qtd, novos_kits_json,
-         meta_json, ultima_em, flush_after)
+         meta_json, ultima_em, flush_after, fora_prazo_trava)
     VALUES (:evento_id, :area_id, :usuario_id,
             :baseline_qtd, :baseline_kits_json, :nova_qtd, :novos_kits_json,
-            :meta_json, :ultima_em, :flush_after)
+            :meta_json, :ultima_em, :flush_after, :fora_prazo_trava)
     ON CONFLICT (evento_id, area_projecao_id, usuario_id) DO UPDATE SET
         nova_qtd = EXCLUDED.nova_qtd,
         novos_kits_json = EXCLUDED.novos_kits_json,
         meta_json = EXCLUDED.meta_json,
         ultima_em = EXCLUDED.ultima_em,
-        flush_after = EXCLUDED.flush_after
+        flush_after = EXCLUDED.flush_after,
+        fora_prazo_trava = COALESCE(
+            projecao_alteracao_notif_pending.fora_prazo_trava,
+            EXCLUDED.fora_prazo_trava
+        )
 """)
 
 
@@ -376,6 +406,7 @@ def notificar_alteracao_projecao(
     new_qtd: int,
     old_kits: dict[str, int],
     new_kits: dict[str, int],
+    fora_prazo_trava: str | None = None,
 ) -> None:
     """
     Registra uma alteração para envio (com debounce). Chamar APÓS o commit do
@@ -407,6 +438,7 @@ def notificar_alteracao_projecao(
                 }, ensure_ascii=False),
                 "ultima_em": now,
                 "flush_after": now + timedelta(seconds=delay),
+                "fora_prazo_trava": fora_prazo_trava,
             })
             db.commit()
         finally:
