@@ -50,6 +50,26 @@ _lote_inflight = False
 _lote_seq = 0  # incrementa a cada lote concluído
 _lote_outcome = None  # ("ok", payload) | ("http_error", status, detail)
 
+# Cache curto do payload COMPLETO do lote: dentro da janela, requisições
+# reusam o último resultado bem-sucedido sem novo fan-out (~116 consultas
+# externas). Apenas sucesso é cacheado — erros continuam explícitos e
+# nunca são servidos como se fossem dados válidos. O payload já carrega
+# "atualizado_em" para transparência da idade do dado.
+_LOTE_CACHE_TTL_SECONDS = 45.0
+_lote_cache_payload = None  # último payload "ok"
+_lote_cache_ts = 0.0  # time.monotonic() da gravação
+
+
+def _lote_cache_get():
+    """Retorna o payload cacheado se ainda estiver dentro da janela."""
+    with _lote_cond:
+        if (
+            _lote_cache_payload is not None
+            and (time.monotonic() - _lote_cache_ts) < _LOTE_CACHE_TTL_SECONDS
+        ):
+            return _lote_cache_payload
+    return None
+
 
 def _nao_encontrado_get(sku: str) -> Optional[str]:
     now = time.time()
@@ -257,9 +277,15 @@ def get_cortesia_eventos(
     requisição AGUARDA e reutiliza o mesmo resultado (sucesso ou erro),
     em vez de disparar um fan-out externo paralelo.
     """
-    global _lote_inflight, _lote_seq, _lote_outcome
+    global _lote_inflight, _lote_seq, _lote_outcome, _lote_cache_payload, _lote_cache_ts
 
     cortesia_service.ensure_configured()
+
+    # Reuso rápido: se há um payload de sucesso recente, devolve direto
+    # sem novo fan-out. "atualizado_em" no payload informa a idade do dado.
+    cached = _lote_cache_get()
+    if cached is not None:
+        return cached
 
     with _lote_cond:
         if _lote_inflight:
@@ -301,6 +327,10 @@ def get_cortesia_eventos(
             _lote_inflight = False
             _lote_seq += 1
             _lote_outcome = outcome if "outcome" in locals() else None
+            if _lote_outcome is not None and _lote_outcome[0] == "ok":
+                # Só sucesso entra no cache — erro nunca é servido como dado.
+                _lote_cache_payload = _lote_outcome[1]
+                _lote_cache_ts = time.monotonic()
             _lote_cond.notify_all()
 
     if outcome[0] == "ok":
