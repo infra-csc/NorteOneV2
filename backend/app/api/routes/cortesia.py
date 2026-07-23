@@ -40,6 +40,16 @@ _NAO_ENCONTRADO_TTL_SECONDS = 60.0
 _nao_encontrado_cache: dict = {}  # sku -> (ts, detail)
 _nao_encontrado_lock = threading.Lock()
 
+# Single-flight do lote /eventos: enquanto um fan-out externo está em
+# andamento, requisições concorrentes AGUARDAM e reutilizam o mesmo
+# resultado (sucesso OU erro explícito), em vez de disparar lotes
+# paralelos que martelam a API externa (~116 consultas por lote frio).
+_LOTE_WAIT_TIMEOUT_SECONDS = 120.0
+_lote_cond = threading.Condition()
+_lote_inflight = False
+_lote_seq = 0  # incrementa a cada lote concluído
+_lote_outcome = None  # ("ok", payload) | ("http_error", status, detail)
+
 
 def _nao_encontrado_get(sku: str) -> Optional[str]:
     now = time.time()
@@ -84,24 +94,12 @@ def get_cortesia_users(
     return cortesia_service.get_users()
 
 
-@router.get("/eventos")
-def get_cortesia_eventos(
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
-):
-    """Lista eventos futuros com SKU e seus 4 números de cortesias (consulta por SKU).
+def _executar_lote_eventos(db: Session) -> dict:
+    """Executa o lote completo (query PG + fan-out externo) e monta o payload.
 
-    Uma linha por evento com status explícito:
-      - ok             -> métricas presentes
-      - nao_encontrado -> SKU ainda não cadastrado no app de Cortesias
-      - erro           -> falha na consulta daquele SKU (mensagem na linha)
-
-    Falha global (token recusado / API fora do ar): se NENHUM SKU responder
-    (nem ok, nem nao_encontrado), o endpoint devolve o erro HTTP explícito
-    em vez de linhas todas marcadas como erro — o frontend mostra banner.
+    Levanta HTTPException em falha global — o chamador (single-flight)
+    propaga o mesmo erro para todos os aguardantes.
     """
-    cortesia_service.ensure_configured()
-
     hoje = date.today()
     eventos = (
         db.query(CadastroEvento)
@@ -237,3 +235,74 @@ def get_cortesia_eventos(
         "resumo": resumo,
         "atualizado_em": datetime.now(timezone.utc).isoformat(),
     }
+
+
+@router.get("/eventos")
+def get_cortesia_eventos(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
+):
+    """Lista eventos futuros com SKU e seus 4 números de cortesias (consulta por SKU).
+
+    Uma linha por evento com status explícito:
+      - ok             -> métricas presentes
+      - nao_encontrado -> SKU ainda não cadastrado no app de Cortesias
+      - erro           -> falha na consulta daquele SKU (mensagem na linha)
+
+    Falha global (token recusado / API fora do ar): se NENHUM SKU responder
+    (nem ok, nem nao_encontrado), o endpoint devolve o erro HTTP explícito
+    em vez de linhas todas marcadas como erro — o frontend mostra banner.
+
+    Single-flight por processo: se um lote já está em andamento, esta
+    requisição AGUARDA e reutiliza o mesmo resultado (sucesso ou erro),
+    em vez de disparar um fan-out externo paralelo.
+    """
+    global _lote_inflight, _lote_seq, _lote_outcome
+
+    cortesia_service.ensure_configured()
+
+    with _lote_cond:
+        if _lote_inflight:
+            # Já há um lote em andamento: aguarda o resultado dele.
+            seq_inicial = _lote_seq
+            deadline = time.monotonic() + _LOTE_WAIT_TIMEOUT_SECONDS
+            while _lote_inflight and _lote_seq == seq_inicial:
+                restante = deadline - time.monotonic()
+                if restante <= 0:
+                    raise HTTPException(
+                        status_code=503,
+                        detail=(
+                            "Consulta ao app de Cortesias em andamento demorou demais. "
+                            "Tente novamente em instantes."
+                        ),
+                    )
+                _lote_cond.wait(timeout=restante)
+            if _lote_seq != seq_inicial and _lote_outcome is not None:
+                outcome = _lote_outcome
+                if outcome[0] == "ok":
+                    return outcome[1]
+                # Erro explícito do lote compartilhado — nunca zeros silenciosos.
+                raise HTTPException(status_code=outcome[1], detail=outcome[2])
+            # Acordou sem resultado utilizável (caso raro): vira líder abaixo.
+        _lote_inflight = True
+
+    # Líder: executa o lote fora do lock.
+    try:
+        payload = _executar_lote_eventos(db)
+        outcome = ("ok", payload)
+    except HTTPException as e:
+        detail = e.detail if isinstance(e.detail, str) else "Não foi possível consultar o app de Cortesias."
+        outcome = ("http_error", e.status_code, detail)
+    except Exception as e:
+        logger.error("Cortesia lote: erro inesperado no fan-out: %s", e)
+        outcome = ("http_error", 502, "Erro inesperado na consulta ao app de Cortesias.")
+    finally:
+        with _lote_cond:
+            _lote_inflight = False
+            _lote_seq += 1
+            _lote_outcome = outcome if "outcome" in locals() else None
+            _lote_cond.notify_all()
+
+    if outcome[0] == "ok":
+        return outcome[1]
+    raise HTTPException(status_code=outcome[1], detail=outcome[2])
