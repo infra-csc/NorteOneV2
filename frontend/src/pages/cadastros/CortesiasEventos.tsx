@@ -3,7 +3,7 @@ import { cortesiaService } from '../../services/api';
 import type { CortesiaEventoRow, CortesiaEventosResponse, CortesiaMetrics, CortesiaUser } from '../../services/api';
 import { useTheme } from '../../context/ThemeContext';
 import {
-  Gift, Search, ChevronDown, RefreshCw, AlertTriangle, Calendar, Info,
+  Gift, Search, ChevronDown, RefreshCw, AlertTriangle, Calendar, Info, Users,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────
@@ -52,6 +52,42 @@ const extractCortesiaError = (e: any): string => {
 const fmtNum = (n: number | undefined | null): string =>
   n === undefined || n === null ? '—' : n.toLocaleString('pt-BR');
 
+// Normaliza nomes para comparação: minúsculas, sem acentos, só letras/números.
+const normalizeNome = (s: string): string =>
+  s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+
+// Divergência "clara" entre o nome do DW e o nome no app de Cortesias.
+// Dois sinais, em OR:
+//   1. Tokens: se um nome contém o outro (ex.: só muda prefixo de patrocínio),
+//      NÃO diverge; senão, diverge quando menos da metade dos tokens do nome
+//      mais curto aparece no outro.
+//   2. Cidade: se o evento do DW tem cidade e o nome externo cita OUTRA
+//      informação de praça (não contém a cidade do DW), sinaliza — é o caso
+//      mais provável de SKU vinculado ao evento errado (mesmo circuito,
+//      cidade diferente, ex.: "Eco Run - Palmas" × "Eco Run - Campo Largo").
+//      Só dispara quando o nome externo é claramente "nome + praça" (tem
+//      hífen/separador), para não acusar nomes externos sem cidade.
+const nomesDivergem = (nomeDw: string, nomeExterno: string, cidadeDw?: string | null): boolean => {
+  const a = normalizeNome(nomeDw);
+  const b = normalizeNome(nomeExterno);
+  if (!a || !b) return false;
+
+  const cidade = normalizeNome(cidadeDw || '');
+  if (cidade && /[-–—/|]/.test(nomeExterno) && !b.includes(cidade)) return true;
+
+  if (a === b || a.includes(b) || b.includes(a)) return false;
+  const tokensA = new Set(a.split(' '));
+  const tokensB = new Set(b.split(' '));
+  let comuns = 0;
+  tokensA.forEach(t => { if (tokensB.has(t)) comuns += 1; });
+  return comuns / Math.min(tokensA.size, tokensB.size) < 0.5;
+};
+
 const CortesiasEventos: React.FC = () => {
   const { isDark } = useTheme();
 
@@ -66,12 +102,18 @@ const CortesiasEventos: React.FC = () => {
   const [usersLoading, setUsersLoading] = useState(true);
   const [usersError, setUsersError] = useState<string | null>(null);
 
-  // KPIs por área selecionada ('' = total geral dos eventos carregados)
-  const [areaSel, setAreaSel] = useState('');
-  const [areaMetrics, setAreaMetrics] = useState<CortesiaMetrics | null>(null);
-  const [areaLoading, setAreaLoading] = useState(false);
-  const [areaError, setAreaError] = useState<string | null>(null);
-  const areaReqRef = useRef(0);
+  // KPIs por filtro selecionado ('' = total geral dos eventos carregados).
+  // A API externa aceita exatamente UM filtro por consulta — área e usuário
+  // são mutuamente exclusivos: selecionar um limpa o outro.
+  // Formato: '' | 'area:<área>' | 'user:<id do usuário>'
+  const [kpiSel, setKpiSel] = useState('');
+  const [kpiMetrics, setKpiMetrics] = useState<CortesiaMetrics | null>(null);
+  const [kpiLoading, setKpiLoading] = useState(false);
+  const [kpiError, setKpiError] = useState<string | null>(null);
+  const kpiReqRef = useRef(0);
+
+  // Painel compacto de usuários do app de Cortesias
+  const [showUsers, setShowUsers] = useState(false);
 
   // Filtros da tabela
   const [searchTerm, setSearchTerm] = useState('');
@@ -122,34 +164,45 @@ const CortesiasEventos: React.FC = () => {
     [users]
   );
 
-  const consultarArea = async (area: string) => {
-    const reqId = ++areaReqRef.current;
-    setAreaLoading(true);
-    setAreaError(null);
+  // Decompõe o filtro selecionado ('area:X' | 'user:ID' | '')
+  const kpiTipo: 'area' | 'user' | null = kpiSel
+    ? (kpiSel.startsWith('area:') ? 'area' : 'user')
+    : null;
+  const kpiValor = kpiSel ? kpiSel.slice(kpiSel.indexOf(':') + 1) : '';
+  const usuarioSel = kpiTipo === 'user' ? users.find(u => u.id === kpiValor) : undefined;
+
+  const consultarKpi = async (sel: string) => {
+    const reqId = ++kpiReqRef.current;
+    setKpiLoading(true);
+    setKpiError(null);
     try {
-      const m = await cortesiaService.getMetrics({ area });
-      if (reqId !== areaReqRef.current) return;
-      setAreaMetrics(m);
+      const tipo = sel.startsWith('area:') ? 'area' : 'user';
+      const valor = sel.slice(sel.indexOf(':') + 1);
+      const m = await cortesiaService.getMetrics(
+        tipo === 'area' ? { area: valor } : { userId: valor }
+      );
+      if (reqId !== kpiReqRef.current) return;
+      setKpiMetrics(m);
     } catch (e: any) {
-      if (reqId !== areaReqRef.current) return;
-      setAreaMetrics(null);
-      setAreaError(extractCortesiaError(e));
+      if (reqId !== kpiReqRef.current) return;
+      setKpiMetrics(null);
+      setKpiError(extractCortesiaError(e));
     } finally {
-      if (reqId === areaReqRef.current) setAreaLoading(false);
+      if (reqId === kpiReqRef.current) setKpiLoading(false);
     }
   };
 
   useEffect(() => {
-    if (areaSel) {
-      consultarArea(areaSel);
+    if (kpiSel) {
+      consultarKpi(kpiSel);
     } else {
-      areaReqRef.current++; // invalida respostas em voo
-      setAreaMetrics(null);
-      setAreaError(null);
-      setAreaLoading(false);
+      kpiReqRef.current++; // invalida respostas em voo
+      setKpiMetrics(null);
+      setKpiError(null);
+      setKpiLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [areaSel]);
+  }, [kpiSel]);
 
   const retryRow = async (sku: string) => {
     setRetryingSkus(prev => new Set(prev).add(sku));
@@ -165,6 +218,8 @@ const CortesiasEventos: React.FC = () => {
           aprovados: m.aprovados,
           utilizados: m.utilizados,
           disponiveis: m.disponiveis,
+          nome_externo: (m.filter?.label || '').trim() || null,
+          fonte: (m.source || '').trim() || null,
         } : row),
       } : prev);
     } catch (e: any) {
@@ -236,12 +291,12 @@ const CortesiasEventos: React.FC = () => {
     };
   }, [eventos]);
 
-  const kpiValues: { label: string; value: number | null; color: string }[] = areaSel
+  const kpiValues: { label: string; value: number | null; color: string }[] = kpiSel
     ? [
-        { label: 'Solicitados', value: areaMetrics ? areaMetrics.solicitados : null, color: isDark ? 'text-blue-400' : 'text-blue-600' },
-        { label: 'Aprovados', value: areaMetrics ? areaMetrics.aprovados : null, color: isDark ? 'text-emerald-400' : 'text-emerald-600' },
-        { label: 'Utilizados', value: areaMetrics ? areaMetrics.utilizados : null, color: isDark ? 'text-amber-400' : 'text-amber-600' },
-        { label: 'Disponíveis', value: areaMetrics ? areaMetrics.disponiveis : null, color: isDark ? 'text-violet-400' : 'text-violet-600' },
+        { label: 'Solicitados', value: kpiMetrics ? kpiMetrics.solicitados : null, color: isDark ? 'text-blue-400' : 'text-blue-600' },
+        { label: 'Aprovados', value: kpiMetrics ? kpiMetrics.aprovados : null, color: isDark ? 'text-emerald-400' : 'text-emerald-600' },
+        { label: 'Utilizados', value: kpiMetrics ? kpiMetrics.utilizados : null, color: isDark ? 'text-amber-400' : 'text-amber-600' },
+        { label: 'Disponíveis', value: kpiMetrics ? kpiMetrics.disponiveis : null, color: isDark ? 'text-violet-400' : 'text-violet-600' },
       ]
     : [
         { label: 'Solicitados', value: data ? totaisGerais.solicitados : null, color: isDark ? 'text-blue-400' : 'text-blue-600' },
@@ -283,7 +338,7 @@ const CortesiasEventos: React.FC = () => {
 
           <div className="flex items-center gap-3">
             <button
-              onClick={() => { carregarEventos(); if (areaSel) consultarArea(areaSel); }}
+              onClick={() => { carregarEventos(); if (kpiSel) consultarKpi(kpiSel); }}
               disabled={loading}
               className={`flex items-center gap-2 px-4 py-3 rounded-2xl font-semibold text-sm transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:hover:scale-100 ${isDark ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 shadow-sm'}`}
             >
@@ -298,40 +353,63 @@ const CortesiasEventos: React.FC = () => {
           <Info className="w-4 h-4 mt-0.5 shrink-0" />
           <span>
             O app de Cortesias aceita apenas um filtro por consulta: a tabela mostra os totais <strong>por evento</strong> (via SKU)
-            e, ao selecionar uma área, os cards do topo mostram os totais <strong>daquela área</strong> — não existe cruzamento evento × área.
+            e, ao selecionar uma área <strong>ou</strong> um usuário, os cards do topo mostram os totais <strong>daquele filtro</strong> —
+            não existe cruzamento evento × área nem evento × usuário.
           </span>
         </div>
 
-        {/* KPIs + seletor de área */}
+        {/* KPIs + seletores de área e usuário */}
         <div className={cardClass}>
           <div className={`flex flex-wrap items-center gap-3 p-4 border-b ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`}>
             <h3 className={`text-sm font-bold mr-auto ${isDark ? 'text-white' : 'text-gray-900'}`}>
-              {areaSel ? `Totais da área: ${areaSel}` : 'Totais gerais dos eventos futuros'}
+              {kpiTipo === 'area'
+                ? `Totais da área: ${kpiValor}`
+                : kpiTipo === 'user'
+                  ? `Totais do usuário: ${usuarioSel?.name || kpiValor}`
+                  : 'Totais gerais dos eventos futuros'}
             </h3>
-            {!areaSel && data && (
+            {!kpiSel && data && (
               <span className={`text-[11px] ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                 {totaisGerais.respondentes} de {totaisGerais.total} eventos responderam
               </span>
             )}
+            {/* Filtros mutuamente exclusivos (a API aceita UM filtro por consulta):
+                selecionar área limpa o usuário e vice-versa. */}
             <div className="relative">
               <select
-                value={areaSel}
-                onChange={e => setAreaSel(e.target.value)}
+                value={kpiTipo === 'area' ? kpiValor : ''}
+                onChange={e => setKpiSel(e.target.value ? `area:${e.target.value}` : '')}
                 disabled={usersLoading}
                 className={selClass}
               >
-                <option value="">Todas as áreas (soma dos eventos)</option>
+                <option value="">Todas as áreas</option>
                 {areas.map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
+              <ChevronDown className={`pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+            </div>
+            <div className="relative">
+              <select
+                value={kpiTipo === 'user' ? kpiValor : ''}
+                onChange={e => setKpiSel(e.target.value ? `user:${e.target.value}` : '')}
+                disabled={usersLoading}
+                className={selClass}
+              >
+                <option value="">Todos os usuários</option>
+                {users.map(u => (
+                  <option key={u.id} value={u.id}>
+                    {u.name}{(u.area || '').trim() ? ` — ${(u.area || '').trim()}` : ''}
+                  </option>
+                ))}
               </select>
               <ChevronDown className={`pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
             </div>
           </div>
 
           <div className="p-4">
-            {usersError && !areaSel && (
+            {usersError && !kpiSel && (
               <div className={`flex items-start gap-2.5 p-3 mb-3 rounded-xl border text-xs ${isDark ? 'bg-amber-500/10 border-amber-500/40 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
                 <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-                <span className="flex-1">Não foi possível carregar as áreas do app de Cortesias: {usersError}</span>
+                <span className="flex-1">Não foi possível carregar as áreas e usuários do app de Cortesias: {usersError}</span>
                 <button
                   onClick={carregarUsers}
                   className={`flex items-center gap-1 text-xs font-semibold shrink-0 ${isDark ? 'text-amber-300 hover:text-amber-200' : 'text-amber-700 hover:text-amber-900'}`}
@@ -341,22 +419,22 @@ const CortesiasEventos: React.FC = () => {
                 </button>
               </div>
             )}
-            {areaSel && areaError ? (
+            {kpiSel && kpiError ? (
               <div className={`flex items-start gap-2.5 p-3 rounded-xl border text-sm ${isDark ? 'bg-red-500/10 border-red-500/40 text-red-300' : 'bg-red-50 border-red-200 text-red-700'}`}>
                 <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-                <span className="flex-1">{areaError}</span>
+                <span className="flex-1">{kpiError}</span>
                 <button
-                  onClick={() => consultarArea(areaSel)}
+                  onClick={() => consultarKpi(kpiSel)}
                   className={`flex items-center gap-1 text-xs font-semibold shrink-0 ${isDark ? 'text-red-300 hover:text-red-200' : 'text-red-600 hover:text-red-800'}`}
                 >
                   <RefreshCw className="w-3 h-3" />
                   Tentar novamente
                 </button>
               </div>
-            ) : areaSel && areaLoading ? (
+            ) : kpiSel && kpiLoading ? (
               <div className={`flex items-center gap-2 text-sm py-3 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                 <RefreshCw className="w-4 h-4 animate-spin" />
-                Consultando os totais da área...
+                {kpiTipo === 'user' ? 'Consultando os totais do usuário...' : 'Consultando os totais da área...'}
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -369,6 +447,72 @@ const CortesiasEventos: React.FC = () => {
               </div>
             )}
           </div>
+        </div>
+
+        {/* Usuários do app de Cortesias (painel compacto, recolhível) */}
+        <div className={cardClass}>
+          <button
+            onClick={() => setShowUsers(s => !s)}
+            className={`w-full flex items-center gap-2.5 p-4 text-left transition-colors ${isDark ? 'hover:bg-gray-700/20' : 'hover:bg-gray-50'}`}
+          >
+            <Users className={`w-4 h-4 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`} />
+            <h3 className={`text-sm font-bold mr-auto ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              Usuários do app de Cortesias{users.length > 0 ? ` (${users.length})` : ''}
+            </h3>
+            <ChevronDown className={`w-4 h-4 transition-transform ${showUsers ? 'rotate-180' : ''} ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+          </button>
+          {showUsers && (
+            <div className={`p-4 border-t ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`}>
+              {usersLoading ? (
+                <div className={`flex items-center gap-2 text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  Carregando usuários...
+                </div>
+              ) : usersError ? (
+                <div className={`flex items-start gap-2.5 p-3 rounded-xl border text-xs ${isDark ? 'bg-red-500/10 border-red-500/40 text-red-300' : 'bg-red-50 border-red-200 text-red-700'}`}>
+                  <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                  <span className="flex-1">{usersError}</span>
+                  <button
+                    onClick={carregarUsers}
+                    className={`flex items-center gap-1 text-xs font-semibold shrink-0 ${isDark ? 'text-red-300 hover:text-red-200' : 'text-red-600 hover:text-red-800'}`}
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    Tentar novamente
+                  </button>
+                </div>
+              ) : users.length === 0 ? (
+                <p className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                  Nenhum usuário cadastrado no app de Cortesias.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                  {users.map(u => (
+                    <div
+                      key={u.id}
+                      className={`p-3 rounded-xl border ${isDark ? 'bg-gray-900/40 border-gray-700/60' : 'bg-gray-50 border-gray-200'}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <p className={`text-sm font-semibold truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>{u.name}</p>
+                        {(u.roleLabel || u.role) && (
+                          <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold ${isDark ? 'bg-emerald-500/15 text-emerald-300' : 'bg-emerald-50 text-emerald-700'}`}>
+                            {u.roleLabel || u.role}
+                          </span>
+                        )}
+                      </div>
+                      <p className={`text-[11px] mt-0.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                        {(u.area || '').trim() || 'Sem área definida'}
+                      </p>
+                      {u.email && (
+                        <p className={`text-[11px] truncate ${isDark ? 'text-gray-500' : 'text-gray-400'}`} title={u.email}>
+                          {u.email}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Tabela de eventos */}
@@ -456,7 +600,12 @@ const CortesiasEventos: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className={isDark ? 'divide-y divide-gray-700/50' : 'divide-y divide-gray-100'}>
-                  {eventosFiltrados.map(ev => (
+                  {eventosFiltrados.map(ev => {
+                    // Infos extras existem apenas em linhas "ok"
+                    const nomeExterno = ev.status === 'ok' ? (ev.nome_externo || '').trim() : '';
+                    const diverge = !!nomeExterno && nomesDivergem(ev.nome, nomeExterno, ev.cidade);
+                    const fonte = ev.status === 'ok' ? (ev.fonte || '').trim() : '';
+                    return (
                     <tr key={ev.evento_id} className={isDark ? 'hover:bg-gray-700/20' : 'hover:bg-gray-50'}>
                       <td className="px-4 py-3">
                         <p className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{ev.nome}</p>
@@ -465,11 +614,38 @@ const CortesiasEventos: React.FC = () => {
                             {[ev.cidade, ev.estado].filter(Boolean).join(' — ')}
                           </p>
                         )}
+                        {nomeExterno && (
+                          <p
+                            title={diverge
+                              ? 'O nome no app de Cortesias difere do cadastro do DW — confira se o SKU está vinculado ao evento certo.'
+                              : 'Nome do evento como está cadastrado no app de Cortesias.'}
+                            className={`mt-0.5 text-[11px] flex items-center gap-1 ${
+                              diverge
+                                ? (isDark ? 'text-amber-300 font-semibold' : 'text-amber-600 font-semibold')
+                                : (isDark ? 'text-gray-500' : 'text-gray-400')
+                            }`}
+                          >
+                            {diverge && <AlertTriangle className="w-3 h-3 shrink-0" />}
+                            <span className="truncate max-w-[300px]">No app: {nomeExterno}</span>
+                          </p>
+                        )}
                       </td>
                       <td className={`px-4 py-3 whitespace-nowrap ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
                         {fmtData(ev.data_evento)}
                       </td>
-                      <td className={`px-4 py-3 font-mono text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{ev.sku}</td>
+                      <td className={`px-4 py-3 font-mono text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                        <span className="inline-flex items-center gap-1.5">
+                          {ev.sku}
+                          {fonte && (
+                            <span
+                              title={`Origem do dado no app de Cortesias: ${fonte}`}
+                              className={`px-1.5 py-0.5 rounded font-sans font-semibold uppercase tracking-wide text-[10px] ${isDark ? 'bg-gray-700/70 text-gray-300 border border-gray-600/60' : 'bg-gray-100 text-gray-500 border border-gray-200'}`}
+                            >
+                              {fonte}
+                            </span>
+                          )}
+                        </span>
+                      </td>
                       {ev.status === 'ok' ? (
                         <>
                           <td className={`px-4 py-3 text-right font-semibold ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>{fmtNum(ev.solicitados)}</td>
@@ -504,7 +680,8 @@ const CortesiasEventos: React.FC = () => {
                         </td>
                       )}
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

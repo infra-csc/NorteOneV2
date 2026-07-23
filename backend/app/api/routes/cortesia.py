@@ -237,6 +237,15 @@ def _executar_lote_eventos(db: Session) -> dict:
             linha["aprovados"] = data.get("aprovados")
             linha["utilizados"] = data.get("utilizados")
             linha["disponiveis"] = data.get("disponiveis")
+            # Infos extras da API externa (tolerantes a ausência — a resposta
+            # já foi validada como métrica; label/source são complementares):
+            #   nome_externo -> filter.label (nome do evento no app de Cortesias)
+            #   fonte        -> source ("magento" | "local")
+            filtro = data.get("filter")
+            label = filtro.get("label") if isinstance(filtro, dict) else None
+            linha["nome_externo"] = label.strip() if isinstance(label, str) and label.strip() else None
+            fonte = data.get("source")
+            linha["fonte"] = fonte.strip() if isinstance(fonte, str) and fonte.strip() else None
             resumo["ok"] += 1
         elif res[0] == "nao_encontrado":
             linha["status"] = "nao_encontrado"

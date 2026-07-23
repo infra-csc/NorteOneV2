@@ -1668,6 +1668,9 @@ export interface CortesiaEventoRow {
   aprovados?: number;
   utilizados?: number;
   disponiveis?: number;
+  // Infos extras da API externa (apenas linhas "ok"):
+  nome_externo?: string | null; // filter.label — nome do evento no app de Cortesias
+  fonte?: string | null; // source — "magento" | "local"
 }
 
 export interface CortesiaEventosResponse {
