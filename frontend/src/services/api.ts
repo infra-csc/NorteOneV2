@@ -1653,11 +1653,40 @@ export interface CortesiaUser {
   createdAt?: string;
 }
 
+// Linha do lote de eventos futuros consultados por SKU no app de Cortesias.
+// status é sempre explícito — nunca zeros silenciosos.
+export interface CortesiaEventoRow {
+  evento_id: number;
+  nome: string;
+  data_evento: string | null;
+  sku: string;
+  cidade?: string | null;
+  estado?: string | null;
+  status: 'ok' | 'nao_encontrado' | 'erro';
+  mensagem?: string;
+  solicitados?: number;
+  aprovados?: number;
+  utilizados?: number;
+  disponiveis?: number;
+}
+
+export interface CortesiaEventosResponse {
+  eventos: CortesiaEventoRow[];
+  resumo: { total: number; ok: number; nao_encontrado: number; erro: number };
+  atualizado_em: string;
+}
+
 // Integração somente-leitura com o app externo de Cortesias.
 // O token da integração vive apenas no backend (rotas proxy autenticadas).
 export const cortesiaService = {
   getMetrics: async (filtro: { sku?: string; userId?: string; area?: string }): Promise<CortesiaMetrics> => {
     const response = await api.get('/cortesia/metrics', { params: filtro, timeout: 15000 });
+    return response.data;
+  },
+  // Lote pesado (1 consulta externa por SKU, com concorrência limitada no
+  // backend): timeout generoso — pior caso legítimo passa de 1 minuto.
+  getEventos: async (): Promise<CortesiaEventosResponse> => {
+    const response = await api.get('/cortesia/eventos', { timeout: 120000 });
     return response.data;
   },
   getUsers: async (): Promise<{ total: number; users: CortesiaUser[] }> => {

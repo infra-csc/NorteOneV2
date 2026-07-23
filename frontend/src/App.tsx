@@ -47,6 +47,7 @@ const SaudeSistema = lazyWithRetry(() => import('./pages/admin/SaudeSistema'));
 const CotacoesImportacao = lazyWithRetry(() => import('./pages/cotacoes/CotacoesImportacao'));
 const ManualSistema = lazyWithRetry(() => import('./pages/manual/ManualSistema'));
 const ProjecaoInscritos = lazyWithRetry(() => import('./pages/cadastros/ProjecaoInscritos'));
+const CortesiasEventos = lazyWithRetry(() => import('./pages/cadastros/CortesiasEventos'));
 const Profile = lazyWithRetry(() => import('./pages/profile/Profile'));
 const DetalheEventos = lazyWithRetry(() => import('./pages/marketing/DetalheEventos'));
 
@@ -120,6 +121,7 @@ function App() {
               <Route path="/admin/monitoramento" element={<PermissionRoute module="admin_monitoramento"><Layout><MonitoramentoUsuarios /></Layout></PermissionRoute>} />
               <Route path="/admin/saude-sistema" element={<PermissionRoute module="admin_monitoramento"><Layout><SaudeSistema /></Layout></PermissionRoute>} />
               <Route path="/projecao-inscritos" element={<PermissionRoute module="projecao_inscritos"><Layout><ProjecaoInscritos /></Layout></PermissionRoute>} />
+              <Route path="/cortesias" element={<PermissionRoute module="projecao_inscritos"><Layout><CortesiasEventos /></Layout></PermissionRoute>} />
               <Route path="/cotacoes" element={<PermissionRoute module="cotacoes_importacao"><Layout><CotacoesImportacao /></Layout></PermissionRoute>} />
               <Route path="/manual" element={<PermissionRoute module="manual_sistema" fallback="/"><Layout><ManualSistema /></Layout></PermissionRoute>} />
               <Route path="/perfil" element={<PrivateRoute><Layout><Profile /></Layout></PrivateRoute>} />

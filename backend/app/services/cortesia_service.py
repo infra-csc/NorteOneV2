@@ -67,6 +67,11 @@ def _ensure_configured():
         )
 
 
+def ensure_configured():
+    """Valida a configuração da integração (token + URL). Levanta 503 se ausente."""
+    _ensure_configured()
+
+
 def _extract_error_message(resp: httpx.Response) -> str:
     try:
         data = resp.json()

@@ -31,6 +31,7 @@ import {
   AlertTriangle,
   Table2,
   ArrowRight,
+  Gift,
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -45,6 +46,7 @@ const menuItems = [
 ];
 
 const projecaoInscritosItem = { path: '/projecao-inscritos', icon: BarChart3, label: 'Projeção Inscritos', modulo: 'projecao_inscritos' };
+const cortesiasItem = { path: '/cortesias', icon: Gift, label: 'Cortesias', modulo: 'projecao_inscritos' };
 
 const cotacaoItems = [
   { path: '/cotacoes', icon: Plane, label: 'Cotação & Importação', modulo: 'cotacoes_importacao' },
@@ -224,7 +226,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   if (showProjecaoInscritos) {
     const eventosIdx = cadastroItems.findIndex(item => item.path === '/cadastros/eventos');
     const insertAt = eventosIdx >= 0 ? eventosIdx + 1 : cadastroItems.length;
-    cadastroItems.splice(insertAt, 0, projecaoInscritosItem);
+    cadastroItems.splice(insertAt, 0, projecaoInscritosItem, cortesiasItem);
   }
   const filteredAdminItems = adminItems.filter(item => canView(item.modulo));
   const showDetalheEventos = canView(detalheEventosItem.modulo);
