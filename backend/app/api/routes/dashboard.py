@@ -1317,9 +1317,23 @@ def get_inscricoes_diarias(
     # inscrições em dias posteriores à realização. Sem isso, eventos concluídos
     # entravam no TOP 10 com um "delta ao vivo" fantasma (acumulado ISC menos
     # snapshots que pararam de ser gravados pelo freeze de finalizados).
-    from ...services.snapshot_service import load_grupo_event_dates
+    # Mapa sku→grupo construído UMA vez por requisição e reaproveitado tanto
+    # aqui (datas de evento) quanto no bloco de dados ao vivo (isc_data) abaixo.
     try:
-        grupo_event_dates = load_grupo_event_dates(db)
+        sku_to_grupo = _build_sku_to_grupo_map(db, target_ano)
+    except Exception:
+        sku_to_grupo = {}
+
+    from ...services.snapshot_service import load_grupo_event_dates_cached
+    try:
+        # Cache em memória com TTL curto: evita revarrer DimProjeto +
+        # CadastroEvento a cada abertura do dashboard. O mapa só é usado
+        # em cache-miss e apenas quando corresponde ao ano corrente
+        # (mesma semântica do load sem argumento).
+        grupo_event_dates = load_grupo_event_dates_cached(
+            db,
+            sku_to_grupo=sku_to_grupo if (sku_to_grupo and target_ano == today.year) else None,
+        )
     except Exception as exc:
         # Fallback conservador: sem datas, nenhum grupo é classificado como
         # realizado e o comportamento volta ao antigo (bug do TOP 10 retorna).
@@ -1402,12 +1416,11 @@ def get_inscricoes_diarias(
     # --- 3. Live source for today via isc_data (same pattern as /operacional) --------
     # isc_data[sku_norm]['qtd_site'] = cumulative live total for that SKU.
     # Subtract each grupo's snapshot total through yesterday to estimate today-only.
+    # sku_to_grupo já foi construído uma única vez no início da requisição.
     try:
         isc_data = fetch_isc_pricing_data(db=db, force_refresh=False)
-        sku_to_grupo = _build_sku_to_grupo_map(db, target_ano)
     except Exception:
         isc_data = {}
-        sku_to_grupo = {}
 
     # Cumulative snapshot total (all time ≤ yesterday) per grupo — used as baseline
     cumulative_hist_rows = (

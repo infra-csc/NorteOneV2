@@ -319,7 +319,41 @@ def _load_active_event_magento_ids(db: Session, freeze_days: int) -> tuple:
     return active, all_ids
 
 
-def load_grupo_event_dates(db: Session) -> dict:
+def _grupo_event_dates_ttl_seconds() -> int:
+    """TTL do cache em memória de load_grupo_event_dates (default 10 min).
+
+    Datas de evento mudam raramente; um TTL curto elimina a varredura de
+    DimProjeto + CadastroEvento a cada abertura do dashboard sem risco real
+    de servir dado defasado. Configurável via GRUPO_EVENT_DATES_TTL_SECONDS.
+    """
+    try:
+        return max(0, int(os.getenv("GRUPO_EVENT_DATES_TTL_SECONDS", "600")))
+    except (TypeError, ValueError):
+        return 600
+
+
+_grupo_event_dates_cache: dict = {"data": None, "ts": 0.0}
+
+
+def load_grupo_event_dates_cached(db: Session, sku_to_grupo: Optional[dict] = None) -> dict:
+    """Versão cacheada (TTL curto, em memória) de load_grupo_event_dates.
+
+    Invalidação natural por expiração; sem mudança de comportamento no
+    conteúdo. Falhas na recomputação propagam a exceção (o consumidor já
+    tem fallback conservador) — nunca cacheamos falha nem resultado parcial.
+    """
+    ttl = _grupo_event_dates_ttl_seconds()
+    now = time.monotonic()
+    cached = _grupo_event_dates_cache
+    if ttl > 0 and cached["data"] is not None and (now - cached["ts"]) < ttl:
+        return cached["data"]
+    data = load_grupo_event_dates(db, sku_to_grupo=sku_to_grupo)
+    cached["data"] = data
+    cached["ts"] = now
+    return data
+
+
+def load_grupo_event_dates(db: Session, sku_to_grupo: Optional[dict] = None) -> dict:
     """Mapa evento_grupo -> {"max_data_evento": date | None, "has_null_date": bool}.
 
     Junta DimProjeto e CadastroEvento (mesma união do snapshot_diario_batch) e
@@ -331,7 +365,8 @@ def load_grupo_event_dates(db: Session) -> dict:
     from ..api.routes.marketing import _build_sku_to_grupo_map, normalize_sku
     from ..models.cadastro_evento import CadastroEvento
 
-    sku_to_grupo = _build_sku_to_grupo_map(db, date.today().year)
+    if sku_to_grupo is None:
+        sku_to_grupo = _build_sku_to_grupo_map(db, date.today().year)
     info: dict = {}
 
     def _add(grupo, dt):
