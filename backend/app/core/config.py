@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     MS_DEFAULT_PERFIL_NOME: str = os.getenv("MS_DEFAULT_PERFIL_NOME", "")
     MS_DEFAULT_PERFIL_ID: str = os.getenv("MS_DEFAULT_PERFIL_ID", "")
     
+    # ── App Cortesia (integração externa somente leitura) ─────────────────────
+    # Métricas de cortesias (solicitados/aprovados/utilizados/disponíveis) e
+    # lista de usuários do app externo, exibidas na tela de Projeção.
+    CORTESIA_API_BASE_URL: str = os.getenv("CORTESIA_API_BASE_URL", "https://app-cortesia.vercel.app")
+    CORTESIA_API_TOKEN: str = os.getenv("CORTESIA_API_TOKEN", "")
+
     # SSH Tunnel Configuration
     SSH_HOST: str = os.getenv("SSH_HOST", "")
     SSH_PORT: int = int(os.getenv("SSH_PORT", "22"))

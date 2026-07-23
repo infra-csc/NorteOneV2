@@ -1634,6 +1634,38 @@ export const profileService = {
   },
 };
 
+export interface CortesiaMetrics {
+  filter: { type: string; value: string; label: string };
+  solicitados: number;
+  aprovados: number;
+  utilizados: number;
+  disponiveis: number;
+  source?: string;
+}
+
+export interface CortesiaUser {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  roleLabel: string;
+  area: string;
+  createdAt?: string;
+}
+
+// Integração somente-leitura com o app externo de Cortesias.
+// O token da integração vive apenas no backend (rotas proxy autenticadas).
+export const cortesiaService = {
+  getMetrics: async (filtro: { sku?: string; userId?: string; area?: string }): Promise<CortesiaMetrics> => {
+    const response = await api.get('/cortesia/metrics', { params: filtro, timeout: 15000 });
+    return response.data;
+  },
+  getUsers: async (): Promise<{ total: number; users: CortesiaUser[] }> => {
+    const response = await api.get('/cortesia/users', { timeout: 15000 });
+    return response.data;
+  },
+};
+
 export const projecaoService = {
   listAreas: async () => {
     const response = await api.get('/projecao/areas');
