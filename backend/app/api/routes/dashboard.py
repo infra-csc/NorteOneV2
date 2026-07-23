@@ -1313,6 +1313,40 @@ def get_inscricoes_diarias(
         )
         active_grupos = {r.evento_grupo for r in all_active_q}
 
+    # --- 1b. Datas de evento por grupo — evento já realizado não pode ter
+    # inscrições em dias posteriores à realização. Sem isso, eventos concluídos
+    # entravam no TOP 10 com um "delta ao vivo" fantasma (acumulado ISC menos
+    # snapshots que pararam de ser gravados pelo freeze de finalizados).
+    from ...services.snapshot_service import load_grupo_event_dates
+    try:
+        grupo_event_dates = load_grupo_event_dates(db)
+    except Exception as exc:
+        # Fallback conservador: sem datas, nenhum grupo é classificado como
+        # realizado e o comportamento volta ao antigo (bug do TOP 10 retorna).
+        # Logar alto para que a falha nunca passe despercebida.
+        print(f"[DASHBOARD] AVISO: load_grupo_event_dates falhou ({exc}); "
+              "eventos realizados NÃO serão filtrados do TOP 10 nesta resposta")
+        grupo_event_dates = {}
+
+    def grupo_max_data_evento(g):
+        """Maior data_evento conhecida do grupo; None = indeterminado
+        (sem cadastro ou com evento sem data → conservador, não classifica)."""
+        entry = grupo_event_dates.get(g)
+        if not entry or entry.get("has_null_date"):
+            return None
+        return entry.get("max_data_evento")
+
+    def contribui_no_dia(g, d):
+        """Grupo conta vendas no dia d só até a data do evento (inclusive)."""
+        max_dt = grupo_max_data_evento(g)
+        return max_dt is None or d <= max_dt
+
+    def grupo_realizado(g):
+        """Todas as datas conhecidas do grupo anteriores a ontem → realizado
+        (não pode ter vendas na janela hoje+ontem do TOP 10)."""
+        max_dt = grupo_max_data_evento(g)
+        return max_dt is not None and max_dt < yesterday
+
     def snap_filter_active(date_from, date_to, extra=None):
         conds: list = [
             VendasDiariaSnapshot.data_venda >= date_from,
@@ -1329,17 +1363,24 @@ def get_inscricoes_diarias(
         return conds
 
     # --- 2. Snapshot for past 9 days (D-9 to yesterday) – confirmed historical ------
+    # Agrupado por (dia, grupo) para poder zerar contribuições de dias
+    # posteriores à realização do evento (fix eventos já realizados).
     hist_rows = (
         db.query(
             VendasDiariaSnapshot.data_venda,
+            VendasDiariaSnapshot.evento_grupo,
             sa_func.sum(VendasDiariaSnapshot.quantidade).label("total"),
         )
         .filter(*snap_filter_active(date_start, yesterday))
-        .group_by(VendasDiariaSnapshot.data_venda)
+        .group_by(VendasDiariaSnapshot.data_venda, VendasDiariaSnapshot.evento_grupo)
         .order_by(VendasDiariaSnapshot.data_venda)
         .all()
     )
-    hist_daily_map: dict = {r.data_venda: int(r.total or 0) for r in hist_rows}
+    hist_daily_map: dict = {}
+    for r in hist_rows:
+        if not contribui_no_dia(r.evento_grupo, r.data_venda):
+            continue
+        hist_daily_map[r.data_venda] = hist_daily_map.get(r.data_venda, 0) + int(r.total or 0)
 
     # Snapshot for today (may be partial / not yet synced)
     today_snap_rows = (
@@ -1351,7 +1392,11 @@ def get_inscricoes_diarias(
         .group_by(VendasDiariaSnapshot.evento_grupo)
         .all()
     )
-    today_snap_by_grupo: dict = {r.evento_grupo: int(r.total or 0) for r in today_snap_rows}
+    today_snap_by_grupo: dict = {
+        r.evento_grupo: int(r.total or 0)
+        for r in today_snap_rows
+        if contribui_no_dia(r.evento_grupo, today)
+    }
     today_snap_total: int = sum(today_snap_by_grupo.values())
 
     # --- 3. Live source for today via isc_data (same pattern as /operacional) --------
@@ -1391,8 +1436,13 @@ def get_inscricoes_diarias(
             live_total_by_grupo[grupo] = live_total_by_grupo.get(grupo, 0) + int(metrics.get("qtd_site", 0) or 0)
 
     # Today estimate per grupo = max(snapshot_today, live_today_delta)
+    # Eventos cuja data já passou não podem vender hoje: o delta ao vivo para
+    # eles é artefato de snapshots congelados (freeze de finalizados) — zera.
     today_live_by_grupo: dict = {}
     for grupo in active_grupos:
+        if not contribui_no_dia(grupo, today):
+            today_live_by_grupo[grupo] = 0
+            continue
         snap_val = today_snap_by_grupo.get(grupo, 0)
         live_cum = live_total_by_grupo.get(grupo, 0)
         hist_cum = cum_hist_by_grupo.get(grupo, 0)
@@ -1421,11 +1471,19 @@ def get_inscricoes_diarias(
         .group_by(VendasDiariaSnapshot.evento_grupo)
         .all()
     )
-    yest_per_grupo: dict = {r.evento_grupo: int(r.total or 0) for r in yest_per_grupo_rows}
+    yest_per_grupo: dict = {
+        r.evento_grupo: int(r.total or 0)
+        for r in yest_per_grupo_rows
+        if contribui_no_dia(r.evento_grupo, yesterday)
+    }
 
     # Total for each grupo = yesterday snapshot + live today estimate
+    # Eventos já realizados (data < ontem) ficam fora do ranking hoje+ontem.
     grupo_total_periodo: dict = {}
-    all_grupos_in_window = set(yest_per_grupo.keys()) | set(today_live_by_grupo.keys())
+    all_grupos_in_window = {
+        g for g in (set(yest_per_grupo.keys()) | set(today_live_by_grupo.keys()))
+        if not grupo_realizado(g)
+    }
     for g in all_grupos_in_window:
         grupo_total_periodo[g] = yest_per_grupo.get(g, 0) + today_live_by_grupo.get(g, 0)
 
@@ -1507,6 +1565,8 @@ def get_inscricoes_diarias(
         )
         dpg_map: dict = {}
         for r in dpg_rows:
+            if not contribui_no_dia(r.evento_grupo, r.data_venda):
+                continue
             d_str = r.data_venda.isoformat()
             if d_str not in dpg_map:
                 dpg_map[d_str] = {}

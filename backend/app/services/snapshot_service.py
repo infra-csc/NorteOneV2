@@ -319,28 +319,36 @@ def _load_active_event_magento_ids(db: Session, freeze_days: int) -> tuple:
     return active, all_ids
 
 
-def _load_active_grupos(db: Session, freeze_days: int) -> set:
-    """Retorna conjunto de evento_grupo com pelo menos um evento ativo.
+def load_grupo_event_dates(db: Session) -> dict:
+    """Mapa evento_grupo -> {"max_data_evento": date | None, "has_null_date": bool}.
 
-    Junta DimProjeto e CadastroEvento (mesma união do snapshot_diario_batch).
-    Grupo entra como ativo se ALGUM evento dele tem data_evento >= hoje -
-    freeze_days OU data_evento nulo.
+    Junta DimProjeto e CadastroEvento (mesma união do snapshot_diario_batch) e
+    acumula, por grupo, a MAIOR data_evento conhecida e se existe algum evento
+    do grupo sem data. Consumidores devem tratar has_null_date=True como
+    "indeterminado" (conservador: sem data não dá para classificar o grupo
+    como realizado/frozen).
     """
     from ..api.routes.marketing import _build_sku_to_grupo_map, normalize_sku
     from ..models.cadastro_evento import CadastroEvento
 
-    cutoff = date.today() - timedelta(days=freeze_days)
     sku_to_grupo = _build_sku_to_grupo_map(db, date.today().year)
-    active: set = set()
+    info: dict = {}
+
+    def _add(grupo, dt):
+        if not grupo:
+            return
+        entry = info.setdefault(grupo, {"max_data_evento": None, "has_null_date": False})
+        if dt is None:
+            entry["has_null_date"] = True
+        elif entry["max_data_evento"] is None or dt > entry["max_data_evento"]:
+            entry["max_data_evento"] = dt
 
     for p in db.query(DimProjeto).all():
         if not p.codigo:
             continue
-        if p.data_evento is not None and p.data_evento < cutoff:
-            continue
         grupo = sku_to_grupo.get(normalize_sku(str(p.codigo)))
         if grupo:
-            active.add(grupo)
+            _add(grupo, p.data_evento)
 
     magento_id_to_grupo: dict = {}
     try:
@@ -370,8 +378,6 @@ def _load_active_grupos(db: Session, freeze_days: int) -> set:
             pass
 
     for c in cadastros:
-        if c.data_evento is not None and c.data_evento < cutoff:
-            continue
         grupo = None
         if getattr(c, "sku", None):
             grupo = sku_to_grupo.get(normalize_sku(str(c.sku)))
@@ -382,8 +388,24 @@ def _load_active_grupos(db: Session, freeze_days: int) -> set:
         if not grupo and getattr(c, "id_evento_magento", None):
             grupo = magento_id_to_grupo.get(str(c.id_evento_magento))
         if grupo:
-            active.add(grupo)
+            _add(grupo, c.data_evento)
 
+    return info
+
+
+def _load_active_grupos(db: Session, freeze_days: int) -> set:
+    """Retorna conjunto de evento_grupo com pelo menos um evento ativo.
+
+    Junta DimProjeto e CadastroEvento (mesma união do snapshot_diario_batch).
+    Grupo entra como ativo se ALGUM evento dele tem data_evento >= hoje -
+    freeze_days OU data_evento nulo.
+    """
+    cutoff = date.today() - timedelta(days=freeze_days)
+    active: set = set()
+    for grupo, entry in load_grupo_event_dates(db).items():
+        max_dt = entry.get("max_data_evento")
+        if entry.get("has_null_date") or (max_dt is not None and max_dt >= cutoff):
+            active.add(grupo)
     return active
 
 
