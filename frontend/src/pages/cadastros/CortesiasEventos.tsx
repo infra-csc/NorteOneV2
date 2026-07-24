@@ -118,6 +118,7 @@ const CortesiasEventos: React.FC = () => {
   // Filtros da tabela
   const [searchTerm, setSearchTerm] = useState('');
   const [filterMes, setFilterMes] = useState('');
+  const [filterDivergentes, setFilterDivergentes] = useState(false);
 
   // Retry por linha (por SKU)
   const [retryingSkus, setRetryingSkus] = useState<Set<string>>(new Set());
@@ -257,6 +258,22 @@ const CortesiasEventos: React.FC = () => {
     return r;
   }, [eventos]);
 
+  // Linhas "ok" cujo nome no app de Cortesias diverge do nome do DW —
+  // mesma heurística usada para destacar a linha em âmbar na tabela.
+  const linhaDiverge = (ev: (typeof eventos)[number]): boolean => {
+    if (ev.status !== 'ok') return false;
+    const nomeExterno = (ev.nome_externo || '').trim();
+    return !!nomeExterno && nomesDivergem(ev.nome, nomeExterno, ev.cidade);
+  };
+
+  const totalDivergentes = useMemo(() => eventos.filter(linhaDiverge).length, [eventos]);
+
+  // Se as divergências sumirem (retry/refresh), desliga o filtro para não
+  // deixar a tabela presa numa lista vazia.
+  useEffect(() => {
+    if (filterDivergentes && totalDivergentes === 0) setFilterDivergentes(false);
+  }, [filterDivergentes, totalDivergentes]);
+
   const mesesDisponiveis = useMemo(() => {
     const keys = new Set<string>();
     eventos.forEach(ev => {
@@ -269,6 +286,7 @@ const CortesiasEventos: React.FC = () => {
   const eventosFiltrados = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
     return eventos.filter(ev => {
+      if (filterDivergentes && !linhaDiverge(ev)) return false;
       if (filterMes && mesKey(ev.data_evento) !== filterMes) return false;
       if (term) {
         const alvo = `${ev.nome} ${ev.sku} ${ev.cidade || ''} ${ev.estado || ''}`.toLowerCase();
@@ -276,7 +294,7 @@ const CortesiasEventos: React.FC = () => {
       }
       return true;
     });
-  }, [eventos, searchTerm, filterMes]);
+  }, [eventos, searchTerm, filterMes, filterDivergentes]);
 
   // Totais gerais: somente linhas ok (a contagem de respondentes fica visível).
   const totaisGerais = useMemo(() => {
@@ -524,6 +542,21 @@ const CortesiasEventos: React.FC = () => {
                 <span className={`px-2 py-0.5 rounded-full font-semibold ${isDark ? 'bg-emerald-500/15 text-emerald-300' : 'bg-emerald-50 text-emerald-700'}`}>
                   {resumoAtual.ok} ok
                 </span>
+                {totalDivergentes > 0 && (
+                  <button
+                    onClick={() => setFilterDivergentes(v => !v)}
+                    title={filterDivergentes
+                      ? 'Clique para voltar a exibir todas as linhas'
+                      : 'Clique para exibir só os eventos cujo nome no app de Cortesias diverge do DW (possível SKU vinculado ao evento errado)'}
+                    className={`px-2 py-0.5 rounded-full font-semibold cursor-pointer transition-colors ${
+                      filterDivergentes
+                        ? (isDark ? 'bg-amber-400 text-gray-900 ring-2 ring-amber-300/60' : 'bg-amber-500 text-white ring-2 ring-amber-300')
+                        : (isDark ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25' : 'bg-amber-50 text-amber-700 hover:bg-amber-100')
+                    }`}
+                  >
+                    {totalDivergentes} {totalDivergentes === 1 ? 'divergência' : 'divergências'}
+                  </button>
+                )}
                 {resumoAtual.nao_encontrado > 0 && (
                   <span className={`px-2 py-0.5 rounded-full font-semibold ${isDark ? 'bg-amber-500/15 text-amber-300' : 'bg-amber-50 text-amber-700'}`}>
                     {resumoAtual.nao_encontrado} não cadastrados
