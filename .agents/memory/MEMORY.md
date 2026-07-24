@@ -35,3 +35,5 @@
 - [Foto Corte 1 incompleta = ajuste loop](corte1-foto-incompleta-ajuste-loop.md) — foto bruta ≠ convicta reconciliada trava ajuste fantasma numa área; fix: Reabrir C1 → corrigir área → Congelar agora.
 - [Auth dedicated PG pool](auth-dedicated-pg-pool.md) — login/sessão em pool PG separado, sessão curta, current_user detached; writes devem recarregar via db.get. Evita 500 no login sob pool esgotado.
 - [Delete+insert child rows race](delete-insert-child-race.md) — padrão DELETE+INSERT de linhas filhas sem unique index duplica sob saves concorrentes (READ COMMITTED); fix = unique index + dedupe payload + 409 no conflito.
+- [Tree table sibling rows](tree-table-sibling-rows.md) — árvores drill-down devem renderizar filhos como <tr> irmãos na mesma tabela; tabelas aninhadas quebram o alinhamento de colunas.
+- [Verify subagent work on disk](subagent-verify-disk.md) — subagentes podem reportar sucesso sem gravar nada; sempre conferir git status antes de confiar no relato.

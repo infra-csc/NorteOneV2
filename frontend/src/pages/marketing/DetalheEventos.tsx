@@ -36,6 +36,7 @@ import {
   Cell,
   Legend,
 } from 'recharts';
+import { motion, AnimatePresence } from 'framer-motion';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -72,8 +73,6 @@ const DIM_LABELS: Record<string, string> = {
 
 type DimKey = 'canal' | 'kit' | 'modalidade' | 'pelotao' | 'produtos' | 'tamanho_camiseta';
 
-// Hierarquia canônica: kit → modalidade → pelotao → produtos → tamanho_camiseta
-// Canal é um filtro de primeira camada (pills), não faz parte da árvore de drill-down.
 const DEFAULT_HIERARCHY: DimKey[] = ['kit', 'modalidade', 'pelotao', 'produtos', 'tamanho_camiseta'];
 
 // ---------------------------------------------------------------------------
@@ -87,17 +86,24 @@ interface KpiCardProps {
   icon: React.ReactNode;
   color: string;
   dark: boolean;
+  delay?: number;
 }
 
-const KpiCard: React.FC<KpiCardProps> = ({ label, value, sub, icon, color, dark }) => (
-  <div className={`rounded-xl p-4 flex items-start gap-3 ${dark ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'} shadow-sm`}>
-    <div className={`p-2 rounded-lg ${color}`}>{icon}</div>
-    <div className="min-w-0">
-      <p className={`text-xs font-medium uppercase tracking-wide ${dark ? 'text-gray-400' : 'text-gray-500'}`}>{label}</p>
-      <p className={`text-xl font-bold ${dark ? 'text-white' : 'text-gray-900'}`}>{value}</p>
-      {sub && <p className={`text-xs ${dark ? 'text-gray-500' : 'text-gray-400'} mt-0.5`}>{sub}</p>}
+const KpiCard: React.FC<KpiCardProps> = ({ label, value, sub, icon, color, dark, delay = 0 }) => (
+  <motion.div 
+    initial={{ opacity: 0, y: 20 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ delay, duration: 0.5, ease: "easeOut" }}
+    className={`rounded-2xl p-5 flex items-center gap-4 ${dark ? 'bg-slate-900/80 border border-slate-800' : 'bg-white border border-slate-200'} shadow-lg backdrop-blur-xl hover:-translate-y-1 transition-transform duration-300 relative overflow-hidden group`}
+  >
+    <div className={`absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-current to-transparent opacity-[0.03] rounded-full blur-3xl group-hover:opacity-[0.08] transition-opacity`} style={{ color: dark ? '#fff' : '#000' }} />
+    <div className={`p-3 rounded-xl ${color} shadow-inner`}>{icon}</div>
+    <div className="min-w-0 z-10">
+      <p className={`text-[11px] font-bold uppercase tracking-wider ${dark ? 'text-slate-400' : 'text-slate-500'}`}>{label}</p>
+      <p className={`text-2xl font-black tabular-nums tracking-tight ${dark ? 'text-white' : 'text-slate-900'} mt-0.5`}>{value}</p>
+      {sub && <p className={`text-[10px] font-medium ${dark ? 'text-slate-500' : 'text-slate-400'} mt-1`}>{sub}</p>}
     </div>
-  </div>
+  </motion.div>
 );
 
 // ---------------------------------------------------------------------------
@@ -106,13 +112,13 @@ const KpiCard: React.FC<KpiCardProps> = ({ label, value, sub, icon, color, dark 
 
 const CanalBadge: React.FC<{ canal: string | null }> = ({ canal }) => {
   const map: Record<string, string> = {
-    Site: 'bg-blue-100 text-blue-700',
-    'Grupos/B2B': 'bg-purple-100 text-purple-700',
-    Cortesia: 'bg-gray-100 text-gray-600',
+    Site: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/20',
+    'Grupos/B2B': 'bg-purple-500/10 text-purple-600 dark:text-purple-400 ring-1 ring-purple-500/20',
+    Cortesia: 'bg-slate-500/10 text-slate-600 dark:text-slate-400 ring-1 ring-slate-500/20',
   };
-  const cls = (canal && map[canal]) || 'bg-gray-100 text-gray-600';
+  const cls = (canal && map[canal]) || 'bg-slate-500/10 text-slate-600 dark:text-slate-400 ring-1 ring-slate-500/20';
   return (
-    <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full ${cls}`}>
+    <span className={`inline-flex items-center px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-md ${cls}`}>
       {val(canal)}
     </span>
   );
@@ -121,10 +127,10 @@ const CanalBadge: React.FC<{ canal: string | null }> = ({ canal }) => {
 const BancoBadge: React.FC<{ banco: string }> = ({ banco }) => {
   const cls =
     banco === 'Ativo'
-      ? 'bg-emerald-100 text-emerald-700'
-      : 'bg-orange-100 text-orange-700';
+      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20'
+      : 'bg-orange-500/10 text-orange-600 dark:text-orange-400 ring-1 ring-orange-500/20';
   return (
-    <span className={`inline-block px-1.5 py-0.5 text-[10px] font-semibold rounded ${cls}`}>
+    <span className={`inline-flex items-center px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded ${cls}`}>
       {banco}
     </span>
   );
@@ -145,11 +151,11 @@ const SnapshotBadge: React.FC<{
     return (
       <span
         title={`Dados do snapshot noturno. Atualizado ${label}. Clique em "Atualizar" para buscar ao vivo.`}
-        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${
-          dark ? 'bg-blue-900/50 text-blue-300 border border-blue-700/50' : 'bg-blue-50 text-blue-600 border border-blue-200'
+        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold tracking-wide ${
+          dark ? 'bg-blue-500/10 text-blue-400 ring-1 ring-blue-500/20' : 'bg-blue-50 text-blue-700 ring-1 ring-blue-200'
         }`}
       >
-        <Database className="w-2.5 h-2.5" />
+        <Database className="w-3 h-3" />
         Snapshot · {label}
       </span>
     );
@@ -159,11 +165,11 @@ const SnapshotBadge: React.FC<{
     return (
       <span
         title="Dados buscados ao vivo de Ativo e Magento agora."
-        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${
-          dark ? 'bg-emerald-900/50 text-emerald-300 border border-emerald-700/50' : 'bg-emerald-50 text-emerald-600 border border-emerald-200'
+        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold tracking-wide ${
+          dark ? 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20' : 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
         }`}
       >
-        <TrendingUp className="w-2.5 h-2.5" />
+        <TrendingUp className="w-3 h-3" />
         Ao vivo
       </span>
     );
@@ -188,7 +194,6 @@ interface TreeNode {
   canal?: string | null;
   depth: number;
   children?: TreeNode[];
-  // Bank-split children at leaf level
   bankSplit?: BankSplitNode[];
   hasDivergencia?: boolean;
 }
@@ -259,10 +264,6 @@ function buildTree(
   hierarchy: DimKey[],
   divergencias: Set<string>,
 ): TreeNode[] {
-  // parentKey is threaded through to build path-stable, globally-unique keys.
-  // Format: "<parentKey>|<dim>:<escaped-value>"
-  // This ensures that the same label at the same depth under different parents
-  // gets a distinct key — preventing expand/collapse cross-contamination.
   function group(items: DetalheRow[], dims: DimKey[], depth: number, parentKey: string): TreeNode[] {
     if (items.length === 0) return [];
     const [dim, ...rest] = dims;
@@ -276,8 +277,6 @@ function buildTree(
 
     const nodes: TreeNode[] = [];
     grouped.forEach((groupRows, k) => {
-      // Fold null/empty 'produtos' nodes: promote children directly to parent
-      // so kits without product granularity don't show a "—" intermediary row.
       if (dim === 'produtos' && k === NULL_LABEL && rest.length > 0) {
         const promoted = group(groupRows, rest, depth, parentKey);
         nodes.push(...promoted);
@@ -292,13 +291,11 @@ function buildTree(
 
       const isLeaf = rest.length === 0;
 
-      // Detect divergências for this subtree
       const hasDivergencia = groupRows.some(r => {
         const dk = `${r.canal}|${r.kit}|${r.modalidade}|${r.pelotao}|${r.produtos}|${r.tamanho_camiseta}`;
         return divergencias.has(dk);
       });
 
-      // Path-stable unique key: includes full ancestor lineage
       const escapedK = k.replace(/[|:]/g, '_');
       const nodeKey = `${parentKey}|${dim}:${escapedK}`;
 
@@ -318,6 +315,11 @@ function buildTree(
 
       if (!isLeaf) {
         node.children = group(groupRows, rest, depth + 1, nodeKey);
+      } else {
+        const matchingBancoRows = groupRows.flatMap(r => findBancoRows(r, allBancoRows));
+        if (matchingBancoRows.length > 0) {
+          node.bankSplit = buildBankSplit(matchingBancoRows);
+        }
       }
 
       nodes.push(node);
@@ -344,23 +346,6 @@ interface TreeRowProps {
   totalInscritos: number;
 }
 
-const DEPTH_COLORS_DARK = [
-  'bg-gray-700/70',
-  'bg-gray-700/40',
-  'bg-gray-800/50',
-  'bg-gray-800/30',
-  'bg-gray-800/20',
-  'bg-gray-800/10',
-];
-const DEPTH_COLORS_LIGHT = [
-  'bg-blue-50/60',
-  'bg-gray-50',
-  'bg-white',
-  'bg-gray-50/60',
-  'bg-white',
-  'bg-gray-50/30',
-];
-
 const TreeRow: React.FC<TreeRowProps> = ({ node, dark, expanded, bankExpanded, onToggle, onBankToggle, totalInscritos }) => {
   const isOpen = expanded.has(node.key);
   const bankKey = `bank-${node.key}`;
@@ -370,10 +355,21 @@ const TreeRow: React.FC<TreeRowProps> = ({ node, dark, expanded, bankExpanded, o
   const isExpandable = hasChildren || hasBankSplit;
 
   const pct = totalInscritos > 0 ? (node.inscritos / totalInscritos) * 100 : 0;
-  const depthPad = node.depth * 20;
-  const rowBg = dark
-    ? DEPTH_COLORS_DARK[Math.min(node.depth, DEPTH_COLORS_DARK.length - 1)]
-    : DEPTH_COLORS_LIGHT[Math.min(node.depth, DEPTH_COLORS_LIGHT.length - 1)];
+  const depthPad = node.depth * 24;
+
+  const getRowBg = () => {
+    if (dark) {
+      if (node.depth === 0) return 'bg-slate-800/80';
+      if (node.depth === 1) return 'bg-slate-800/50';
+      if (node.depth === 2) return 'bg-slate-800/30';
+      return 'bg-transparent';
+    } else {
+      if (node.depth === 0) return 'bg-blue-50/50';
+      if (node.depth === 1) return 'bg-slate-50/80';
+      if (node.depth === 2) return 'bg-slate-50/40';
+      return 'bg-white';
+    }
+  };
 
   const handleClick = () => {
     if (hasChildren) onToggle(node.key);
@@ -383,55 +379,64 @@ const TreeRow: React.FC<TreeRowProps> = ({ node, dark, expanded, bankExpanded, o
   return (
     <>
       <tr
-        className={`border-b ${dark ? 'border-gray-700/60' : 'border-gray-100'} ${rowBg} ${isExpandable ? 'cursor-pointer hover:brightness-95' : ''} transition-all`}
+        className={`border-b ${dark ? 'border-slate-800/60' : 'border-slate-100'} ${getRowBg()} ${isExpandable ? 'cursor-pointer hover:brightness-95' : ''} transition-colors group`}
         onClick={handleClick}
       >
-        <td className="py-2 pr-3" style={{ paddingLeft: depthPad + 12 }}>
-          <div className="flex items-center gap-1.5">
+        <td className="py-2.5 pr-4" style={{ paddingLeft: depthPad + 16 }}>
+          <div className="flex items-center gap-2">
             {hasChildren ? (
-              isOpen
-                ? <ChevronDown className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
-                : <ChevronRight className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
+              <div className={`p-0.5 rounded-md transition-colors ${isOpen ? 'bg-blue-500/10 text-blue-500' : dark ? 'text-slate-500 group-hover:bg-slate-700' : 'text-slate-400 group-hover:bg-slate-100'}`}>
+                <motion.div animate={{ rotate: isOpen ? 90 : 0 }} transition={{ duration: 0.2 }}>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </motion.div>
+              </div>
             ) : hasBankSplit ? (
-              isBankOpen
-                ? <ChevronDown className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
-                : <ChevronRight className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+              <div className={`p-0.5 rounded-md transition-colors ${isBankOpen ? 'bg-emerald-500/10 text-emerald-500' : dark ? 'text-slate-500 group-hover:bg-slate-700' : 'text-slate-400 group-hover:bg-slate-100'}`}>
+                <motion.div animate={{ rotate: isBankOpen ? 90 : 0 }} transition={{ duration: 0.2 }}>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </motion.div>
+              </div>
             ) : (
-              <span className="w-3.5" />
+              <span className="w-4.5 inline-block" />
             )}
-            <span className={`text-sm ${node.depth === 0 ? 'font-semibold' : node.depth === 1 ? 'font-medium' : 'font-normal'} ${dark ? 'text-gray-100' : 'text-gray-800'} truncate max-w-[260px]`}>
+            <span className={`text-[13px] ${node.depth === 0 ? 'font-bold' : node.depth === 1 ? 'font-semibold' : 'font-medium'} ${dark ? 'text-slate-200' : 'text-slate-800'} truncate max-w-[280px]`}>
               {node.label}
             </span>
             {node.hasDivergencia && (
-              <span title="Divergência detectada" className="flex-shrink-0 inline-flex">
+              <span title="Divergência detectada" className="flex-shrink-0 inline-flex ml-1 bg-amber-500/10 p-1 rounded-md">
                 <AlertTriangle className="w-3 h-3 text-amber-500" />
               </span>
             )}
           </div>
         </td>
-        <td className={`py-2 px-3 text-right text-sm ${dark ? 'text-gray-300' : 'text-gray-700'}`}>
-          <div className="flex flex-col items-end gap-0.5">
-            <span className="font-medium">{fmt(node.inscritos)}</span>
-            <div className="w-14 h-1 rounded-full bg-gray-200 dark:bg-gray-600 overflow-hidden">
-              <div className="h-full bg-blue-500 rounded-full" style={{ width: `${Math.min(pct, 100)}%` }} />
+        <td className={`py-2.5 px-4 text-right text-[13px] ${dark ? 'text-slate-300' : 'text-slate-700'}`}>
+          <div className="flex flex-col items-end gap-1">
+            <span className="font-bold tabular-nums">{fmt(node.inscritos)}</span>
+            <div className={`w-16 h-1.5 rounded-full overflow-hidden ${dark ? 'bg-slate-800' : 'bg-slate-100'}`}>
+              <motion.div 
+                initial={{ width: 0 }}
+                animate={{ width: `${Math.min(pct, 100)}%` }}
+                transition={{ duration: 0.5 }}
+                className="h-full bg-blue-500 rounded-full" 
+              />
             </div>
           </div>
         </td>
-        <td className={`py-2 px-2 text-right text-xs ${dark ? 'text-gray-500' : 'text-gray-400'}`}>
+        <td className={`py-2.5 px-3 text-right text-xs font-medium ${dark ? 'text-slate-500' : 'text-slate-400'} tabular-nums`}>
           {pct.toFixed(1)}%
         </td>
-        <td className={`py-2 px-3 text-right text-sm ${dark ? 'text-gray-300' : 'text-gray-700'}`}>
+        <td className={`py-2.5 px-4 text-right text-[13px] font-medium ${dark ? 'text-slate-400' : 'text-slate-600'} tabular-nums`}>
           {fmtR(node.receita_bruta)}
         </td>
-        <td className={`py-2 px-3 text-right text-sm font-medium ${dark ? 'text-emerald-400' : 'text-emerald-700'}`}>
+        <td className={`py-2.5 px-4 text-right text-[13px] font-bold ${dark ? 'text-emerald-400' : 'text-emerald-600'} tabular-nums`}>
           {fmtR(node.receita_liquida)}
         </td>
-        <td className={`py-2 px-3 text-right text-sm ${dark ? 'text-amber-400' : 'text-amber-700'}`}>
+        <td className={`py-2.5 px-4 text-right text-[13px] font-semibold ${dark ? 'text-amber-400' : 'text-amber-600'} tabular-nums`}>
           {fmtR(node.ticket_medio)}
         </td>
       </tr>
 
-      {/* Children (non-leaf) */}
+      {/* Children (non-leaf) — sibling rows keep the shared column grid aligned */}
       {hasChildren && isOpen && node.children!.map(child => (
         <TreeRow
           key={child.key}
@@ -445,47 +450,47 @@ const TreeRow: React.FC<TreeRowProps> = ({ node, dark, expanded, bankExpanded, o
         />
       ))}
 
-      {/* Bank split (leaf expansion) */}
+      {/* Bank split (leaf expansion) — sibling rows in the same table */}
       {hasBankSplit && isBankOpen && node.bankSplit!.map((bs, i) => (
         <tr
           key={`${bankKey}-${bs.banco}-${i}`}
-          className={`border-b ${dark ? 'border-gray-700/40 bg-gray-900/40' : 'border-gray-100 bg-blue-50/30'}`}
+          className={`border-b border-dashed ${dark ? 'border-slate-800/40 bg-slate-900/40' : 'border-slate-200 bg-blue-50/20'}`}
         >
-          <td className="py-1.5 pr-3" style={{ paddingLeft: depthPad + 36 }}>
-            <div className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-gray-400 flex-shrink-0" />
+          <td className="py-2 pr-4" style={{ paddingLeft: depthPad + 40 }}>
+            <div className="flex items-center gap-2.5">
+              <span className="w-1 h-1 rounded-full bg-slate-400 flex-shrink-0" />
               <BancoBadge banco={bs.banco} />
               {bs.canal && <CanalBadge canal={bs.canal} />}
               {bs.id_evento && (
-                <span className={`text-[10px] ${dark ? 'text-gray-500' : 'text-gray-400'}`}>
-                  ID {bs.id_evento}
+                <span className={`text-[10px] font-mono ${dark ? 'text-slate-500' : 'text-slate-400'}`}>
+                  ID:{bs.id_evento}
                 </span>
               )}
               {bs.modalidade && (
-                <span className={`text-[10px] italic ${dark ? 'text-gray-500' : 'text-gray-400'}`}>
+                <span className={`text-[10px] font-medium ${dark ? 'text-slate-400' : 'text-slate-500'}`}>
                   {bs.modalidade}
                 </span>
               )}
               {bs.produtos && (
-                <span className={`text-[10px] ${dark ? 'text-gray-500' : 'text-gray-400'} truncate max-w-[120px]`} title={bs.produtos}>
+                <span className={`text-[10px] ${dark ? 'text-slate-500' : 'text-slate-400'} truncate max-w-[140px]`} title={bs.produtos}>
                   {bs.produtos}
                 </span>
               )}
             </div>
           </td>
-          <td className={`py-1.5 px-3 text-right text-xs font-medium ${dark ? 'text-gray-300' : 'text-gray-700'}`}>
+          <td className={`py-2 px-4 text-right text-xs font-bold ${dark ? 'text-slate-300' : 'text-slate-700'} tabular-nums`}>
             {fmt(bs.inscritos)}
           </td>
-          <td className={`py-1.5 px-2 text-right text-xs ${dark ? 'text-gray-500' : 'text-gray-400'}`}>
+          <td className={`py-2 px-3 text-right text-xs font-medium ${dark ? 'text-slate-500' : 'text-slate-400'} tabular-nums`}>
             {totalInscritos > 0 ? ((bs.inscritos / totalInscritos) * 100).toFixed(1) : '0.0'}%
           </td>
-          <td className={`py-1.5 px-3 text-right text-xs ${dark ? 'text-gray-400' : 'text-gray-600'}`}>
+          <td className={`py-2 px-4 text-right text-xs font-medium ${dark ? 'text-slate-400' : 'text-slate-600'} tabular-nums`}>
             {fmtR(bs.receita_bruta)}
           </td>
-          <td className={`py-1.5 px-3 text-right text-xs ${dark ? 'text-emerald-500' : 'text-emerald-600'}`}>
+          <td className={`py-2 px-4 text-right text-xs font-bold ${dark ? 'text-emerald-400' : 'text-emerald-600'} tabular-nums`}>
             {fmtR(bs.receita_liquida)}
           </td>
-          <td className={`py-1.5 px-3 text-right text-xs ${dark ? 'text-amber-500' : 'text-amber-600'}`}>
+          <td className={`py-2 px-4 text-right text-xs font-bold ${dark ? 'text-amber-400' : 'text-amber-600'} tabular-nums`}>
             {fmtR(bs.ticket_medio)}
           </td>
         </tr>
@@ -609,9 +614,6 @@ const DetalheEventos: React.FC = () => {
       if (isAbort) {
         setError('A consulta demorou mais de 2 minutos e meio e foi cancelada. O servidor pode estar sobrecarregado — tente novamente em alguns instantes.');
       } else if (is429) {
-        // Outra consulta ao vivo já está em andamento para este evento.
-        // Trata igual ao refresh_in_progress: mostra banner amber e faz
-        // re-poll automático sem substituir os dados já exibidos.
         setRefreshInProgress(true);
         if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
         pollTimerRef.current = setTimeout(() => loadDetalhe(grupo, false), 8000);
@@ -627,7 +629,7 @@ const DetalheEventos: React.FC = () => {
 
   useEffect(() => {
     if (eventoGrupo) loadDetalhe(eventoGrupo);
-  }, [eventoGrupo]);
+  }, [eventoGrupo, loadDetalhe]);
 
   useEffect(() => {
     if (!dropdownOpen) return;
@@ -662,7 +664,6 @@ const DetalheEventos: React.FC = () => {
     });
   }, []);
 
-  // Filtered rows
   const filteredRows = useMemo<DetalheRow[]>(() => {
     if (!payload) return [];
     let rows =
@@ -688,7 +689,6 @@ const DetalheEventos: React.FC = () => {
     return rows;
   }, [payload, activeTab, filters]);
 
-  // All banco rows for matching (filtered by active canal)
   const allBancoRows = useMemo<DetalheBancoRow[]>(() => {
     if (!payload) return [];
     const all = [...payload.por_banco.Ativo, ...payload.por_banco.Magento];
@@ -696,7 +696,6 @@ const DetalheEventos: React.FC = () => {
     return all;
   }, [payload, filters.canal]);
 
-  // Divergencias as a set of dim keys for fast lookup
   const divergenciaKeys = useMemo(() => {
     if (!payload) return new Set<string>();
     return new Set(
@@ -765,7 +764,6 @@ const DetalheEventos: React.FC = () => {
       .sort((a, b) => b.value - a.value);
   }, [payload]);
 
-  // Simplified: aggregate by base size (text before first " - ")
   const tamanhoChartDataSimple = useMemo(() => {
     if (!payload) return [];
     const map = new Map<string, number>();
@@ -779,7 +777,6 @@ const DetalheEventos: React.FC = () => {
       .sort((a, b) => b.value - a.value);
   }, [payload]);
 
-  // Breakdown map: base size → sorted list of variants with counts
   const tamanhoBreakdownMap = useMemo(() => {
     if (!payload) return new Map<string, { name: string; value: number }[]>();
     const map = new Map<string, Map<string, number>>();
@@ -812,7 +809,6 @@ const DetalheEventos: React.FC = () => {
     [eventos, searchEventos]
   );
 
-  // Selected event info
   const selectedEvento = useMemo(
     () => eventos.find(e => e.evento_grupo === eventoGrupo),
     [eventos, eventoGrupo]
@@ -822,367 +818,424 @@ const DetalheEventos: React.FC = () => {
   // Render
   // -------------------------------------------------------------------------
 
-  const cardBg = dark ? 'bg-gray-800/80 border-gray-700' : 'bg-white border-gray-200';
-  const textPrimary = dark ? 'text-white' : 'text-gray-900';
-  const textSec = dark ? 'text-gray-400' : 'text-gray-500';
-  const borderCol = dark ? 'border-gray-700' : 'border-gray-200';
+  const cardBg = dark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200';
+  const textPrimary = dark ? 'text-white' : 'text-slate-900';
+  const textSec = dark ? 'text-slate-400' : 'text-slate-500';
+  const borderCol = dark ? 'border-slate-800' : 'border-slate-200';
 
   return (
-    <div className={`min-h-screen relative overflow-hidden ${dark ? 'bg-gray-900' : 'bg-gray-50'}`}>
-      {/* Background blobs */}
-      <div className="absolute top-0 left-1/4 w-96 h-96 bg-gradient-to-r from-indigo-500/10 to-purple-500/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-gradient-to-r from-purple-500/10 to-pink-500/10 rounded-full blur-3xl pointer-events-none" />
+    <div className={`min-h-screen relative overflow-hidden font-sans ${dark ? 'bg-[#060913]' : 'bg-slate-50'}`}>
+      {/* Dynamic Background */}
+      <div className="absolute top-0 left-1/4 w-[600px] h-[600px] bg-gradient-to-r from-blue-600/10 to-purple-600/10 rounded-full blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-1/4 right-1/4 w-[500px] h-[500px] bg-gradient-to-r from-emerald-600/10 to-teal-600/10 rounded-full blur-[100px] pointer-events-none" />
 
-      <div className="relative p-4 lg:p-6">
-      {/* Header */}
-      <div className="mb-6 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="p-3 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 shadow-lg shadow-indigo-500/25">
-            <Table2 className="w-6 h-6 text-white" />
-          </div>
-          <div>
-            <h1 className={`text-2xl font-bold ${textPrimary}`}>Painel do evento</h1>
-            <p className={`text-sm mt-0.5 ${textSec}`}>Detalhamento de inscrições por canal, kit, modalidade e mais.</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Event Selector */}
-      <div className={`rounded-xl border ${cardBg} p-4 mb-6 shadow-sm`}>
-        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
-          <div className="flex-1 min-w-0" ref={comboboxRef}>
-            <label className={`block text-xs font-semibold uppercase tracking-wide mb-1 ${textSec}`}>
-              Evento
-            </label>
-            {loadingEventos ? (
-              <div className="h-9 w-full rounded-lg bg-gray-200 dark:bg-gray-700 animate-pulse" />
-            ) : (
-              <div className="relative">
-                {/* Trigger */}
-                <button
-                  type="button"
-                  onClick={() => setDropdownOpen(o => !o)}
-                  className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 text-sm text-left focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                    dark ? 'bg-gray-700 border-gray-600 text-gray-100' : 'bg-white border-gray-300 text-gray-900'
-                  }`}
-                >
-                  <span className="truncate">
-                    {selectedEvento
-                      ? `${selectedEvento.nome_evento}${selectedEvento.anos.length > 0 ? ` (${selectedEvento.anos[0]})` : ''} · ${selectedEvento.evento_grupo}`
-                      : '— Selecionar evento —'}
-                  </span>
-                  <ChevronDown className={`ml-2 w-4 h-4 flex-shrink-0 transition-transform ${dropdownOpen ? 'rotate-180' : ''} ${textSec}`} />
-                </button>
-
-                {/* Dropdown panel */}
-                {dropdownOpen && (
-                  <div className={`absolute z-50 mt-1 w-full rounded-xl border shadow-xl overflow-hidden ${
-                    dark ? 'bg-gray-800 border-gray-600' : 'bg-white border-gray-200'
-                  }`}>
-                    {/* Search inside dropdown */}
-                    <div className={`flex items-center gap-2 px-3 py-2 border-b ${dark ? 'border-gray-700' : 'border-gray-100'}`}>
-                      <Search className={`w-3.5 h-3.5 flex-shrink-0 ${textSec}`} />
-                      <input
-                        ref={searchInputRef}
-                        type="text"
-                        placeholder="Filtrar eventos…"
-                        value={searchEventos}
-                        onChange={e => setSearchEventos(e.target.value)}
-                        className={`flex-1 text-sm bg-transparent outline-none ${dark ? 'text-gray-100 placeholder-gray-500' : 'text-gray-900 placeholder-gray-400'}`}
-                      />
-                      {searchEventos && (
-                        <button onClick={() => setSearchEventos('')} className={`${textSec} hover:text-red-500`}>
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Options list */}
-                    <div className="max-h-72 overflow-y-auto">
-                      <button
-                        type="button"
-                        onClick={() => { setEventoGrupo(''); setDropdownOpen(false); }}
-                        className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
-                          !eventoGrupo
-                            ? 'bg-indigo-600 text-white'
-                            : dark ? 'text-gray-400 hover:bg-gray-700' : 'text-gray-400 hover:bg-gray-50'
-                        }`}
-                      >
-                        — Selecionar evento —
-                      </button>
-                      {filteredEventos.length === 0 && (
-                        <p className={`px-4 py-3 text-sm ${textSec}`}>Nenhum evento encontrado.</p>
-                      )}
-                      {filteredEventos.map(e => {
-                        const isSelected = e.evento_grupo === eventoGrupo;
-                        return (
-                          <button
-                            key={e.evento_grupo}
-                            type="button"
-                            onClick={() => { setEventoGrupo(e.evento_grupo); setDropdownOpen(false); }}
-                            className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
-                              isSelected
-                                ? 'bg-indigo-600 text-white'
-                                : dark ? 'text-gray-200 hover:bg-gray-700' : 'text-gray-800 hover:bg-gray-50'
-                            }`}
-                          >
-                            <span className="block font-medium truncate">
-                              {e.nome_evento}
-                              {e.anos.length > 0 ? ` (${e.anos[0]})` : ''}
-                            </span>
-                            <span className={`block text-xs truncate ${isSelected ? 'text-indigo-200' : textSec}`}>
-                              {e.evento_grupo}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          <button
-            onClick={() => eventoGrupo && loadDetalhe(eventoGrupo, true)}
-            disabled={!eventoGrupo || loading || refreshCooldown > 0}
-            title={
-              refreshCooldown > 0
-                ? `Aguarde ${refreshCooldown}s antes de atualizar novamente`
-                : 'Recarregar sem cache'
-            }
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-              dark ? 'bg-gray-700 hover:bg-gray-600 text-gray-200 disabled:opacity-40' : 'bg-gray-100 hover:bg-gray-200 text-gray-700 disabled:opacity-40'
-            }`}
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-            {refreshCooldown > 0 ? `Atualizar (${refreshCooldown}s)` : 'Atualizar'}
-          </button>
-        </div>
-
-        {/* Selected event metadata */}
-        {selectedEvento && (
-          <div className={`mt-3 pt-3 border-t ${borderCol} flex flex-wrap gap-3 text-xs ${textSec}`}>
-            <span>
-              <span className="font-semibold">Grupo / SKU:</span>{' '}
-              <code className={`px-1.5 py-0.5 rounded text-xs ${dark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-700'}`}>
-                {selectedEvento.evento_grupo}
-              </code>
-            </span>
-            {selectedEvento.ativo_ids.length > 0 && (
-              <span>
-                <span className="font-semibold text-emerald-600 dark:text-emerald-400">Ativo IDs:</span>{' '}
-                {selectedEvento.ativo_ids.join(', ')}
-              </span>
-            )}
-            {selectedEvento.magento_ids.length > 0 && (
-              <span>
-                <span className="font-semibold text-orange-600 dark:text-orange-400">Magento IDs:</span>{' '}
-                {selectedEvento.magento_ids.join(', ')}
-              </span>
-            )}
-            {payload && !loading && (
-              <SnapshotBadge source={payload.source} snapshotUpdatedAt={payload.snapshot_updated_at} dark={dark} />
-            )}
-          </div>
-        )}
-      </div>
-
-      {error && (
-        <div className={`mb-4 flex items-start gap-2 rounded-lg border p-3 ${dark ? 'bg-red-900/20 border-red-700 text-red-300' : 'bg-red-50 border-red-200 text-red-700'}`}>
-          <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-          <p className="text-sm">{error}</p>
-        </div>
-      )}
-
-      {refreshInProgress && !loading && (
-        <div className={`mb-4 flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm border ${
-          dark ? 'bg-amber-900/30 border-amber-700 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-700'
-        }`}>
-          <RefreshCw className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
-          <span>Atualização em andamento — dados mais recentes chegarão em instantes.</span>
-        </div>
-      )}
-
-      {loading && (
-        <div className="space-y-4">
-          <div className={`rounded-xl border ${
-            isLiveLoad
-              ? dark ? 'border-amber-700 bg-amber-900/30' : 'border-amber-200 bg-amber-50'
-              : dark ? 'border-indigo-700 bg-indigo-900/30' : 'border-indigo-200 bg-indigo-50'
-          } px-5 py-4 flex items-center gap-4`}>
-            <RefreshCw className={`w-5 h-5 animate-spin flex-shrink-0 ${isLiveLoad ? 'text-amber-500' : 'text-indigo-500'}`} />
-            <div className="min-w-0">
-              <p className={`text-sm font-semibold ${
-                isLiveLoad
-                  ? dark ? 'text-amber-300' : 'text-amber-700'
-                  : dark ? 'text-indigo-300' : 'text-indigo-700'
-              }`}>
-                {isLiveLoad
-                  ? 'Buscando dados ao vivo… (pode levar ~2 min)'
-                  : 'Carregando dados do snapshot…'}
-              </p>
-              <p className={`text-xs mt-0.5 ${
-                isLiveLoad
-                  ? dark ? 'text-amber-400' : 'text-amber-600'
-                  : dark ? 'text-indigo-400' : 'text-indigo-500'
-              }`}>
-                {isLiveLoad
-                  ? <>Consulta direta aos bancos externos (Ativo via SSH, Magento direto).{loadingSecs > 0 && <span className="ml-2 font-mono">{loadingSecs}s / 150s</span>}</>
-                  : 'Lendo snapshot consolidado — geralmente rápido.'}
-              </p>
+      <div className="relative p-6 lg:p-8 max-w-[1600px] mx-auto">
+        {/* Header */}
+        <motion.div 
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-8 flex items-center justify-between"
+        >
+          <div className="flex items-center gap-4">
+            <div className="p-3.5 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 shadow-xl shadow-blue-900/20 ring-1 ring-white/10">
+              <Table2 className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h1 className={`text-3xl font-black tracking-tight ${textPrimary}`}>Painel do evento</h1>
+              <p className={`text-[13px] font-medium mt-1 ${textSec}`}>Detalhamento de inscrições por canal, kit, modalidade e mais.</p>
             </div>
           </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className={`h-20 rounded-xl animate-pulse ${dark ? 'bg-gray-800' : 'bg-gray-200'}`} />
-            ))}
-          </div>
-          <div className={`h-64 rounded-xl animate-pulse ${dark ? 'bg-gray-800' : 'bg-gray-200'}`} />
-        </div>
-      )}
+        </motion.div>
 
-      {!loading && !payload && !error && (
-        <div className={`rounded-xl border ${cardBg} p-12 text-center shadow-sm`}>
-          <Table2 className={`w-12 h-12 mx-auto mb-3 ${dark ? 'text-gray-600' : 'text-gray-300'}`} />
-          <p className={`text-base font-medium ${textPrimary}`}>Nenhum evento selecionado</p>
-          <p className={`text-sm mt-1 ${textSec}`}>Selecione um evento acima para visualizar o detalhamento.</p>
-        </div>
-      )}
-
-      {!loading && payload && (
-        <>
-          {Object.keys(payload.erros).length > 0 && (
-            <div className={`mb-4 flex items-start gap-2 rounded-lg border p-3 ${dark ? 'bg-amber-900/20 border-amber-700 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
-              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-semibold">Atenção: erros ao buscar dados de alguns bancos</p>
-                {Object.entries(payload.erros).map(([banco, msg]) => (
-                  <p key={banco} className="text-xs mt-0.5">{banco}: {msg}</p>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {payload.divergencias.length > 0 && (
-            <div className={`mb-4 flex items-start gap-2 rounded-lg border p-3 ${dark ? 'bg-red-900/20 border-red-700 text-red-300' : 'bg-red-50 border-red-200 text-red-700'}`}>
-              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-semibold">{payload.divergencias.length} divergência(s) detectada(s)</p>
-                <p className="text-xs mt-0.5">A soma dos bancos difere do total consolidado em algumas combinações. Indicado por <AlertTriangle className="inline w-3 h-3" /> na árvore.</p>
-              </div>
-            </div>
-          )}
-
-          {/* KPI Cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <KpiCard label="Total Inscritos" value={fmt(payload.totais.inscritos)} icon={<Users className="w-4 h-4 text-blue-600" />} color="bg-blue-50" dark={dark} />
-            <KpiCard label="Receita Bruta" value={fmtR(payload.totais.receita_bruta)} icon={<DollarSign className="w-4 h-4 text-emerald-600" />} color="bg-emerald-50" dark={dark} />
-            <KpiCard label="Receita Líquida" value={fmtR(payload.totais.receita_liquida)} icon={<TrendingUp className="w-4 h-4 text-indigo-600" />} color="bg-indigo-50" dark={dark} />
-            <KpiCard label="Ticket Médio" value={fmtR(payload.totais.ticket_medio)} sub="Por inscrito (rec. líquida)" icon={<Tag className="w-4 h-4 text-amber-600" />} color="bg-amber-50" dark={dark} />
-          </div>
-
-          {/* Canal pills — funciona como filtro de primeira camada */}
-          <div className="flex flex-wrap gap-2 mb-5">
-            <span className={`text-xs font-semibold self-center mr-1 ${textSec}`}>Canal:</span>
-            {Object.entries(payload.totais.por_canal).map(([canal, stats]) => (
-              <button
-                key={canal}
-                onClick={() => setFilters(f => ({ ...f, canal: f.canal === canal ? '' : canal }))}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
-                  filters.canal === canal ? 'ring-2 ring-offset-1 ring-blue-500' : ''
-                } ${dark ? 'border-gray-600 bg-gray-700 text-gray-200 hover:bg-gray-600' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'}`}
-              >
-                <span className="w-2.5 h-2.5 rounded-full" style={{ background: CANAL_COLORS[canal] || '#6b7280' }} />
-                <span>{canal}</span>
-                <span className={dark ? 'text-gray-400' : 'text-gray-500'}>{fmt(stats.inscritos)}</span>
-              </button>
-            ))}
-            {filters.canal && (
-              <button onClick={() => setFilters(f => ({ ...f, canal: '' }))} className="flex items-center gap-1 px-2 py-1.5 text-xs text-red-500 hover:text-red-700">
-                <X className="w-3 h-3" /> Limpar
-              </button>
-            )}
-          </div>
-
-          {/* Charts */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-            <div className={`rounded-xl border ${cardBg} p-4 shadow-sm`}>
-              <p className={`text-xs font-semibold uppercase tracking-wide mb-3 ${textSec}`}>Inscritos por Canal</p>
-              <ResponsiveContainer width="100%" height={140}>
-                <BarChart data={canalChartData} barSize={32}>
-                  <XAxis dataKey="canal" tick={{ fontSize: 11, fill: dark ? '#9ca3af' : '#6b7280' }} axisLine={false} tickLine={false} />
-                  <YAxis hide />
-                  <Tooltip formatter={(v: number | undefined) => [fmt(v ?? 0), 'Inscritos']} contentStyle={{ background: dark ? '#1f2937' : '#fff', border: 'none', borderRadius: 8, fontSize: 12 }} />
-                  <Bar dataKey="inscritos" radius={[4, 4, 0, 0]}>
-                    {canalChartData.map((entry, i) => <Cell key={i} fill={CANAL_COLORS[entry.canal] || CHART_COLORS[i % CHART_COLORS.length]} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-            <div className={`rounded-xl border ${cardBg} p-4 shadow-sm`}>
-              <p className={`text-xs font-semibold uppercase tracking-wide mb-3 ${textSec}`}>Top Modalidades</p>
-              <ResponsiveContainer width="100%" height={140}>
-                <BarChart data={modalidadeChartData.slice(0, 8)} layout="vertical" barSize={12}>
-                  <XAxis type="number" hide />
-                  <YAxis type="category" dataKey="name" width={80} tick={{ fontSize: 10, fill: dark ? '#9ca3af' : '#6b7280' }} axisLine={false} tickLine={false} />
-                  <Tooltip formatter={(v: number | undefined) => [fmt(v ?? 0), 'Inscritos']} contentStyle={{ background: dark ? '#1f2937' : '#fff', border: 'none', borderRadius: 8, fontSize: 12 }} />
-                  <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                    {modalidadeChartData.slice(0, 8).map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-            <div className={`rounded-xl border ${cardBg} p-4 shadow-sm`}>
-              <div className="flex items-center justify-between mb-3">
-                <p className={`text-xs font-semibold uppercase tracking-wide ${textSec}`}>Tamanhos de Camiseta</p>
-                {tamanhoChartData.length > 0 && (
+        {/* Event Selector */}
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.98 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className={`rounded-3xl border ${cardBg} p-6 mb-8 shadow-sm backdrop-blur-xl relative z-20`}
+        >
+          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-end">
+            <div className="flex-1 min-w-0" ref={comboboxRef}>
+              <label className={`block text-[11px] font-bold uppercase tracking-wider mb-2 ${textSec}`}>
+                Selecione o Evento
+              </label>
+              {loadingEventos ? (
+                <div className="h-11 w-full rounded-xl bg-slate-200 dark:bg-slate-800 animate-pulse" />
+              ) : (
+                <div className="relative">
                   <button
-                    onClick={() => setTamanhoDetalhado(v => !v)}
-                    className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
-                      tamanhoDetalhado
-                        ? dark ? 'bg-blue-600 border-blue-500 text-white' : 'bg-blue-500 border-blue-500 text-white'
-                        : dark ? 'border-gray-600 text-gray-400 hover:text-gray-200' : 'border-gray-300 text-gray-500 hover:text-gray-700'
+                    type="button"
+                    onClick={() => setDropdownOpen(o => !o)}
+                    className={`w-full flex items-center justify-between rounded-xl border px-4 py-3 text-sm font-medium text-left focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow ${
+                      dark ? 'bg-slate-800/50 border-slate-700 text-slate-100 hover:bg-slate-800' : 'bg-slate-50 border-slate-200 text-slate-900 hover:bg-slate-100'
                     }`}
                   >
-                    {tamanhoDetalhado ? 'Simplificado' : 'Ver variações'}
+                    <span className="truncate">
+                      {selectedEvento
+                        ? `${selectedEvento.nome_evento}${selectedEvento.anos.length > 0 ? ` (${selectedEvento.anos[0]})` : ''} · ${selectedEvento.evento_grupo}`
+                        : '— Selecionar evento —'}
+                    </span>
+                    <ChevronDown className={`ml-2 w-4 h-4 flex-shrink-0 transition-transform duration-300 ${dropdownOpen ? 'rotate-180' : ''} ${textSec}`} />
+                  </button>
+
+                  <AnimatePresence>
+                    {dropdownOpen && (
+                      <motion.div 
+                        initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 4, scale: 0.98 }}
+                        transition={{ duration: 0.15 }}
+                        className={`absolute z-50 mt-2 w-full rounded-2xl border shadow-2xl overflow-hidden backdrop-blur-xl ${
+                          dark ? 'bg-slate-800/90 border-slate-700' : 'bg-white/90 border-slate-200'
+                        }`}
+                      >
+                        <div className={`flex items-center gap-3 px-4 py-3 border-b ${dark ? 'border-slate-700' : 'border-slate-100'}`}>
+                          <Search className={`w-4 h-4 flex-shrink-0 ${textSec}`} />
+                          <input
+                            ref={searchInputRef}
+                            type="text"
+                            placeholder="Buscar por nome ou ID..."
+                            value={searchEventos}
+                            onChange={e => setSearchEventos(e.target.value)}
+                            className={`flex-1 text-sm bg-transparent outline-none font-medium ${dark ? 'text-white placeholder-slate-500' : 'text-slate-900 placeholder-slate-400'}`}
+                          />
+                          {searchEventos && (
+                            <button onClick={() => setSearchEventos('')} className={`${textSec} hover:text-red-500 transition-colors`}>
+                              <X className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="max-h-80 overflow-y-auto scrollbar-thin-custom">
+                          <button
+                            type="button"
+                            onClick={() => { setEventoGrupo(''); setDropdownOpen(false); }}
+                            className={`w-full text-left px-5 py-3 text-sm font-medium transition-colors ${
+                              !eventoGrupo
+                                ? 'bg-blue-600 text-white'
+                                : dark ? 'text-slate-400 hover:bg-slate-700/50' : 'text-slate-500 hover:bg-slate-50'
+                            }`}
+                          >
+                            — Limpar Seleção —
+                          </button>
+                          {filteredEventos.length === 0 && (
+                            <p className={`px-5 py-4 text-sm ${textSec} text-center`}>Nenhum evento encontrado.</p>
+                          )}
+                          {filteredEventos.map(e => {
+                            const isSelected = e.evento_grupo === eventoGrupo;
+                            return (
+                              <button
+                                key={e.evento_grupo}
+                                type="button"
+                                onClick={() => { setEventoGrupo(e.evento_grupo); setDropdownOpen(false); }}
+                                className={`w-full text-left px-5 py-3 transition-colors border-b last:border-0 ${dark ? 'border-slate-700/50' : 'border-slate-100'} ${
+                                  isSelected
+                                    ? 'bg-blue-600 text-white'
+                                    : dark ? 'hover:bg-slate-700/50' : 'hover:bg-slate-50'
+                                }`}
+                              >
+                                <span className={`block font-bold text-sm truncate ${isSelected ? 'text-white' : dark ? 'text-slate-200' : 'text-slate-800'}`}>
+                                  {e.nome_evento}
+                                  {e.anos.length > 0 ? ` (${e.anos[0]})` : ''}
+                                </span>
+                                <span className={`block text-xs font-mono mt-0.5 truncate ${isSelected ? 'text-blue-200' : textSec}`}>
+                                  {e.evento_grupo}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={() => eventoGrupo && loadDetalhe(eventoGrupo, true)}
+              disabled={!eventoGrupo || loading || refreshCooldown > 0}
+              className={`flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-bold tracking-wide transition-all shadow-sm ${
+                dark 
+                  ? 'bg-blue-600 hover:bg-blue-500 text-white disabled:bg-slate-800 disabled:text-slate-500 disabled:shadow-none' 
+                  : 'bg-blue-600 hover:bg-blue-700 text-white disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none'
+              }`}
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              {refreshCooldown > 0 ? `Aguarde (${refreshCooldown}s)` : 'Atualizar Dados'}
+            </button>
+          </div>
+
+          <AnimatePresence>
+            {selectedEvento && (
+              <motion.div 
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                className={`mt-4 pt-4 border-t ${borderCol} flex flex-wrap gap-4 items-center`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className={`text-[11px] font-bold uppercase tracking-wider ${textSec}`}>SKU:</span>
+                  <code className={`px-2 py-1 rounded-md text-xs font-mono font-bold ${dark ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
+                    {selectedEvento.evento_grupo}
+                  </code>
+                </div>
+                {selectedEvento.ativo_ids.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-500">Ativo IDs:</span>
+                    <span className={`text-xs font-mono font-medium ${dark ? 'text-slate-300' : 'text-slate-700'}`}>{selectedEvento.ativo_ids.join(', ')}</span>
+                  </div>
+                )}
+                {selectedEvento.magento_ids.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-orange-600 dark:text-orange-500">Magento IDs:</span>
+                    <span className={`text-xs font-mono font-medium ${dark ? 'text-slate-300' : 'text-slate-700'}`}>{selectedEvento.magento_ids.join(', ')}</span>
+                  </div>
+                )}
+                {payload && !loading && (
+                  <div className="ml-auto">
+                    <SnapshotBadge source={payload.source} snapshotUpdatedAt={payload.snapshot_updated_at} dark={dark} />
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
+
+        <AnimatePresence>
+          {error && (
+            <motion.div 
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className={`mb-8 flex items-start gap-3 rounded-2xl border p-4 shadow-lg ${dark ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-red-50 border-red-200 text-red-700'}`}
+            >
+              <div className="p-2 bg-red-500/20 rounded-lg">
+                <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+              </div>
+              <div>
+                <p className="font-bold text-sm">Erro ao carregar dados</p>
+                <p className="text-sm mt-1 opacity-90">{error}</p>
+              </div>
+            </motion.div>
+          )}
+
+          {refreshInProgress && !loading && (
+            <motion.div 
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className={`mb-8 flex items-center gap-3 rounded-2xl p-4 border shadow-lg ${
+                dark ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' : 'bg-amber-50 border-amber-200 text-amber-700'
+              }`}
+            >
+              <div className="p-2 bg-amber-500/20 rounded-lg">
+                <RefreshCw className="w-5 h-5 animate-spin flex-shrink-0" />
+              </div>
+              <span className="text-sm font-bold tracking-wide">Atualização em andamento — dados mais recentes chegarão em instantes.</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {loading && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="space-y-6"
+          >
+            <div className={`rounded-2xl border ${
+              isLiveLoad
+                ? dark ? 'border-amber-500/30 bg-amber-500/10' : 'border-amber-200 bg-amber-50'
+                : dark ? 'border-blue-500/30 bg-blue-500/10' : 'border-blue-200 bg-blue-50'
+            } p-6 flex items-center gap-5 shadow-lg`}>
+              <div className={`p-3 rounded-xl ${isLiveLoad ? 'bg-amber-500/20' : 'bg-blue-500/20'}`}>
+                <RefreshCw className={`w-6 h-6 animate-spin flex-shrink-0 ${isLiveLoad ? 'text-amber-500' : 'text-blue-500'}`} />
+              </div>
+              <div className="min-w-0">
+                <p className={`text-base font-bold tracking-wide ${
+                  isLiveLoad
+                    ? dark ? 'text-amber-400' : 'text-amber-700'
+                    : dark ? 'text-blue-400' : 'text-blue-700'
+                }`}>
+                  {isLiveLoad
+                    ? 'Buscando dados ao vivo… (pode levar ~2 min)'
+                    : 'Carregando dados do snapshot…'}
+                </p>
+                <p className={`text-sm mt-1 font-medium ${
+                  isLiveLoad
+                    ? dark ? 'text-amber-500/70' : 'text-amber-600/80'
+                    : dark ? 'text-blue-400/70' : 'text-blue-600/80'
+                }`}>
+                  {isLiveLoad
+                    ? <>Consulta direta aos bancos externos (Ativo via SSH, Magento direto).{loadingSecs > 0 && <span className="ml-2 font-mono font-bold">{loadingSecs}s / 150s</span>}</>
+                    : 'Lendo snapshot consolidado — geralmente rápido.'}
+                </p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className={`h-28 rounded-2xl animate-pulse ${dark ? 'bg-slate-800' : 'bg-slate-200'}`} />
+              ))}
+            </div>
+            <div className={`h-[400px] rounded-3xl animate-pulse ${dark ? 'bg-slate-800' : 'bg-slate-200'}`} />
+          </motion.div>
+        )}
+
+        {!loading && !payload && !error && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className={`rounded-3xl border ${cardBg} p-16 text-center shadow-sm flex flex-col items-center justify-center min-h-[400px]`}
+          >
+            <div className={`p-6 rounded-full mb-6 ${dark ? 'bg-slate-800/50' : 'bg-slate-100'}`}>
+              <Table2 className={`w-12 h-12 ${dark ? 'text-slate-600' : 'text-slate-400'}`} />
+            </div>
+            <p className={`text-xl font-black tracking-tight ${textPrimary}`}>Nenhum evento selecionado</p>
+            <p className={`text-sm font-medium mt-2 max-w-sm ${textSec}`}>Selecione um evento acima para visualizar o detalhamento completo de inscrições e receita.</p>
+          </motion.div>
+        )}
+
+        {!loading && payload && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-8"
+          >
+            {Object.keys(payload.erros).length > 0 && (
+              <div className={`flex items-start gap-3 rounded-2xl border p-4 shadow-sm ${dark ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
+                <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-bold">Atenção: erros ao buscar dados de alguns bancos</p>
+                  {Object.entries(payload.erros).map(([banco, msg]) => (
+                    <p key={banco} className="text-xs font-medium mt-1 opacity-90">{banco}: {msg}</p>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {payload.divergencias.length > 0 && (
+              <div className={`flex items-start gap-3 rounded-2xl border p-4 shadow-sm ${dark ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-red-50 border-red-200 text-red-700'}`}>
+                <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-bold">{payload.divergencias.length} divergência(s) detectada(s)</p>
+                  <p className="text-xs font-medium mt-1 opacity-90">A soma dos bancos difere do total consolidado em algumas combinações. Indicado por <AlertTriangle className="inline w-3 h-3 mx-1" /> na árvore.</p>
+                </div>
+              </div>
+            )}
+
+            {/* KPI Cards */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+              <KpiCard delay={0.0} label="Total Inscritos" value={fmt(payload.totais.inscritos)} icon={<Users className="w-5 h-5 text-blue-500" />} color="bg-blue-500/20" dark={dark} />
+              <KpiCard delay={0.1} label="Receita Bruta" value={fmtR(payload.totais.receita_bruta)} icon={<DollarSign className="w-5 h-5 text-emerald-500" />} color="bg-emerald-500/20" dark={dark} />
+              <KpiCard delay={0.2} label="Receita Líquida" value={fmtR(payload.totais.receita_liquida)} icon={<TrendingUp className="w-5 h-5 text-indigo-500" />} color="bg-indigo-500/20" dark={dark} />
+              <KpiCard delay={0.3} label="Ticket Médio" value={fmtR(payload.totais.ticket_medio)} sub="Por inscrito (rec. líquida)" icon={<Tag className="w-5 h-5 text-amber-500" />} color="bg-amber-500/20" dark={dark} />
+            </div>
+
+            {/* Canal pills */}
+            <div className="flex flex-wrap gap-3 items-center">
+              <span className={`text-[11px] font-bold uppercase tracking-wider ${textSec}`}>Filtrar por Canal:</span>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(payload.totais.por_canal).map(([canal, stats]) => (
+                  <button
+                    key={canal}
+                    onClick={() => setFilters(f => ({ ...f, canal: f.canal === canal ? '' : canal }))}
+                    className={`flex items-center gap-2.5 px-4 py-2 rounded-xl text-xs font-bold border transition-all duration-300 ${
+                      filters.canal === canal 
+                        ? 'ring-2 ring-offset-2 ring-blue-500 shadow-md scale-105' 
+                        : 'hover:scale-105'
+                    } ${dark ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm'}`}
+                  >
+                    <span className="w-2.5 h-2.5 rounded-full shadow-inner" style={{ background: CANAL_COLORS[canal] || '#6b7280' }} />
+                    <span>{canal}</span>
+                    <span className={`px-1.5 py-0.5 rounded-md text-[10px] ${dark ? 'bg-slate-900 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>{fmt(stats.inscritos)}</span>
+                  </button>
+                ))}
+                {filters.canal && (
+                  <button 
+                    onClick={() => setFilters(f => ({ ...f, canal: '' }))} 
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-red-500 hover:bg-red-500/10 transition-colors"
+                  >
+                    <X className="w-3.5 h-3.5" /> Limpar
                   </button>
                 )}
               </div>
-              {tamanhoChartData.length > 0 ? (
-                tamanhoDetalhado ? (
-                  /* Detailed mode: horizontal bar table */
-                  (() => {
-                    const totalAll = tamanhoChartData.reduce((s, r) => s + r.value, 0);
-                    return (
-                      <div className="overflow-y-auto" style={{ maxHeight: 220 }}>
-                        <table className="w-full text-xs">
-                          <thead>
-                            <tr className={`${dark ? 'text-gray-500' : 'text-gray-400'} uppercase tracking-wide`}>
-                              <th className="text-left pb-1.5 font-semibold pr-3">Tamanho</th>
-                              <th className="text-right pb-1.5 font-semibold pr-3">Qtd</th>
-                              <th className="text-right pb-1.5 font-semibold w-10">%</th>
+            </div>
+
+            {/* Charts Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className={`rounded-3xl border ${cardBg} p-6 shadow-sm backdrop-blur-xl`}>
+                <p className={`text-[11px] font-bold uppercase tracking-wider mb-6 ${textSec}`}>Inscritos por Canal</p>
+                <div className="h-[180px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={canalChartData} barSize={40} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <XAxis dataKey="canal" tick={{ fontSize: 11, fill: dark ? '#94a3b8' : '#64748b', fontWeight: 600 }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 11, fill: dark ? '#94a3b8' : '#64748b' }} axisLine={false} tickLine={false} />
+                      <Tooltip formatter={(v: number | undefined) => [fmt(v ?? 0), 'Inscritos']} cursor={{ fill: dark ? '#334155' : '#f1f5f9' }} contentStyle={{ background: dark ? '#1e293b' : '#fff', border: 'none', borderRadius: 12, fontSize: 12, fontWeight: 600, boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)' }} />
+                      <Bar dataKey="inscritos" radius={[6, 6, 0, 0]}>
+                        {canalChartData.map((entry, i) => <Cell key={i} fill={CANAL_COLORS[entry.canal] || CHART_COLORS[i % CHART_COLORS.length]} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className={`rounded-3xl border ${cardBg} p-6 shadow-sm backdrop-blur-xl`}>
+                <p className={`text-[11px] font-bold uppercase tracking-wider mb-6 ${textSec}`}>Top Modalidades</p>
+                <div className="h-[180px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={modalidadeChartData.slice(0, 8)} layout="vertical" barSize={16} margin={{ top: 0, right: 20, left: 0, bottom: 0 }}>
+                      <XAxis type="number" hide />
+                      <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 10, fill: dark ? '#94a3b8' : '#64748b', fontWeight: 600 }} axisLine={false} tickLine={false} />
+                      <Tooltip formatter={(v: number | undefined) => [fmt(v ?? 0), 'Inscritos']} cursor={{ fill: dark ? '#334155' : '#f1f5f9' }} contentStyle={{ background: dark ? '#1e293b' : '#fff', border: 'none', borderRadius: 12, fontSize: 12, fontWeight: 600, boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)' }} />
+                      <Bar dataKey="value" radius={[0, 6, 6, 0]}>
+                        {modalidadeChartData.slice(0, 8).map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className={`rounded-3xl border ${cardBg} p-6 shadow-sm backdrop-blur-xl flex flex-col`}>
+                <div className="flex items-center justify-between mb-4">
+                  <p className={`text-[11px] font-bold uppercase tracking-wider ${textSec}`}>Tamanhos de Camiseta</p>
+                  {tamanhoChartData.length > 0 && (
+                    <button
+                      onClick={() => setTamanhoDetalhado(v => !v)}
+                      className={`text-[10px] px-3 py-1 font-bold uppercase tracking-wider rounded-lg transition-colors ${
+                        tamanhoDetalhado
+                          ? dark ? 'bg-blue-600 text-white' : 'bg-blue-600 text-white shadow-md'
+                          : dark ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      {tamanhoDetalhado ? 'Simplificado' : 'Ver Detalhes'}
+                    </button>
+                  )}
+                </div>
+                <div className="flex-1 min-h-0 relative">
+                  {tamanhoChartData.length > 0 ? (
+                    tamanhoDetalhado ? (
+                      <div className="absolute inset-0 overflow-y-auto scrollbar-thin-custom pr-2">
+                        <table className="w-full text-[11px] font-medium">
+                          <thead className="sticky top-0 z-10 backdrop-blur-md pb-2">
+                            <tr className={`${dark ? 'text-slate-400 bg-slate-900/80' : 'text-slate-500 bg-white/80'} uppercase tracking-wider`}>
+                              <th className="text-left py-2 font-bold pr-2">Tamanho</th>
+                              <th className="text-right py-2 font-bold pr-3">Qtd</th>
+                              <th className="text-right py-2 font-bold w-12">%</th>
                             </tr>
                           </thead>
                           <tbody>
                             {tamanhoChartData.map((row, i) => {
+                              const totalAll = tamanhoChartData.reduce((s, r) => s + r.value, 0);
                               const pct = totalAll > 0 ? (row.value / totalAll) * 100 : 0;
                               return (
-                                <tr key={row.name}>
-                                  <td className="py-0.5 pr-3">
-                                    <div className="flex items-center gap-1.5">
-                                      <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, display: 'inline-block', background: dark ? '#4b5563' : '#d1d5db' }} />
-                                      <span className={`${dark ? 'text-gray-200' : 'text-gray-700'} truncate`} style={{ maxWidth: 130 }}>{row.name}</span>
+                                <tr key={row.name} className={`border-b last:border-0 ${dark ? 'border-slate-800/50' : 'border-slate-100'}`}>
+                                  <td className="py-2 pr-2">
+                                    <div className="flex items-center gap-2">
+                                      <span style={{ width: 8, height: 8, borderRadius: 2, flexShrink: 0, background: CHART_COLORS[i % CHART_COLORS.length] }} />
+                                      <span className={`${dark ? 'text-slate-200' : 'text-slate-700'} truncate font-semibold`} style={{ maxWidth: 120 }}>{row.name}</span>
                                     </div>
                                   </td>
-                                  <td className={`py-0.5 pr-3 text-right tabular-nums ${dark ? 'text-gray-300' : 'text-gray-600'}`}>{fmt(row.value)}</td>
-                                  <td className="py-0.5 text-right w-10">
-                                    <div className="flex items-center justify-end gap-1">
-                                      <div className={`h-1.5 rounded-full ${dark ? 'bg-gray-600' : 'bg-gray-200'}`} style={{ width: 36 }}>
-                                        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: CHART_COLORS[i % CHART_COLORS.length] }} />
-                                      </div>
-                                      <span className={`tabular-nums w-8 text-right ${dark ? 'text-gray-400' : 'text-gray-500'}`}>{pct.toFixed(0)}%</span>
-                                    </div>
+                                  <td className={`py-2 pr-3 text-right tabular-nums font-bold ${dark ? 'text-slate-300' : 'text-slate-600'}`}>{fmt(row.value)}</td>
+                                  <td className="py-2 text-right w-12">
+                                    <span className={`tabular-nums font-bold ${dark ? 'text-slate-400' : 'text-slate-500'}`}>{pct.toFixed(0)}%</span>
                                   </td>
                                 </tr>
                               );
@@ -1190,290 +1243,289 @@ const DetalheEventos: React.FC = () => {
                           </tbody>
                         </table>
                       </div>
-                    );
-                  })()
-                ) : (
-                  /* Simplified mode: donut with rich tooltip */
-                  <ResponsiveContainer width="100%" height={160}>
-                    <PieChart>
-                      <Pie
-                        data={tamanhoChartDataSimple}
-                        dataKey="value"
-                        nameKey="name"
-                        cx="50%"
-                        cy="50%"
-                        outerRadius={52}
-                        innerRadius={28}
-                      >
-                        {tamanhoChartDataSimple.map((_, i) => (
-                          <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        content={({ active, payload: tp }) => {
-                          if (!active || !tp?.length) return null;
-                          const entry = tp[0];
-                          const baseName = entry.name as string;
-                          const total = entry.value as number;
-                          const variants = tamanhoBreakdownMap.get(baseName);
-                          const hasVariants = variants && variants.length > 1;
-                          return (
-                            <div style={{
-                              background: dark ? '#1f2937' : '#fff',
-                              border: `1px solid ${dark ? '#374151' : '#e5e7eb'}`,
-                              borderRadius: 8,
-                              padding: '8px 10px',
-                              fontSize: 12,
-                              minWidth: 140,
-                              maxWidth: 220,
-                            }}>
-                              <p style={{ fontWeight: 600, marginBottom: hasVariants ? 6 : 0, color: dark ? '#f3f4f6' : '#111827' }}>
-                                {baseName} — {fmt(total)}
-                              </p>
-                              {hasVariants && variants!.map(v => {
-                                const pct = total > 0 ? ((v.value / total) * 100).toFixed(1) : '0';
-                                const label = v.name === baseName ? `${baseName} (sem variação)` : v.name;
+                    ) : (
+                      <div className="absolute inset-0">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+                            <Pie
+                              data={tamanhoChartDataSimple}
+                              dataKey="value"
+                              nameKey="name"
+                              cx="50%"
+                              cy="50%"
+                              outerRadius={65}
+                              innerRadius={40}
+                              stroke="none"
+                            >
+                              {tamanhoChartDataSimple.map((_, i) => (
+                                <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip
+                              content={({ active, payload: tp }) => {
+                                if (!active || !tp?.length) return null;
+                                const entry = tp[0];
+                                const baseName = entry.name as string;
+                                const total = entry.value as number;
+                                const variants = tamanhoBreakdownMap.get(baseName);
+                                const hasVariants = variants && variants.length > 1;
                                 return (
-                                  <div key={v.name} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: dark ? '#9ca3af' : '#6b7280', marginTop: 2 }}>
-                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
-                                    <span style={{ flexShrink: 0 }}>{fmt(v.value)} ({pct}%)</span>
+                                  <div className={`p-3 rounded-xl shadow-xl ${dark ? 'bg-slate-800 text-white' : 'bg-white text-slate-900'} border ${dark ? 'border-slate-700' : 'border-slate-100'} text-xs min-w-[160px]`}>
+                                    <p className="font-bold border-b pb-2 mb-2 border-current border-opacity-10">
+                                      {baseName} — {fmt(total)}
+                                    </p>
+                                    {hasVariants && variants!.map(v => {
+                                      const pct = total > 0 ? ((v.value / total) * 100).toFixed(1) : '0';
+                                      const label = v.name === baseName ? `${baseName} (único)` : v.name;
+                                      return (
+                                        <div key={v.name} className={`flex justify-between gap-3 mt-1.5 font-medium ${dark ? 'text-slate-300' : 'text-slate-600'}`}>
+                                          <span className="truncate max-w-[120px]">{label}</span>
+                                          <span className="flex-shrink-0">{fmt(v.value)} ({pct}%)</span>
+                                        </div>
+                                      );
+                                    })}
                                   </div>
                                 );
-                              })}
-                            </div>
-                          );
-                        }}
-                      />
-                      <Legend iconSize={7} iconType="square" wrapperStyle={{ fontSize: 10 }} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                )
-              ) : (
-                <div className={`flex items-center justify-center h-[160px] text-sm ${textSec}`}>Sem dados de tamanho</div>
-              )}
-            </div>
-          </div>
-
-          {/* Additional filters bar */}
-          <div className={`rounded-xl border ${cardBg} p-3 mb-4 shadow-sm`}>
-            <div className="flex flex-wrap gap-2 items-center">
-              <div className="flex items-center gap-1.5 mr-1">
-                <Filter className={`w-3.5 h-3.5 ${textSec}`} />
-                <span className={`text-xs font-semibold ${textSec}`}>Filtros adicionais</span>
-                {activeFiltersCount > 0 && (
-                  <span className="bg-blue-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{activeFiltersCount}</span>
-                )}
+                              }}
+                            />
+                            <Legend iconSize={8} iconType="circle" wrapperStyle={{ fontSize: 11, fontWeight: 600, paddingTop: 10 }} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )
+                  ) : (
+                    <div className={`absolute inset-0 flex items-center justify-center text-sm font-medium ${textSec}`}>Sem dados de tamanho</div>
+                  )}
+                </div>
               </div>
-              <div className="relative">
-                <Search className={`absolute left-2 top-1.5 w-3.5 h-3.5 ${textSec}`} />
-                <input
-                  type="text"
-                  placeholder="Buscar…"
-                  value={filters.search}
-                  onChange={e => setFilters(f => ({ ...f, search: e.target.value }))}
-                  className={`pl-7 pr-3 py-1 text-xs rounded-lg border focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                    dark ? 'bg-gray-700 border-gray-600 text-gray-100 placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'
-                  }`}
-                  style={{ width: 130 }}
-                />
-              </div>
-              {/* Dimension dropdowns (sans canal — já tem pills acima) */}
-              {(['kit', 'modalidade', 'pelotao', 'produtos', 'tamanho_camiseta'] as const)
-                .filter(dim => dim !== 'produtos' || hasProdutos)
-                .map(dim => (
-                <select
-                  key={dim}
-                  value={(filters as any)[dim]}
-                  onChange={e => setFilters(f => ({ ...f, [dim]: e.target.value }))}
-                  className={`text-xs rounded-lg border px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                    (filters as any)[dim] ? 'ring-1 ring-blue-500' : ''
-                  } ${dark ? 'bg-gray-700 border-gray-600 text-gray-100' : 'bg-white border-gray-300 text-gray-900'}`}
-                >
-                  <option value="">{DIM_LABELS[dim] || dim}</option>
-                  {(opts[dim] || []).map(v => <option key={v} value={v}>{v}</option>)}
-                </select>
-              ))}
-              {(activeFiltersCount > 0 || filters.search) && (
-                <button onClick={() => setFilters(EMPTY_FILTERS)} className="flex items-center gap-1 text-xs text-red-500 hover:text-red-700 ml-1">
-                  <X className="w-3 h-3" /> Limpar
-                </button>
-              )}
             </div>
-          </div>
 
-          {/* Table */}
-          <div className={`rounded-xl border ${cardBg} shadow-sm overflow-hidden`}>
-            {/* Tabs + view toggle */}
-            <div className={`flex items-center justify-between px-4 py-2 border-b ${borderCol}`}>
-              <div className="flex gap-1">
-                {(['consolidado', 'ativo', 'magento'] as const).map(tab => (
+            {/* Main Table Area */}
+            <div className={`rounded-3xl border ${cardBg} shadow-xl overflow-hidden flex flex-col backdrop-blur-xl`}>
+              
+              {/* Filter Toolbar inside table container for cohesion */}
+              <div className={`p-4 border-b ${borderCol} ${dark ? 'bg-slate-800/50' : 'bg-slate-50/50'}`}>
+                <div className="flex flex-wrap gap-3 items-center">
+                  <div className="relative">
+                    <Search className={`absolute left-3 top-2.5 w-4 h-4 ${textSec}`} />
+                    <input
+                      type="text"
+                      placeholder="Buscar na tabela..."
+                      value={filters.search}
+                      onChange={e => setFilters(f => ({ ...f, search: e.target.value }))}
+                      className={`pl-9 pr-4 py-2 text-sm font-medium rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500 w-[200px] transition-shadow ${
+                        dark ? 'bg-slate-900 border-slate-700 text-white placeholder-slate-500' : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400'
+                      }`}
+                    />
+                  </div>
+                  
+                  <div className={`w-px h-6 ${dark ? 'bg-slate-700' : 'bg-slate-200'} mx-1`} />
+                  
+                  <div className="flex flex-wrap gap-2">
+                    {(['kit', 'modalidade', 'pelotao', 'produtos', 'tamanho_camiseta'] as const)
+                      .filter(dim => dim !== 'produtos' || hasProdutos)
+                      .map(dim => (
+                      <select
+                        key={dim}
+                        value={(filters as any)[dim]}
+                        onChange={e => setFilters(f => ({ ...f, [dim]: e.target.value }))}
+                        className={`text-xs font-bold rounded-xl border px-3 py-2 appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer transition-shadow ${
+                          (filters as any)[dim] 
+                            ? dark ? 'bg-blue-900/30 border-blue-500/50 text-blue-300' : 'bg-blue-50 border-blue-200 text-blue-700' 
+                            : dark ? 'bg-slate-900 border-slate-700 text-slate-300' : 'bg-white border-slate-200 text-slate-700'
+                        }`}
+                        style={{ paddingRight: '2rem', backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='${dark ? '%2394a3b8' : '%2364748b'} '%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`, backgroundPosition: 'right 0.5rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1em 1em' }}
+                      >
+                        <option value="">{DIM_LABELS[dim]}</option>
+                        {(opts[dim] || []).map(v => <option key={v} value={v}>{v}</option>)}
+                      </select>
+                    ))}
+                  </div>
+
+                  {(activeFiltersCount > 0 || filters.search) && (
+                    <button onClick={() => setFilters(EMPTY_FILTERS)} className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-red-500 hover:bg-red-500/10 rounded-xl transition-colors ml-auto">
+                      <X className="w-4 h-4" /> Limpar Filtros
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Tabs + view toggle */}
+              <div className={`flex items-center justify-between px-5 py-3 border-b ${borderCol} ${dark ? 'bg-slate-900/80' : 'bg-white'}`}>
+                <div className="flex gap-2">
+                  {(['consolidado', 'ativo', 'magento'] as const).map(tab => (
+                    <button
+                      key={tab}
+                      onClick={() => { setActiveTab(tab); setExpanded(new Set()); setBankExpanded(new Set()); }}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold tracking-wide transition-all ${
+                        activeTab === tab 
+                          ? 'bg-slate-800 text-white shadow-md dark:bg-blue-600' 
+                          : dark ? 'text-slate-400 hover:bg-slate-800 hover:text-slate-200' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
+                      }`}
+                    >
+                      {tab === 'consolidado' && <Layers className="w-4 h-4" />}
+                      {tab !== 'consolidado' && <Database className="w-4 h-4" />}
+                      {tab === 'consolidado'
+                        ? `Consolidado (${fmt(payload.consolidado.length)})`
+                        : tab === 'ativo'
+                        ? `Ativo (${fmt(payload.por_banco.Ativo.length)})`
+                        : `Magento (${fmt(payload.por_banco.Magento.length)})`}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
                   <button
-                    key={tab}
-                    onClick={() => { setActiveTab(tab); setExpanded(new Set()); setBankExpanded(new Set()); }}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                      activeTab === tab ? 'bg-blue-500 text-white' : dark ? 'text-gray-400 hover:bg-gray-700' : 'text-gray-600 hover:bg-gray-100'
-                    }`}
+                    onClick={() => setViewMode('tree')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${viewMode === 'tree' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+                    title="Visão hierárquica"
                   >
-                    {tab === 'consolidado' && <Layers className="w-3.5 h-3.5" />}
-                    {tab !== 'consolidado' && <Database className="w-3.5 h-3.5" />}
-                    {tab === 'consolidado'
-                      ? `Consolidado (${fmt(payload.consolidado.length)})`
-                      : tab === 'ativo'
-                      ? `Ativo (${fmt(payload.por_banco.Ativo.length)})`
-                      : `Magento (${fmt(payload.por_banco.Magento.length)})`}
+                    <Layers className="w-3.5 h-3.5" /> Árvore
                   </button>
-                ))}
+                  <button
+                    onClick={() => setViewMode('flat')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${viewMode === 'flat' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+                    title="Visão plana"
+                  >
+                    <Table2 className="w-3.5 h-3.5" /> Plana
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setViewMode('tree')}
-                  className={`p-1.5 rounded text-xs font-medium transition-colors ${viewMode === 'tree' ? 'bg-blue-500 text-white' : dark ? 'text-gray-400 hover:bg-gray-700' : 'text-gray-500 hover:bg-gray-100'}`}
-                  title="Visão hierárquica"
-                >
-                  <Layers className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => setViewMode('flat')}
-                  className={`p-1.5 rounded text-xs font-medium transition-colors ${viewMode === 'flat' ? 'bg-blue-500 text-white' : dark ? 'text-gray-400 hover:bg-gray-700' : 'text-gray-500 hover:bg-gray-100'}`}
-                  title="Visão plana"
-                >
-                  <Table2 className="w-3.5 h-3.5" />
-                </button>
-                {viewMode === 'tree' && (
-                  <>
-                    <button
-                      onClick={() => {
-                        const keys = new Set<string>();
-                        const collect = (nodes: TreeNode[]) => nodes.forEach(n => {
-                          if (n.children) { keys.add(n.key); collect(n.children); }
-                        });
-                        collect(tree);
-                        setExpanded(keys);
-                      }}
-                      className={`text-xs px-2 py-1 rounded ${dark ? 'text-blue-400 hover:bg-gray-700' : 'text-blue-600 hover:bg-blue-50'}`}
-                    >
-                      Expandir tudo
-                    </button>
-                    <button
-                      onClick={() => { setExpanded(new Set()); setBankExpanded(new Set()); }}
-                      className={`text-xs px-2 py-1 rounded ${dark ? 'text-gray-400 hover:bg-gray-700' : 'text-gray-500 hover:bg-gray-100'}`}
-                    >
-                      Colapsar
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
 
-            {filteredRows.length === 0 ? (
-              <div className="py-12 text-center">
-                <p className={`text-sm ${textSec}`}>Nenhum dado com os filtros atuais.</p>
-              </div>
-            ) : viewMode === 'tree' ? (
-              <div className="overflow-auto">
-                <table className="w-full min-w-[700px] text-sm">
-                  <thead>
-                    <tr className={`text-left text-xs font-semibold uppercase tracking-wide ${dark ? 'bg-gray-700/80 text-gray-400' : 'bg-gray-50 text-gray-500'}`}>
-                      <th className="py-2 px-3">
-                        <div className="flex items-center gap-1">
-                          Dimensão
-                          <span className="relative group cursor-default">
-                            <Info className="w-3 h-3 text-gray-400 hover:text-blue-400 transition-colors" />
-                            <span className={`pointer-events-none absolute left-0 top-5 z-50 w-max max-w-xs rounded-lg px-3 py-2 text-xs font-normal normal-case shadow-lg opacity-0 group-hover:opacity-100 transition-opacity ${dark ? 'bg-gray-800 text-gray-200 border border-gray-600' : 'bg-white text-gray-700 border border-gray-200'}`}>
-                              Visão granular de inscrições e receita<br />
-                              Hierarquia: Kit → Modalidade → Pelotão{hasProdutos ? ' → Produtos' : ''} → Tamanho
+              {filteredRows.length === 0 ? (
+                <div className="py-20 text-center flex flex-col items-center">
+                  <Search className={`w-10 h-10 mb-4 ${dark ? 'text-slate-700' : 'text-slate-300'}`} />
+                  <p className={`text-sm font-bold ${textSec}`}>Nenhum dado com os filtros atuais.</p>
+                  <button onClick={() => setFilters(EMPTY_FILTERS)} className="mt-4 text-sm font-bold text-blue-500 hover:underline">Limpar filtros</button>
+                </div>
+              ) : viewMode === 'tree' ? (
+                <div className="overflow-x-auto">
+                  {viewMode === 'tree' && (
+                    <div className={`px-5 py-2 flex justify-end gap-3 border-b ${borderCol} ${dark ? 'bg-slate-900/50' : 'bg-slate-50/50'}`}>
+                      <button
+                        onClick={() => {
+                          const keys = new Set<string>();
+                          const collect = (nodes: TreeNode[]) => nodes.forEach(n => {
+                            if (n.children) { keys.add(n.key); collect(n.children); }
+                          });
+                          collect(tree);
+                          setExpanded(keys);
+                        }}
+                        className={`text-[11px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-colors ${dark ? 'text-blue-400 hover:bg-blue-500/10' : 'text-blue-600 hover:bg-blue-50'}`}
+                      >
+                        Expandir tudo
+                      </button>
+                      <button
+                        onClick={() => { setExpanded(new Set()); setBankExpanded(new Set()); }}
+                        className={`text-[11px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-colors ${dark ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-200'}`}
+                      >
+                        Colapsar tudo
+                      </button>
+                    </div>
+                  )}
+                  <table className="w-full min-w-[800px] text-sm">
+                    <thead>
+                      <tr className={`text-left text-[11px] font-bold uppercase tracking-wider border-b ${borderCol} ${dark ? 'bg-slate-900 text-slate-400' : 'bg-slate-50 text-slate-500'}`}>
+                        <th className="py-4 px-5">
+                          <div className="flex items-center gap-1.5">
+                            Dimensão
+                            <span className="relative group cursor-default">
+                              <Info className="w-3.5 h-3.5 text-slate-400 hover:text-blue-500 transition-colors" />
+                              <span className={`pointer-events-none absolute left-0 top-6 z-50 w-max max-w-xs rounded-xl px-4 py-3 text-xs font-medium normal-case shadow-xl opacity-0 group-hover:opacity-100 transition-opacity ${dark ? 'bg-slate-800 text-slate-200 border border-slate-700' : 'bg-white text-slate-700 border border-slate-200'}`}>
+                                Visão granular de inscrições e receita.<br />
+                                Hierarquia atual:<br/>
+                                <span className="font-mono text-[10px] mt-2 block text-blue-500">Kit → Modalidade → Pelotão{hasProdutos ? ' → Produtos' : ''} → Tamanho</span>
+                              </span>
                             </span>
-                          </span>
-                        </div>
-                      </th>
-                      <th className="py-2 px-3 text-right">Inscritos</th>
-                      <th className="py-2 px-2 text-right">%</th>
-                      <th className="py-2 px-3 text-right">Rec. Bruta</th>
-                      <th className="py-2 px-3 text-right">Rec. Líquida</th>
-                      <th className="py-2 px-3 text-right">Ticket Médio</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tree.map(node => (
-                      <TreeRow
-                        key={node.key}
-                        node={node}
-                        dark={dark}
-                        expanded={expanded}
-                        bankExpanded={bankExpanded}
-                        onToggle={handleToggle}
-                        onBankToggle={handleBankToggle}
-                        totalInscritos={totalInscritos}
-                      />
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className={`text-xs font-bold uppercase ${dark ? 'bg-gray-700 text-gray-300 border-t border-gray-600' : 'bg-gray-100 text-gray-700 border-t border-gray-200'}`}>
-                      <td className="py-2 px-3">TOTAL FILTRADO</td>
-                      <td className="py-2 px-3 text-right">{fmt(filteredRows.reduce((s, r) => s + r.inscritos, 0))}</td>
-                      <td className="py-2 px-2 text-right">100%</td>
-                      <td className="py-2 px-3 text-right">{fmtR(filteredRows.reduce((s, r) => s + r.receita_bruta, 0))}</td>
-                      <td className={`py-2 px-3 text-right ${dark ? 'text-emerald-400' : 'text-emerald-700'}`}>
-                        {fmtR(filteredRows.reduce((s, r) => s + r.receita_liquida, 0))}
-                      </td>
-                      <td className={`py-2 px-3 text-right ${dark ? 'text-amber-400' : 'text-amber-700'}`}>
-                        {(() => {
-                          const ins = filteredRows.reduce((s, r) => s + r.inscritos, 0);
-                          const liq = filteredRows.reduce((s, r) => s + r.receita_liquida, 0);
-                          return fmtR(ins > 0 ? liq / ins : 0);
-                        })()}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            ) : (
-              /* Flat view */
-              <div className="overflow-auto">
-                <table className="w-full min-w-[900px] text-sm">
-                  <thead>
-                    <tr className={`text-left text-xs font-semibold uppercase tracking-wide ${dark ? 'bg-gray-700/80 text-gray-400' : 'bg-gray-50 text-gray-500'}`}>
-                      <th className="py-2 px-3">Canal</th>
-                      <th className="py-2 px-3">Kit</th>
-                      <th className="py-2 px-3">Modalidade</th>
-                      <th className="py-2 px-3">Pelotão</th>
-                      {hasProdutos && <th className="py-2 px-3">Produtos</th>}
-                      <th className="py-2 px-3">Tamanho</th>
-                      <th className="py-2 px-3 text-right">Inscritos</th>
-                      <th className="py-2 px-3 text-right">Rec. Liq.</th>
-                      <th className="py-2 px-3 text-right">Ticket</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredRows.map((row, i) => (
-                      <tr key={i} className={`border-b ${dark ? 'border-gray-700 odd:bg-gray-800/40 even:bg-gray-800/20' : 'border-gray-100 odd:bg-white even:bg-gray-50/50'}`}>
-                        <td className="py-1.5 px-3"><CanalBadge canal={row.canal} /></td>
-                        <td className={`py-1.5 px-3 text-xs ${dark ? 'text-gray-300' : 'text-gray-700'} max-w-[160px] truncate`} title={row.kit || ''}>{val(row.kit)}</td>
-                        <td className={`py-1.5 px-3 text-xs ${dark ? 'text-gray-400' : 'text-gray-500'}`}>{val(row.modalidade)}</td>
-                        <td className={`py-1.5 px-3 text-xs ${dark ? 'text-gray-400' : 'text-gray-500'}`}>{val(row.pelotao)}</td>
-                        {hasProdutos && <td className={`py-1.5 px-3 text-xs ${dark ? 'text-gray-400' : 'text-gray-500'} max-w-[120px] truncate`} title={row.produtos || ''}>{val(row.produtos)}</td>}
-                        <td className={`py-1.5 px-3 text-xs ${dark ? 'text-gray-300' : 'text-gray-700'}`}>{val(row.tamanho_camiseta)}</td>
-                        <td className={`py-1.5 px-3 text-xs text-right font-medium ${dark ? 'text-gray-200' : 'text-gray-800'}`}>{fmt(row.inscritos)}</td>
-                        <td className={`py-1.5 px-3 text-xs text-right ${dark ? 'text-emerald-400' : 'text-emerald-700'}`}>{fmtR(row.receita_liquida)}</td>
-                        <td className={`py-1.5 px-3 text-xs text-right ${dark ? 'text-amber-400' : 'text-amber-700'}`}>{fmtR(row.ticket_medio)}</td>
+                          </div>
+                        </th>
+                        <th className="py-4 px-4 text-right">Inscritos</th>
+                        <th className="py-4 px-3 text-right">%</th>
+                        <th className="py-4 px-4 text-right">Rec. Bruta</th>
+                        <th className="py-4 px-4 text-right">Rec. Líquida</th>
+                        <th className="py-4 px-4 text-right">Ticket Médio</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                    </thead>
+                    <tbody>
+                      {tree.map(node => (
+                        <TreeRow
+                          key={node.key}
+                          node={node}
+                          dark={dark}
+                          expanded={expanded}
+                          bankExpanded={bankExpanded}
+                          onToggle={handleToggle}
+                          onBankToggle={handleBankToggle}
+                          totalInscritos={totalInscritos}
+                        />
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className={`text-xs font-black uppercase tracking-wider ${dark ? 'bg-slate-900 text-slate-200 border-t-2 border-slate-700' : 'bg-slate-100 text-slate-800 border-t-2 border-slate-200'}`}>
+                        <td className="py-4 px-5">TOTAL FILTRADO</td>
+                        <td className="py-4 px-4 text-right">{fmt(filteredRows.reduce((s, r) => s + r.inscritos, 0))}</td>
+                        <td className="py-4 px-3 text-right text-slate-500">100%</td>
+                        <td className="py-4 px-4 text-right">{fmtR(filteredRows.reduce((s, r) => s + r.receita_bruta, 0))}</td>
+                        <td className={`py-4 px-4 text-right ${dark ? 'text-emerald-400' : 'text-emerald-600'}`}>
+                          {fmtR(filteredRows.reduce((s, r) => s + r.receita_liquida, 0))}
+                        </td>
+                        <td className={`py-4 px-4 text-right ${dark ? 'text-amber-400' : 'text-amber-600'}`}>
+                          {(() => {
+                            const ins = filteredRows.reduce((s, r) => s + r.inscritos, 0);
+                            const liq = filteredRows.reduce((s, r) => s + r.receita_liquida, 0);
+                            return fmtR(ins > 0 ? liq / ins : 0);
+                          })()}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              ) : (
+                /* Flat view */
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[1000px] text-sm">
+                    <thead>
+                      <tr className={`text-left text-[11px] font-bold uppercase tracking-wider border-b ${borderCol} ${dark ? 'bg-slate-900 text-slate-400' : 'bg-slate-50 text-slate-500'}`}>
+                        <th className="py-4 px-4">Canal</th>
+                        <th className="py-4 px-4">Kit</th>
+                        <th className="py-4 px-4">Modalidade</th>
+                        <th className="py-4 px-4">Pelotão</th>
+                        {hasProdutos && <th className="py-4 px-4">Produtos</th>}
+                        <th className="py-4 px-4">Tamanho</th>
+                        <th className="py-4 px-4 text-right">Inscritos</th>
+                        <th className="py-4 px-4 text-right">Rec. Liq.</th>
+                        <th className="py-4 px-4 text-right">Ticket</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredRows.map((row, i) => (
+                        <tr key={i} className={`border-b hover:bg-blue-500/5 transition-colors ${dark ? 'border-slate-800 odd:bg-slate-900/40 even:bg-slate-800/20' : 'border-slate-100 odd:bg-white even:bg-slate-50/50'}`}>
+                          <td className="py-3 px-4"><CanalBadge canal={row.canal} /></td>
+                          <td className={`py-3 px-4 text-xs font-bold ${dark ? 'text-slate-200' : 'text-slate-800'} max-w-[180px] truncate`} title={row.kit || ''}>{val(row.kit)}</td>
+                          <td className={`py-3 px-4 text-xs font-medium ${dark ? 'text-slate-400' : 'text-slate-600'}`}>{val(row.modalidade)}</td>
+                          <td className={`py-3 px-4 text-xs font-medium ${dark ? 'text-slate-400' : 'text-slate-600'}`}>{val(row.pelotao)}</td>
+                          {hasProdutos && <td className={`py-3 px-4 text-xs font-medium ${dark ? 'text-slate-400' : 'text-slate-600'} max-w-[140px] truncate`} title={row.produtos || ''}>{val(row.produtos)}</td>}
+                          <td className={`py-3 px-4 text-xs font-bold ${dark ? 'text-slate-300' : 'text-slate-700'}`}>{val(row.tamanho_camiseta)}</td>
+                          <td className={`py-3 px-4 text-xs text-right font-black tabular-nums ${dark ? 'text-white' : 'text-slate-900'}`}>{fmt(row.inscritos)}</td>
+                          <td className={`py-3 px-4 text-xs text-right font-bold tabular-nums ${dark ? 'text-emerald-400' : 'text-emerald-600'}`}>{fmtR(row.receita_liquida)}</td>
+                          <td className={`py-3 px-4 text-xs text-right font-bold tabular-nums ${dark ? 'text-amber-400' : 'text-amber-600'}`}>{fmtR(row.ticket_medio)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
 
-            <div className={`px-4 py-2 border-t ${borderCol} flex justify-between items-center`}>
-              <span className={`text-xs ${textSec}`}>
-                {filteredRows.length} combinações · {fmt(filteredRows.reduce((s, r) => s + r.inscritos, 0))} inscritos
-              </span>
-              <span className={`text-xs ${textSec}`}>
-                Ativo: {fmt(payload.por_banco.Ativo.length)} linhas · Magento: {fmt(payload.por_banco.Magento.length)} linhas
-              </span>
+              <div className={`px-6 py-4 flex flex-col sm:flex-row justify-between items-center gap-2 ${dark ? 'bg-slate-900/80' : 'bg-slate-50'}`}>
+                <span className={`text-[11px] font-bold uppercase tracking-wider ${textSec}`}>
+                  {filteredRows.length} combinações · {fmt(filteredRows.reduce((s, r) => s + r.inscritos, 0))} inscritos listados
+                </span>
+                <span className={`text-[11px] font-bold uppercase tracking-wider ${textSec}`}>
+                  Dataset Base: Ativo ({fmt(payload.por_banco.Ativo.length)} linhas) · Magento ({fmt(payload.por_banco.Magento.length)} linhas)
+                </span>
+              </div>
             </div>
-          </div>
-        </>
-      )}
+          </motion.div>
+        )}
       </div>
     </div>
   );
