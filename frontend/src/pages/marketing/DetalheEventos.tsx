@@ -1056,39 +1056,65 @@ const DetalheEventos: React.FC = () => {
     [filteredRows, allBancoRows, activeHierarchy, divergenciaKeys]
   );
 
+  // Linhas do consolidado restritas aos canais selecionados nas pílulas
+  // "Filtrar por Canal" (vazio = todos). Base dos KPIs e gráficos da tela.
+  const canalRows = useMemo(() => {
+    if (!payload) return [] as DetalheRow[];
+    if (filters.canal.length === 0) return payload.consolidado;
+    return payload.consolidado.filter(r => filters.canal.includes(r.canal ?? NULL_LABEL));
+  }, [payload, filters.canal]);
+
+  // KPIs seguem os canais selecionados: sem filtro, usa os totais do backend
+  // (sem mudança de comportamento); com filtro, soma as linhas dos canais.
+  const kpiTotais = useMemo(() => {
+    if (!payload) return null;
+    if (filters.canal.length === 0) return payload.totais;
+    const inscritos = canalRows.reduce((s, r) => s + r.inscritos, 0);
+    const receitaBruta = canalRows.reduce((s, r) => s + (r.receita_bruta || 0), 0);
+    const receitaLiquida = canalRows.reduce((s, r) => s + (r.receita_liquida || 0), 0);
+    return {
+      ...payload.totais,
+      inscritos,
+      receita_bruta: Math.round(receitaBruta * 100) / 100,
+      receita_liquida: Math.round(receitaLiquida * 100) / 100,
+      ticket_medio: inscritos > 0 ? Math.round((receitaLiquida / inscritos) * 100) / 100 : 0,
+    };
+  }, [payload, canalRows, filters.canal]);
+
   const canalChartData = useMemo(() => {
     if (!payload) return [];
     return Object.entries(payload.totais.por_canal)
+      .filter(([canal]) => filters.canal.length === 0 || filters.canal.includes(canal))
       .map(([canal, v]) => ({ canal, inscritos: v.inscritos, receita: Math.round(v.receita_liquida) }))
       .sort((a, b) => b.inscritos - a.inscritos);
-  }, [payload]);
+  }, [payload, filters.canal]);
 
   const modalidadeChartData = useMemo(() => {
     if (!payload) return [];
     const map = new Map<string, number>();
-    payload.consolidado.forEach(r => {
+    canalRows.forEach(r => {
       const k = r.modalidade || NULL_LABEL;
       map.set(k, (map.get(k) || 0) + r.inscritos);
     });
     return [...map.entries()].map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value).slice(0, 12);
-  }, [payload]);
+  }, [canalRows]);
 
   const tamanhoChartData = useMemo(() => {
     if (!payload) return [];
     const map = new Map<string, number>();
-    payload.consolidado.forEach(r => {
+    canalRows.forEach(r => {
       const k = r.tamanho_camiseta || NULL_LABEL;
       if (k !== NULL_LABEL) map.set(k, (map.get(k) || 0) + r.inscritos);
     });
     return [...map.entries()].map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value);
-  }, [payload]);
+  }, [canalRows]);
 
   const tamanhoChartDataSimple = useMemo(() => {
     if (!payload) return [];
     const map = new Map<string, number>();
-    payload.consolidado.forEach(r => {
+    canalRows.forEach(r => {
       const raw = r.tamanho_camiseta || NULL_LABEL;
       if (raw === NULL_LABEL) return;
       const base = raw.includes(' - ') ? raw.split(' - ')[0].trim() : raw;
@@ -1096,12 +1122,12 @@ const DetalheEventos: React.FC = () => {
     });
     return [...map.entries()].map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value);
-  }, [payload]);
+  }, [canalRows]);
 
   const tamanhoBreakdownMap = useMemo(() => {
     if (!payload) return new Map<string, { name: string; value: number }[]>();
     const map = new Map<string, Map<string, number>>();
-    payload.consolidado.forEach(r => {
+    canalRows.forEach(r => {
       const raw = r.tamanho_camiseta || NULL_LABEL;
       if (raw === NULL_LABEL) return;
       const base = raw.includes(' - ') ? raw.split(' - ')[0].trim() : raw;
@@ -1116,17 +1142,17 @@ const DetalheEventos: React.FC = () => {
         .sort((a, b) => b.value - a.value));
     });
     return result;
-  }, [payload]);
+  }, [canalRows]);
 
   // Denominador do share de tamanhos: total geral de inscritos SEM os kits
   // de Participação/Meia Inscrição (mesma regra do mapeamento de kits).
   const tamanhoShareTotal = useMemo(() => {
     if (!payload) return 0;
-    return payload.consolidado.reduce(
+    return canalRows.reduce(
       (s, r) => s + (isKitParticipacaoOuMeia(r.kit) ? 0 : r.inscritos), 0);
-  }, [payload]);
+  }, [payload, canalRows]);
 
-  const totalInscritos = payload?.totais.inscritos ?? 0;
+  const totalInscritos = kpiTotais?.inscritos ?? 0;
   const activeFiltersCount = ALL_DIMS.filter(d => filters[d].length > 0).length;
 
   const filteredEventos = useMemo(() =>
@@ -1446,10 +1472,10 @@ const DetalheEventos: React.FC = () => {
 
             {/* KPI Cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
-              <KpiCard delay={0.0} label="Total Inscritos" value={fmt(payload.totais.inscritos)} icon={<Users className="w-5 h-5 text-blue-500" />} color="bg-blue-500/20" dark={dark} />
-              <KpiCard delay={0.1} label="Receita Bruta" value={fmtR(payload.totais.receita_bruta)} icon={<DollarSign className="w-5 h-5 text-emerald-500" />} color="bg-emerald-500/20" dark={dark} />
-              <KpiCard delay={0.2} label="Receita Líquida" value={fmtR(payload.totais.receita_liquida)} icon={<TrendingUp className="w-5 h-5 text-indigo-500" />} color="bg-indigo-500/20" dark={dark} />
-              <KpiCard delay={0.3} label="Ticket Médio" value={fmtR(payload.totais.ticket_medio)} sub="Por inscrito (rec. líquida)" icon={<Tag className="w-5 h-5 text-amber-500" />} color="bg-amber-500/20" dark={dark} />
+              <KpiCard delay={0.0} label="Total Inscritos" value={fmt((kpiTotais ?? payload.totais).inscritos)} icon={<Users className="w-5 h-5 text-blue-500" />} color="bg-blue-500/20" dark={dark} />
+              <KpiCard delay={0.1} label="Receita Bruta" value={fmtR((kpiTotais ?? payload.totais).receita_bruta)} icon={<DollarSign className="w-5 h-5 text-emerald-500" />} color="bg-emerald-500/20" dark={dark} />
+              <KpiCard delay={0.2} label="Receita Líquida" value={fmtR((kpiTotais ?? payload.totais).receita_liquida)} icon={<TrendingUp className="w-5 h-5 text-indigo-500" />} color="bg-indigo-500/20" dark={dark} />
+              <KpiCard delay={0.3} label="Ticket Médio" value={fmtR((kpiTotais ?? payload.totais).ticket_medio)} sub="Por inscrito (rec. líquida)" icon={<Tag className="w-5 h-5 text-amber-500" />} color="bg-amber-500/20" dark={dark} />
             </div>
 
             {/* Canal pills */}
