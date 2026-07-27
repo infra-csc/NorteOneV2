@@ -5114,7 +5114,7 @@ const EventDetail: React.FC = () => {
         })()}
       </div>
 
-      {faixasPrecoSite && (faixasPrecoSite.kit_basico.length > 0 || faixasPrecoSite.kit_participacao.length > 0) && (
+      {faixasPrecoSite && (
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
@@ -5135,6 +5135,25 @@ const EventDetail: React.FC = () => {
           </div>
 
           {!simuladorFaixas ? (
+            faixasPrecoSite.kit_basico.length === 0 && faixasPrecoSite.kit_participacao.length === 0 ? (
+              /* ── EMPTY STATE: no faixas registered in the project budget ── */
+              <div className="py-8 flex flex-col items-center text-center">
+                <DollarSign className="w-8 h-8 text-gray-300 dark:text-gray-600 mb-3" />
+                <p className="text-sm font-medium text-gray-600 dark:text-gray-300">
+                  Não há faixas de preço cadastradas no orçamento deste projeto.
+                </p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 max-w-md">
+                  As faixas são definidas no Cadastro do Projeto. Você ainda pode projetar cenários de preço e volume com o simulador.
+                </p>
+                <button
+                  onClick={() => setSimuladorFaixas(true)}
+                  className="mt-4 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/40 border border-purple-200 dark:border-purple-700 transition-colors"
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                  Abrir Simulador
+                </button>
+              </div>
+            ) : (
             <div className="space-y-4">
               {(['kit_basico', 'kit_participacao'] as const).map((tipoKit) => {
                 const faixas = faixasPrecoSite[tipoKit];
@@ -5181,6 +5200,7 @@ const EventDetail: React.FC = () => {
                 );
               })}
             </div>
+            )
           ) : (
             /* ── SIMULATOR MODE ── */
             (() => {
