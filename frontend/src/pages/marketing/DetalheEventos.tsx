@@ -85,9 +85,14 @@ const HIERARCHY_STORAGE_KEY = 'detalhe_eventos_hierarchy_v1';
 const sameHierarchy = (a: DimKey[], b: DimKey[]) =>
   a.length === b.length && a.every((d, i) => d === b[i]);
 
-function loadStoredHierarchy(): DimKey[] | null {
+// Colunas de dimensão da visão plana (mesmo padrão de persistência da árvore,
+// chave separada — layouts independentes)
+const FLAT_COLS_STORAGE_KEY = 'detalhe_eventos_flat_cols_v1';
+const DEFAULT_FLAT_COLS: DimKey[] = ['canal', 'kit', 'modalidade', 'pelotao', 'produtos', 'tamanho_camiseta'];
+
+function loadStoredDims(storageKey: string): DimKey[] | null {
   try {
-    const raw = localStorage.getItem(HIERARCHY_STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return null;
@@ -98,6 +103,9 @@ function loadStoredHierarchy(): DimKey[] | null {
     return null;
   }
 }
+
+const loadStoredHierarchy = () => loadStoredDims(HIERARCHY_STORAGE_KEY);
+const loadStoredFlatCols = () => loadStoredDims(FLAT_COLS_STORAGE_KEY);
 
 // ---------------------------------------------------------------------------
 // KPI Card
@@ -560,6 +568,7 @@ const DetalheEventos: React.FC = () => {
   const [bankExpanded, setBankExpanded] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<'tree' | 'flat'>('tree');
   const [hierarchy, setHierarchy] = useState<DimKey[]>(() => loadStoredHierarchy() ?? DEFAULT_HIERARCHY);
+  const [flatCols, setFlatCols] = useState<DimKey[]>(() => loadStoredFlatCols() ?? DEFAULT_FLAT_COLS);
   const [activeTab, setActiveTab] = useState<'consolidado' | 'ativo' | 'magento'>('consolidado');
   const [searchEventos, setSearchEventos] = useState('');
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -788,6 +797,39 @@ const DetalheEventos: React.FC = () => {
     if (hierarchy.includes(dim)) return;
     applyHierarchy([...hierarchy, dim]);
   }, [hierarchy, applyHierarchy]);
+
+  // --- Colunas de dimensão da visão plana (mesmo controle de chips da árvore) ---
+  const activeFlatCols = useMemo(() => {
+    const eff = hasProdutos ? flatCols : flatCols.filter(d => d !== 'produtos');
+    if (eff.length > 0) return eff;
+    return hasProdutos ? DEFAULT_FLAT_COLS : DEFAULT_FLAT_COLS.filter(d => d !== 'produtos');
+  }, [flatCols, hasProdutos]);
+
+  const isDefaultFlatCols = sameHierarchy(flatCols, DEFAULT_FLAT_COLS);
+
+  const availableFlatCols = useMemo(
+    () => ALL_DIMS.filter(d => !flatCols.includes(d) && (d !== 'produtos' || hasProdutos)),
+    [flatCols, hasProdutos]
+  );
+
+  const applyFlatCols = useCallback((next: DimKey[]) => {
+    setFlatCols(next);
+    try {
+      if (sameHierarchy(next, DEFAULT_FLAT_COLS)) localStorage.removeItem(FLAT_COLS_STORAGE_KEY);
+      else localStorage.setItem(FLAT_COLS_STORAGE_KEY, JSON.stringify(next));
+    } catch { /* armazenamento indisponível — segue só em memória */ }
+  }, []);
+
+  const removeFlatCol = useCallback((dim: DimKey) => {
+    const next = flatCols.filter(d => d !== dim);
+    if (!next.some(d => d !== 'produtos')) return;
+    applyFlatCols(next);
+  }, [flatCols, applyFlatCols]);
+
+  const addFlatCol = useCallback((dim: DimKey) => {
+    if (flatCols.includes(dim)) return;
+    applyFlatCols([...flatCols, dim]);
+  }, [flatCols, applyFlatCols]);
 
   const tree = useMemo(
     () => buildTree(filteredRows, allBancoRows, activeHierarchy, divergenciaKeys),
@@ -1522,6 +1564,78 @@ const DetalheEventos: React.FC = () => {
                 </div>
               )}
 
+              {/* Colunas da visão plana: dimensões visíveis configuráveis */}
+              {viewMode === 'flat' && (
+                <div className={`flex flex-wrap items-center gap-2 px-5 py-3 border-b ${borderCol} ${dark ? 'bg-slate-900/60' : 'bg-slate-50/80'}`}>
+                  <span className={`flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider ${textSec}`}>
+                    <Table2 className="w-3.5 h-3.5" /> Colunas
+                  </span>
+                  <Reorder.Group
+                    as="div"
+                    axis="x"
+                    values={flatCols}
+                    onReorder={applyFlatCols}
+                    className="flex flex-wrap items-center gap-1.5"
+                  >
+                    {flatCols.map(dim => {
+                      const inactive = dim === 'produtos' && !hasProdutos;
+                      const pos = activeFlatCols.indexOf(dim);
+                      // X escondido quando é a única coluna além de "Produtos" (mesma regra do removeFlatCol)
+                      const isLastActive = dim !== 'produtos' && flatCols.filter(d => d !== 'produtos').length <= 1;
+                      return (
+                        <Reorder.Item
+                          key={dim}
+                          value={dim}
+                          as="div"
+                          title={inactive ? 'Evento sem produtos — coluna ignorada' : 'Arraste para reordenar'}
+                          className={`flex items-center gap-1 pl-1.5 pr-1 py-1 rounded-xl border select-none ${
+                            inactive
+                              ? `border-dashed opacity-50 ${dark ? 'border-slate-700 bg-slate-900 text-slate-400' : 'border-slate-300 bg-slate-50 text-slate-400'}`
+                              : `cursor-grab active:cursor-grabbing ${dark ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-200 bg-white text-slate-700 shadow-sm'}`
+                          }`}
+                        >
+                          <GripVertical className={`w-3 h-3 ${dark ? 'text-slate-600' : 'text-slate-300'}`} />
+                          <span className={`w-4 h-4 rounded-full text-[10px] font-black flex items-center justify-center ${dark ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-500/10 text-blue-600'}`}>
+                            {inactive ? '–' : pos + 1}
+                          </span>
+                          <span className="text-xs font-bold whitespace-nowrap">{DIM_LABELS[dim]}</span>
+                          {!isLastActive && (
+                            <button
+                              onClick={() => removeFlatCol(dim)}
+                              onPointerDown={e => e.stopPropagation()}
+                              title="Remover coluna"
+                              className={`p-0.5 rounded-md transition-colors ${dark ? 'text-slate-500 hover:text-red-400 hover:bg-red-500/10' : 'text-slate-400 hover:text-red-500 hover:bg-red-500/10'}`}
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          )}
+                        </Reorder.Item>
+                      );
+                    })}
+                  </Reorder.Group>
+                  {availableFlatCols.length > 0 && (
+                    <select
+                      value=""
+                      onChange={e => { if (e.target.value) addFlatCol(e.target.value as DimKey); }}
+                      title="Adicionar coluna"
+                      className={`text-xs font-bold rounded-xl border px-2.5 py-1.5 appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer ${dark ? 'bg-slate-900 border-slate-700 text-slate-400' : 'bg-white border-slate-200 text-slate-500'}`}
+                    >
+                      <option value="">+ Coluna</option>
+                      {availableFlatCols.map(d => <option key={d} value={d}>{DIM_LABELS[d]}</option>)}
+                    </select>
+                  )}
+                  {!isDefaultFlatCols && (
+                    <button
+                      onClick={() => applyFlatCols(DEFAULT_FLAT_COLS)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-blue-500 hover:bg-blue-500/10 transition-colors ml-auto"
+                      title="Voltar às colunas padrão"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" /> Padrão
+                    </button>
+                  )}
+                </div>
+              )}
+
               {filteredRows.length === 0 ? (
                 <div className="py-20 text-center flex flex-col items-center">
                   <Search className={`w-10 h-10 mb-4 ${dark ? 'text-slate-700' : 'text-slate-300'}`} />
@@ -1616,12 +1730,11 @@ const DetalheEventos: React.FC = () => {
                   <table className="w-full min-w-[1000px] text-sm">
                     <thead>
                       <tr className={`text-left text-[11px] font-bold uppercase tracking-wider border-b ${borderCol} ${dark ? 'bg-slate-900 text-slate-400' : 'bg-slate-50 text-slate-500'}`}>
-                        <th className="py-4 px-4">Canal</th>
-                        <th className="py-4 px-4">Kit</th>
-                        <th className="py-4 px-4">Modalidade</th>
-                        <th className="py-4 px-4">Pelotão</th>
-                        {hasProdutos && <th className="py-4 px-4">Produtos</th>}
-                        <th className="py-4 px-4">Tamanho</th>
+                        {activeFlatCols.map(dim => (
+                          <th key={dim} className="py-4 px-4">
+                            {dim === 'tamanho_camiseta' ? 'Tamanho' : DIM_LABELS[dim]}
+                          </th>
+                        ))}
                         <th className="py-4 px-4 text-right">Inscritos</th>
                         <th className="py-4 px-4 text-right">Rec. Liq.</th>
                         <th className="py-4 px-4 text-right">Ticket</th>
@@ -1630,12 +1743,13 @@ const DetalheEventos: React.FC = () => {
                     <tbody>
                       {filteredRows.map((row, i) => (
                         <tr key={i} className={`border-b hover:bg-blue-500/5 transition-colors ${dark ? 'border-slate-800 odd:bg-slate-900/40 even:bg-slate-800/20' : 'border-slate-100 odd:bg-white even:bg-slate-50/50'}`}>
-                          <td className="py-3 px-4"><CanalBadge canal={row.canal} /></td>
-                          <td className={`py-3 px-4 text-xs font-bold ${dark ? 'text-slate-200' : 'text-slate-800'} max-w-[180px] truncate`} title={row.kit || ''}>{val(row.kit)}</td>
-                          <td className={`py-3 px-4 text-xs font-medium ${dark ? 'text-slate-400' : 'text-slate-600'}`}>{val(row.modalidade)}</td>
-                          <td className={`py-3 px-4 text-xs font-medium ${dark ? 'text-slate-400' : 'text-slate-600'}`}>{val(row.pelotao)}</td>
-                          {hasProdutos && <td className={`py-3 px-4 text-xs font-medium ${dark ? 'text-slate-400' : 'text-slate-600'} max-w-[140px] truncate`} title={row.produtos || ''}>{val(row.produtos)}</td>}
-                          <td className={`py-3 px-4 text-xs font-bold ${dark ? 'text-slate-300' : 'text-slate-700'}`}>{val(row.tamanho_camiseta)}</td>
+                          {activeFlatCols.map(dim => {
+                            if (dim === 'canal') return <td key={dim} className="py-3 px-4"><CanalBadge canal={row.canal} /></td>;
+                            if (dim === 'kit') return <td key={dim} className={`py-3 px-4 text-xs font-bold ${dark ? 'text-slate-200' : 'text-slate-800'} max-w-[180px] truncate`} title={row.kit || ''}>{val(row.kit)}</td>;
+                            if (dim === 'produtos') return <td key={dim} className={`py-3 px-4 text-xs font-medium ${dark ? 'text-slate-400' : 'text-slate-600'} max-w-[140px] truncate`} title={row.produtos || ''}>{val(row.produtos)}</td>;
+                            if (dim === 'tamanho_camiseta') return <td key={dim} className={`py-3 px-4 text-xs font-bold ${dark ? 'text-slate-300' : 'text-slate-700'}`}>{val(row.tamanho_camiseta)}</td>;
+                            return <td key={dim} className={`py-3 px-4 text-xs font-medium ${dark ? 'text-slate-400' : 'text-slate-600'}`}>{val(row[dim])}</td>;
+                          })}
                           <td className={`py-3 px-4 text-xs text-right font-black tabular-nums ${dark ? 'text-white' : 'text-slate-900'}`}>{fmt(row.inscritos)}</td>
                           <td className={`py-3 px-4 text-xs text-right font-bold tabular-nums ${dark ? 'text-emerald-400' : 'text-emerald-600'}`}>{fmtR(row.receita_liquida)}</td>
                           <td className={`py-3 px-4 text-xs text-right font-bold tabular-nums ${dark ? 'text-amber-400' : 'text-amber-600'}`}>{fmtR(row.ticket_medio)}</td>
