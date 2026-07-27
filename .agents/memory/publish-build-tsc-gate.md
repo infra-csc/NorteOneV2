@@ -24,3 +24,5 @@ costuma ser erro de TS no `tsc -b`, não runtime.
 
 **Verificar localmente antes de re-publicar:** `cd frontend && npm run build`
 (exit 0). É o mesmo gate do publish.
+
+**Armadilha do gate local:** `npx tsc --noEmit -p tsconfig.json` na raiz do frontend NÃO checa nada — o tsconfig.json é solution-style (`"files": []` + references), então o comando passa silenciosamente mesmo com o arquivo quebrado. O gate local correto é `cd frontend && npx tsc -b` (mesmo do publish) ou `npm run build`.

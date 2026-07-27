@@ -26,6 +26,7 @@ import {
   Info,
   GripVertical,
   RotateCcw,
+  Check,
 } from 'lucide-react';
 import {
   BarChart,
@@ -546,18 +547,145 @@ const TreeRow: React.FC<TreeRowProps> = ({ node, dark, expanded, bankExpanded, o
 // ---------------------------------------------------------------------------
 
 interface FilterState {
-  canal: string;
-  kit: string;
-  modalidade: string;
-  pelotao: string;
-  produtos: string;
-  tamanho_camiseta: string;
+  canal: string[];
+  kit: string[];
+  modalidade: string[];
+  pelotao: string[];
+  produtos: string[];
+  tamanho_camiseta: string[];
   search: string;
 }
 
 const EMPTY_FILTERS: FilterState = {
-  canal: '', kit: '', modalidade: '',
-  pelotao: '', produtos: '', tamanho_camiseta: '', search: '',
+  canal: [], kit: [], modalidade: [],
+  pelotao: [], produtos: [], tamanho_camiseta: [], search: '',
+};
+
+// Valor da linha para uma dimensão, com o mesmo rótulo de nulos da tabela.
+const dimValue = (r: DetalheRow, d: DimKey): string => (r[d] as string | null) ?? NULL_LABEL;
+
+// Remove acentos para a busca dentro dos dropdowns de filtro.
+const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+interface MultiSelectFilterProps {
+  label: string;
+  values: string[];
+  available: Set<string>;
+  selected: string[];
+  onChange: (next: string[]) => void;
+  dark: boolean;
+}
+
+// Dropdown multi-seleção com busca interna; opções vêm em cascata dos demais filtros.
+const MultiSelectFilter: React.FC<MultiSelectFilterProps> = ({ label, values, available, selected, onChange, dark }) => {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const rootRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('pointerdown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const togglePanel = () => {
+    if (!open) {
+      setQuery('');
+      setTimeout(() => searchRef.current?.focus({ preventScroll: true }), 30);
+    }
+    setOpen(!open);
+  };
+
+  const shown = query ? values.filter(v => norm(v).includes(norm(query))) : values;
+  const toggleValue = (v: string) =>
+    onChange(selected.includes(v) ? selected.filter(s => s !== v) : [...selected, v]);
+  const active = selected.length > 0;
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        onClick={togglePanel}
+        className={`flex items-center gap-1.5 text-xs font-bold rounded-xl border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer transition-shadow ${
+          active
+            ? dark ? 'bg-blue-900/30 border-blue-500/50 text-blue-300' : 'bg-blue-50 border-blue-200 text-blue-700'
+            : dark ? 'bg-slate-900 border-slate-700 text-slate-300' : 'bg-white border-slate-200 text-slate-700'
+        }`}
+      >
+        {label}
+        {active && (
+          <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-black ${dark ? 'bg-blue-500/20 text-blue-300' : 'bg-blue-500/10 text-blue-600'}`}>
+            {selected.length}
+          </span>
+        )}
+        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className={`absolute left-0 top-full mt-2 w-64 rounded-2xl border shadow-2xl z-50 overflow-hidden ${dark ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'}`}>
+          <div className={`p-2 border-b ${dark ? 'border-slate-800' : 'border-slate-100'}`}>
+            <div className="relative">
+              <Search className={`absolute left-2.5 top-2 w-3.5 h-3.5 ${dark ? 'text-slate-500' : 'text-slate-400'}`} />
+              <input
+                ref={searchRef}
+                type="text"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder={`Buscar ${label.toLowerCase()}...`}
+                className={`w-full pl-8 pr-2 py-1.5 text-xs font-medium rounded-lg border focus:outline-none focus:ring-2 focus:ring-blue-500 ${dark ? 'bg-slate-800 border-slate-700 text-white placeholder-slate-500' : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'}`}
+              />
+            </div>
+          </div>
+          <div className="max-h-60 overflow-y-auto py-1">
+            {shown.length === 0 && (
+              <p className={`px-3 py-3 text-xs font-medium text-center ${dark ? 'text-slate-500' : 'text-slate-400'}`}>Nada encontrado.</p>
+            )}
+            {shown.map(v => {
+              const checked = selected.includes(v);
+              const off = !available.has(v);
+              return (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => toggleValue(v)}
+                  title={off ? 'Sem registros com os filtros atuais' : undefined}
+                  className={`w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs font-medium transition-colors ${
+                    dark ? 'hover:bg-slate-800' : 'hover:bg-slate-50'
+                  } ${off ? 'opacity-40' : ''} ${checked ? (dark ? 'text-blue-300' : 'text-blue-700') : (dark ? 'text-slate-300' : 'text-slate-700')}`}
+                >
+                  <span className={`w-4 h-4 rounded-md border flex items-center justify-center shrink-0 ${
+                    checked
+                      ? 'bg-blue-600 border-blue-600 text-white'
+                      : dark ? 'border-slate-600' : 'border-slate-300'
+                  }`}>
+                    {checked && <Check className="w-3 h-3" />}
+                  </span>
+                  <span className="truncate">{v}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div className={`flex items-center justify-between px-3 py-2 border-t text-[11px] font-bold ${dark ? 'border-slate-800 text-slate-500' : 'border-slate-100 text-slate-400'}`}>
+            <span>{selected.length} selecionado{selected.length === 1 ? '' : 's'}</span>
+            {active && (
+              <button type="button" onClick={() => onChange([])} className="text-red-500 hover:underline">
+                Limpar
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 };
 
 // ---------------------------------------------------------------------------
@@ -723,21 +851,21 @@ const DetalheEventos: React.FC = () => {
     });
   }, []);
 
-  const filteredRows = useMemo<DetalheRow[]>(() => {
+  const tabRows = useMemo<DetalheRow[]>(() => {
     if (!payload) return [];
-    let rows =
-      activeTab === 'consolidado'
-        ? payload.consolidado
-        : activeTab === 'ativo'
-        ? payload.por_banco.Ativo
-        : payload.por_banco.Magento;
+    return activeTab === 'consolidado'
+      ? payload.consolidado
+      : activeTab === 'ativo'
+      ? payload.por_banco.Ativo
+      : payload.por_banco.Magento;
+  }, [payload, activeTab]);
 
-    if (filters.canal) rows = rows.filter(r => r.canal === filters.canal);
-    if (filters.kit) rows = rows.filter(r => (r.kit || NULL_LABEL) === filters.kit);
-    if (filters.modalidade) rows = rows.filter(r => (r.modalidade || NULL_LABEL) === filters.modalidade);
-    if (filters.pelotao) rows = rows.filter(r => (r.pelotao || NULL_LABEL) === filters.pelotao);
-    if (filters.produtos) rows = rows.filter(r => (r.produtos || NULL_LABEL) === filters.produtos);
-    if (filters.tamanho_camiseta) rows = rows.filter(r => (r.tamanho_camiseta || NULL_LABEL) === filters.tamanho_camiseta);
+  const filteredRows = useMemo<DetalheRow[]>(() => {
+    let rows = tabRows;
+    for (const dim of ALL_DIMS) {
+      const sel = filters[dim];
+      if (sel.length > 0) rows = rows.filter(r => sel.includes(dimValue(r, dim)));
+    }
     if (filters.search) {
       const q = filters.search.toLowerCase();
       rows = rows.filter(r =>
@@ -746,12 +874,12 @@ const DetalheEventos: React.FC = () => {
       );
     }
     return rows;
-  }, [payload, activeTab, filters]);
+  }, [tabRows, filters]);
 
   const allBancoRows = useMemo<DetalheBancoRow[]>(() => {
     if (!payload) return [];
     const all = [...payload.por_banco.Ativo, ...payload.por_banco.Magento];
-    if (filters.canal) return all.filter(r => r.canal === filters.canal);
+    if (filters.canal.length > 0) return all.filter(r => filters.canal.includes(r.canal ?? NULL_LABEL));
     return all;
   }, [payload, filters.canal]);
 
@@ -764,20 +892,24 @@ const DetalheEventos: React.FC = () => {
     );
   }, [payload]);
 
+  // Opções em cascata: cada dropdown lista apenas valores presentes nas linhas
+  // que passam pelos filtros das OUTRAS dimensões (na aba atual). Valores já
+  // selecionados permanecem na lista para poderem ser desmarcados, sinalizados
+  // como indisponíveis quando a cascata os elimina.
   const opts = useMemo(() => {
-    if (!payload) return {} as Record<string, string[]>;
-    const all = [...payload.consolidado];
-    const uniq = (key: keyof DetalheRow) =>
-      [...new Set(all.map(r => r[key] as string | null).map(v => v ?? NULL_LABEL))].sort();
-    return {
-      canal: uniq('canal'),
-      kit: uniq('kit'),
-      modalidade: uniq('modalidade'),
-      pelotao: uniq('pelotao'),
-      produtos: uniq('produtos'),
-      tamanho_camiseta: uniq('tamanho_camiseta'),
-    };
-  }, [payload]);
+    const result = {} as Record<DimKey, { values: string[]; available: Set<string> }>;
+    for (const dim of ALL_DIMS) {
+      let rows = tabRows;
+      for (const other of ALL_DIMS) {
+        if (other === dim) continue;
+        const sel = filters[other];
+        if (sel.length > 0) rows = rows.filter(r => sel.includes(dimValue(r, other)));
+      }
+      const available = new Set(rows.map(r => dimValue(r, dim)));
+      result[dim] = { values: [...new Set([...available, ...filters[dim]])].sort(), available };
+    }
+    return result;
+  }, [tabRows, filters]);
 
   const hasProdutos = useMemo(
     () => (payload?.consolidado ?? []).some(r => r.produtos != null && r.produtos !== ''),
@@ -979,7 +1111,7 @@ const DetalheEventos: React.FC = () => {
   }, [payload]);
 
   const totalInscritos = payload?.totais.inscritos ?? 0;
-  const activeFiltersCount = Object.entries(filters).filter(([k, v]) => k !== 'search' && v !== '').length;
+  const activeFiltersCount = ALL_DIMS.filter(d => filters[d].length > 0).length;
 
   const filteredEventos = useMemo(() =>
     eventos.filter(e =>
@@ -1311,9 +1443,9 @@ const DetalheEventos: React.FC = () => {
                 {Object.entries(payload.totais.por_canal).map(([canal, stats]) => (
                   <button
                     key={canal}
-                    onClick={() => setFilters(f => ({ ...f, canal: f.canal === canal ? '' : canal }))}
+                    onClick={() => setFilters(f => ({ ...f, canal: f.canal.includes(canal) ? f.canal.filter(c => c !== canal) : [...f.canal, canal] }))}
                     className={`flex items-center gap-2.5 px-4 py-2 rounded-xl text-xs font-bold border transition-all duration-300 ${
-                      filters.canal === canal 
+                      filters.canal.includes(canal) 
                         ? 'ring-2 ring-offset-2 ring-blue-500 shadow-md scale-105' 
                         : 'hover:scale-105'
                     } ${dark ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm'}`}
@@ -1323,9 +1455,9 @@ const DetalheEventos: React.FC = () => {
                     <span className={`px-1.5 py-0.5 rounded-md text-[10px] ${dark ? 'bg-slate-900 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>{fmt(stats.inscritos)}</span>
                   </button>
                 ))}
-                {filters.canal && (
+                {filters.canal.length > 0 && (
                   <button 
-                    onClick={() => setFilters(f => ({ ...f, canal: '' }))} 
+                    onClick={() => setFilters(f => ({ ...f, canal: [] }))} 
                     className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-red-500 hover:bg-red-500/10 transition-colors"
                   >
                     <X className="w-3.5 h-3.5" /> Limpar
@@ -1476,10 +1608,10 @@ const DetalheEventos: React.FC = () => {
             </div>
 
             {/* Main Table Area */}
-            <div className={`rounded-3xl border ${cardBg} shadow-xl overflow-hidden flex flex-col backdrop-blur-xl`}>
+            <div className={`rounded-3xl border ${cardBg} shadow-xl flex flex-col backdrop-blur-xl`}>
               
               {/* Filter Toolbar inside table container for cohesion */}
-              <div className={`p-4 border-b ${borderCol} ${dark ? 'bg-slate-800/50' : 'bg-slate-50/50'}`}>
+              <div className={`p-4 border-b rounded-t-3xl ${borderCol} ${dark ? 'bg-slate-800/50' : 'bg-slate-50/50'}`}>
                 <div className="flex flex-wrap gap-3 items-center">
                   <div className="relative">
                     <Search className={`absolute left-3 top-2.5 w-4 h-4 ${textSec}`} />
@@ -1500,21 +1632,16 @@ const DetalheEventos: React.FC = () => {
                     {(['kit', 'modalidade', 'pelotao', 'produtos', 'tamanho_camiseta'] as const)
                       .filter(dim => dim !== 'produtos' || hasProdutos)
                       .map(dim => (
-                      <select
-                        key={dim}
-                        value={(filters as any)[dim]}
-                        onChange={e => setFilters(f => ({ ...f, [dim]: e.target.value }))}
-                        className={`text-xs font-bold rounded-xl border px-3 py-2 appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer transition-shadow ${
-                          (filters as any)[dim] 
-                            ? dark ? 'bg-blue-900/30 border-blue-500/50 text-blue-300' : 'bg-blue-50 border-blue-200 text-blue-700' 
-                            : dark ? 'bg-slate-900 border-slate-700 text-slate-300' : 'bg-white border-slate-200 text-slate-700'
-                        }`}
-                        style={{ paddingRight: '2rem', backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='${dark ? '%2394a3b8' : '%2364748b'} '%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`, backgroundPosition: 'right 0.5rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1em 1em' }}
-                      >
-                        <option value="">{DIM_LABELS[dim]}</option>
-                        {(opts[dim] || []).map(v => <option key={v} value={v}>{v}</option>)}
-                      </select>
-                    ))}
+                        <MultiSelectFilter
+                          key={dim}
+                          label={DIM_LABELS[dim]}
+                          values={opts[dim]?.values ?? []}
+                          available={opts[dim]?.available ?? new Set<string>()}
+                          selected={filters[dim]}
+                          onChange={next => setFilters(f => ({ ...f, [dim]: next }))}
+                          dark={dark}
+                        />
+                      ))}
                   </div>
 
                   {(activeFiltersCount > 0 || filters.search) && (
@@ -1713,7 +1840,7 @@ const DetalheEventos: React.FC = () => {
                   <button onClick={() => setFilters(EMPTY_FILTERS)} className="mt-4 text-sm font-bold text-blue-500 hover:underline">Limpar filtros</button>
                 </div>
               ) : viewMode === 'tree' ? (
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto rounded-b-3xl">
                   {viewMode === 'tree' && (
                     <div className={`px-5 py-2 flex justify-end gap-3 border-b ${borderCol} ${dark ? 'bg-slate-900/50' : 'bg-slate-50/50'}`}>
                       <button
@@ -1796,7 +1923,7 @@ const DetalheEventos: React.FC = () => {
                 </div>
               ) : (
                 /* Flat view */
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto rounded-b-3xl">
                   <table className="w-full min-w-[1000px] text-sm">
                     <thead>
                       <tr className={`text-left text-[11px] font-bold uppercase tracking-wider border-b ${borderCol} ${dark ? 'bg-slate-900 text-slate-400' : 'bg-slate-50 text-slate-500'}`}>
