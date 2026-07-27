@@ -39,3 +39,4 @@
 - [Verify subagent work on disk](subagent-verify-disk.md) — subagentes podem reportar sucesso sem gravar nada; sempre conferir git status antes de confiar no relato.
 - [Reconsolidar 502 = job + polling](recalc-502-job-polling.md) — ação longa nunca roda dentro do request (proxy corta → 502; timeout de cliente não resolve); thread + registro em memória + status polling.
 - [Cancel token em polling React](react-poll-cancel-token.md) — boolean compartilhado re-zerado pelo effect do novo id não cancela run antiga; generation token + recheck pós-await.
+- [Modalidade Ativo + rateio carrinho Magento](ativo-modalidade-magento-rateio.md) — rótulo confiável é nm_modalidade via categoria (ds_ fica vazia); líquida Magento deve ratear desconto de CARRINHO via agg por pedido.

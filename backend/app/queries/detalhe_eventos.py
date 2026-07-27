@@ -55,7 +55,7 @@ SELECT /*+ MAX_EXECUTION_TIME(90000) */
     END                                                                                 AS canal,
 
     h.ds_categoria                                                                      AS kit,
-    q.ds_modalidade                                                                     AS modalidade,
+    q.nm_modalidade                                                                     AS modalidade,
 
     COALESCE(IF(c.fl_local_inscricao = 1, g.pelotao, w.pelotao), 'Branco')              AS pelotao,
     NULL                                                                                AS produtos,
@@ -93,8 +93,10 @@ INNER JOIN sa_pedido AS c
 LEFT JOIN sa_modalidade_categoria AS h
     ON h.id_categoria = a.id_categoria
 LEFT JOIN sa_evento_modalidade AS q
-    ON q.id_modalidade = a.id_modalidade
-   AND q.id_evento     = b.id_evento
+    -- Modalidade pela CATEGORIA (h.id_modalidade), como na query canônica do
+    -- analista: ds_modalidade fica vazia em muitos eventos; nm_modalidade é a
+    -- fonte confiável. id_modalidade é única — dispensa filtro por id_evento.
+    ON q.id_modalidade = h.id_modalidade
 LEFT JOIN sa_usuario AS g
     ON g.id_usuario = c.id_usuario
 LEFT JOIN sa_usuario_balcao AS w
@@ -127,7 +129,7 @@ WHERE
     END,
     h.id_categoria,
     h.ds_categoria,
-    q.ds_modalidade,
+    q.nm_modalidade,
     COALESCE(IF(c.fl_local_inscricao = 1, g.pelotao, w.pelotao), 'Branco'),
     IF(x.id_tamanho_camiseta = 2, 'BL', x.ds_tamanho)
 
@@ -209,6 +211,26 @@ _SOI_CHILD_NAME_FILTER = """(
          OR soi_child.name LIKE 'Yoga%'
       )"""
 
+# ---------------------------------------------------------------------------
+# Receita líquida Magento com desconto de CARRINHO rateado por bundle do pedido.
+# resíduo de carrinho = ABS(so.discount_amount) − descontos já lançados nos
+# itens (agg.desc_itens), rateado pela qtd de bundles do pedido (agg.qtd_bundles).
+# COALESCE(...,0) protege o SUM: pedido sem match em 'agg' viraria NULL e a
+# linha inteira sairia do somatório (SUM ignora NULL).
+# Requer o LEFT JOIN 'agg' (agregados por pedido) na query que usa este bloco.
+# Usado em receita_liquida E no numerador do ticket_medio — constante única
+# para nunca divergirem (mesmo padrão de _MODALIDADE_CASE/_CANAL_CASE).
+# ---------------------------------------------------------------------------
+_RECEITA_LIQUIDA_SUM = """SUM(CASE
+        WHEN so.base_grand_total = 0 THEN 0
+        ELSE soi_child.price
+           - soi_child.discount_amount
+           - COALESCE(
+                 (ABS(so.discount_amount) - COALESCE(agg.desc_itens, 0))
+                     / NULLIF(agg.qtd_bundles, 0)
+               , 0)
+    END)"""
+
 
 def build_magento_detalhe(ids: Optional[List[int]] = None) -> Tuple[str, Dict]:
     """
@@ -250,6 +272,8 @@ def build_magento_detalhe(ids: Optional[List[int]] = None) -> Tuple[str, Dict]:
     cpev2_ids_filter = f"      AND entity_id IN ({placeholders})\n"
     # Filtro de shirt/prod (anchor por id_evento via catalog_product_entity_varchar)
     shirt_prod_ids_filter = f"      AND evb.value IN ({placeholders})\n"
+    # Filtro dos pedidos-alvo do agregado 'agg' (rateio de desconto de carrinho)
+    agg_ids_filter = f"          AND v.value IN ({placeholders})\n"
 
     sql = f"""
 SELECT /*+ MAX_EXECUTION_TIME(90000) */ STRAIGHT_JOIN
@@ -276,15 +300,9 @@ SELECT /*+ MAX_EXECUTION_TIME(90000) */ STRAIGHT_JOIN
         ELSE soi_child.price
     END)                                                                                AS receita_bruta,
 
-    SUM(CASE
-        WHEN so.base_grand_total = 0 THEN 0
-        ELSE soi_child.price - soi_child.discount_amount
-    END)                                                                                AS receita_liquida,
+    {_RECEITA_LIQUIDA_SUM}                                                              AS receita_liquida,
 
-    SUM(CASE
-        WHEN so.base_grand_total = 0 THEN 0
-        ELSE soi_child.price - soi_child.discount_amount
-    END) / NULLIF(COUNT(DISTINCT CASE
+    {_RECEITA_LIQUIDA_SUM} / NULLIF(COUNT(DISTINCT CASE
         WHEN so.base_grand_total = 0 THEN NULL
         ELSE soi_parent.item_id
     END), 0)                                                                            AS ticket_medio
@@ -333,6 +351,30 @@ JOIN (
       AND store_id     = 0
 {cpev2_ids_filter}    GROUP BY entity_id
 ) AS cpev2 ON cpev2.entity_id = cpev1.id_evento
+
+LEFT JOIN (
+    -- Agregados por pedido para o rateio do desconto de CARRINHO:
+    --   qtd_bundles → denominador do rateio
+    --   desc_itens  → descontos já lançados nos itens (não-bundle)
+    -- Escopo limitado aos pedidos que contêm bundles dos eventos solicitados
+    -- (filtro DENTRO da derivada — evita full scan em sales_order_item).
+    SELECT
+        i.order_id,
+        SUM(CASE WHEN i.product_type =  'bundle' THEN 1 ELSE 0 END)                 AS qtd_bundles,
+        SUM(CASE WHEN i.product_type <> 'bundle' THEN i.discount_amount ELSE 0 END) AS desc_itens
+    FROM sales_order_item i
+    JOIN (
+        -- pedidos-alvo: têm pelo menos um bundle dos eventos solicitados
+        SELECT DISTINCT bo.order_id
+        FROM catalog_product_entity_varchar v
+        JOIN sales_order_item bo
+               ON bo.product_id   = v.entity_id
+              AND bo.product_type = 'bundle'
+        WHERE v.attribute_id = 321
+          AND v.store_id     = 0
+{agg_ids_filter}    ) AS tgt ON tgt.order_id = i.order_id
+    GROUP BY i.order_id
+) AS agg ON agg.order_id = soi_parent.order_id
 
 LEFT JOIN (
     -- Tamanho de camiseta: anchor por id_evento via evb, descendo por order_id (índice).
@@ -439,15 +481,9 @@ SELECT /*+ MAX_EXECUTION_TIME(90000) */
         ELSE soi_child.price
     END)                                                                                AS receita_bruta,
 
-    SUM(CASE
-        WHEN so.base_grand_total = 0 THEN 0
-        ELSE soi_child.price - soi_child.discount_amount
-    END)                                                                                AS receita_liquida,
+    {_RECEITA_LIQUIDA_SUM}                                                              AS receita_liquida,
 
-    SUM(CASE
-        WHEN so.base_grand_total = 0 THEN 0
-        ELSE soi_child.price - soi_child.discount_amount
-    END) / NULLIF(COUNT(DISTINCT CASE
+    {_RECEITA_LIQUIDA_SUM} / NULLIF(COUNT(DISTINCT CASE
         WHEN so.base_grand_total = 0 THEN NULL
         ELSE soi_parent.item_id
     END), 0)                                                                            AS ticket_medio
@@ -491,6 +527,33 @@ JOIN (
                         WHERE attribute_id = 321 AND store_id = 0)
     GROUP BY entity_id
 ) AS cped ON cped.entity_id = cpev1.value
+
+LEFT JOIN (
+    -- Agregados por pedido para o rateio do desconto de CARRINHO (modo global):
+    -- mesmo padrão do modo parametrizado, com pedidos-alvo restritos aos
+    -- bundles de eventos do ano corrente — evita full scan em sales_order_item.
+    SELECT
+        i.order_id,
+        SUM(CASE WHEN i.product_type =  'bundle' THEN 1 ELSE 0 END)                 AS qtd_bundles,
+        SUM(CASE WHEN i.product_type <> 'bundle' THEN i.discount_amount ELSE 0 END) AS desc_itens
+    FROM sales_order_item i
+    JOIN (
+        -- pedidos-alvo: contêm bundle de evento cujo dt_evento cai no ano corrente
+        SELECT DISTINCT bo.order_id
+        FROM catalog_product_entity_varchar v
+        JOIN catalog_product_entity_datetime d
+              ON d.entity_id    = v.value
+             AND d.attribute_id = 195
+             AND d.value >= MAKEDATE(YEAR(CURDATE()), 1)
+             AND d.value <  MAKEDATE(YEAR(CURDATE()) + 1, 1)
+        JOIN sales_order_item bo
+               ON bo.product_id   = v.entity_id
+              AND bo.product_type = 'bundle'
+        WHERE v.attribute_id = 321
+          AND v.store_id     = 0
+    ) AS tgt ON tgt.order_id = i.order_id
+    GROUP BY i.order_id
+) AS agg ON agg.order_id = soi_parent.order_id
 
 LEFT JOIN (
     SELECT

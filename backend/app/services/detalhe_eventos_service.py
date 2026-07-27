@@ -760,7 +760,7 @@ def _trigger_background_refresh(evento_grupo: str) -> None:
 # Versão da estrutura da query. Quando alterada, o startup descarta todos os
 # snapshots calculados com a versão anterior, garantindo que contagens obsoletas
 # não sejam servidas após deploys que mudam a lógica de contagem.
-DETALHE_QUERY_VERSION = "v2"  # v2: join sa_evento_modalidade via a.id_modalidade + id_evento
+DETALHE_QUERY_VERSION = "v3"  # v3: modalidade Ativo via nm_modalidade (join pela categoria) + rateio de desconto de carrinho na receita líquida Magento
 
 
 def maybe_flush_snapshots_on_version_change(db: Session) -> None:

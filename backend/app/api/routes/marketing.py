@@ -4985,7 +4985,7 @@ def build_query_isc_ativo_detalhe(ativo_event_ids: list, ano: int) -> str:
 SELECT /*+ MAX_EXECUTION_TIME(60000) */
     b.id_evento                                                                     AS id_evento,
     b.ds_evento                                                                     AS evento,
-    m.ds_modalidade                                                                 AS distancia,
+    m.nm_modalidade                                                                 AS distancia,
     h.ds_categoria                                                                  AS kit,
     CASE
         WHEN a.nr_preco = 0                                                                             THEN 'Cortesia'
@@ -5004,7 +5004,9 @@ INNER JOIN sa_pedido AS c
     ON c.id_pedido = a.id_pedido
    AND c.id_pedido_status IN (2)
 LEFT JOIN sa_modalidade_categoria AS h ON h.id_categoria = a.id_categoria
-LEFT JOIN sa_evento_modalidade AS m ON m.id_modalidade = a.id_modalidade AND m.id_evento = b.id_evento
+-- Modalidade pela CATEGORIA (h.id_modalidade): ds_modalidade fica vazia em muitos
+-- eventos; nm_modalidade é a fonte confiável (query canônica do analista).
+LEFT JOIN sa_evento_modalidade AS m ON m.id_modalidade = h.id_modalidade
 LEFT JOIN (
     SELECT e.id_cupom_desconto_item, f.en_cupom_classificacao
     FROM sa_cupom_desconto_item AS e
@@ -5016,7 +5018,7 @@ GROUP BY
     b.id_evento,
     b.ds_evento,
     m.id_modalidade,
-    m.ds_modalidade,
+    m.nm_modalidade,
     h.id_categoria,
     h.ds_categoria,
     CASE
