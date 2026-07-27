@@ -23,6 +23,8 @@ import {
   Database,
   Layers,
   Info,
+  GripVertical,
+  RotateCcw,
 } from 'lucide-react';
 import {
   BarChart,
@@ -36,7 +38,7 @@ import {
   Cell,
   Legend,
 } from 'recharts';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, Reorder } from 'framer-motion';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -74,6 +76,28 @@ const DIM_LABELS: Record<string, string> = {
 type DimKey = 'canal' | 'kit' | 'modalidade' | 'pelotao' | 'produtos' | 'tamanho_camiseta';
 
 const DEFAULT_HIERARCHY: DimKey[] = ['kit', 'modalidade', 'pelotao', 'produtos', 'tamanho_camiseta'];
+
+const ALL_DIMS = Object.keys(DIM_LABELS) as DimKey[];
+
+// Preferência de granularidade da árvore (persistida por navegador)
+const HIERARCHY_STORAGE_KEY = 'detalhe_eventos_hierarchy_v1';
+
+const sameHierarchy = (a: DimKey[], b: DimKey[]) =>
+  a.length === b.length && a.every((d, i) => d === b[i]);
+
+function loadStoredHierarchy(): DimKey[] | null {
+  try {
+    const raw = localStorage.getItem(HIERARCHY_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    const valid = [...new Set(parsed.filter((d): d is DimKey => typeof d === 'string' && (ALL_DIMS as string[]).includes(d)))];
+    // Exige ao menos um nível além de "Produtos" (que é condicional por evento)
+    return valid.some(d => d !== 'produtos') ? valid : null;
+  } catch {
+    return null;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // KPI Card
@@ -535,6 +559,7 @@ const DetalheEventos: React.FC = () => {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [bankExpanded, setBankExpanded] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<'tree' | 'flat'>('tree');
+  const [hierarchy, setHierarchy] = useState<DimKey[]>(() => loadStoredHierarchy() ?? DEFAULT_HIERARCHY);
   const [activeTab, setActiveTab] = useState<'consolidado' | 'ativo' | 'magento'>('consolidado');
   const [searchEventos, setSearchEventos] = useState('');
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -725,10 +750,44 @@ const DetalheEventos: React.FC = () => {
     [payload]
   );
 
-  const activeHierarchy = useMemo(
-    () => hasProdutos ? DEFAULT_HIERARCHY : DEFAULT_HIERARCHY.filter(d => d !== 'produtos'),
-    [hasProdutos]
+  // Hierarquia efetiva: preferência do usuário, omitindo "Produtos" quando o
+  // evento não tem produtos (mesma regra do padrão antigo). Nunca fica vazia.
+  const activeHierarchy = useMemo(() => {
+    const eff = hasProdutos ? hierarchy : hierarchy.filter(d => d !== 'produtos');
+    if (eff.length > 0) return eff;
+    return hasProdutos ? DEFAULT_HIERARCHY : DEFAULT_HIERARCHY.filter(d => d !== 'produtos');
+  }, [hierarchy, hasProdutos]);
+
+  const isDefaultHierarchy = sameHierarchy(hierarchy, DEFAULT_HIERARCHY);
+
+  const availableDims = useMemo(
+    () => ALL_DIMS.filter(d => !hierarchy.includes(d) && (d !== 'produtos' || hasProdutos)),
+    [hierarchy, hasProdutos]
   );
+
+  // Troca de hierarquia invalida as chaves dos nós — reseta expansão junto.
+  const applyHierarchy = useCallback((next: DimKey[]) => {
+    setHierarchy(next);
+    setExpanded(new Set());
+    setBankExpanded(new Set());
+    try {
+      if (sameHierarchy(next, DEFAULT_HIERARCHY)) localStorage.removeItem(HIERARCHY_STORAGE_KEY);
+      else localStorage.setItem(HIERARCHY_STORAGE_KEY, JSON.stringify(next));
+    } catch { /* armazenamento indisponível — segue só em memória */ }
+  }, []);
+
+  const removeDim = useCallback((dim: DimKey) => {
+    const next = hierarchy.filter(d => d !== dim);
+    // Sempre manter ao menos um nível além de "Produtos" (condicional por evento),
+    // para a hierarquia nunca ficar vazia/divergente ao trocar de evento.
+    if (!next.some(d => d !== 'produtos')) return;
+    applyHierarchy(next);
+  }, [hierarchy, applyHierarchy]);
+
+  const addDim = useCallback((dim: DimKey) => {
+    if (hierarchy.includes(dim)) return;
+    applyHierarchy([...hierarchy, dim]);
+  }, [hierarchy, applyHierarchy]);
 
   const tree = useMemo(
     () => buildTree(filteredRows, allBancoRows, activeHierarchy, divergenciaKeys),
@@ -1391,6 +1450,78 @@ const DetalheEventos: React.FC = () => {
                 </div>
               </div>
 
+              {/* Granularidade da árvore: níveis de agrupamento configuráveis */}
+              {viewMode === 'tree' && (
+                <div className={`flex flex-wrap items-center gap-2 px-5 py-3 border-b ${borderCol} ${dark ? 'bg-slate-900/60' : 'bg-slate-50/80'}`}>
+                  <span className={`flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider ${textSec}`}>
+                    <Layers className="w-3.5 h-3.5" /> Agrupar por
+                  </span>
+                  <Reorder.Group
+                    as="div"
+                    axis="x"
+                    values={hierarchy}
+                    onReorder={applyHierarchy}
+                    className="flex flex-wrap items-center gap-1.5"
+                  >
+                    {hierarchy.map(dim => {
+                      const inactive = dim === 'produtos' && !hasProdutos;
+                      const pos = activeHierarchy.indexOf(dim);
+                      // X escondido quando é o único nível além de "Produtos" (mesma regra do removeDim)
+                      const isLastActive = dim !== 'produtos' && hierarchy.filter(d => d !== 'produtos').length <= 1;
+                      return (
+                        <Reorder.Item
+                          key={dim}
+                          value={dim}
+                          as="div"
+                          title={inactive ? 'Evento sem produtos — nível ignorado' : 'Arraste para reordenar'}
+                          className={`flex items-center gap-1 pl-1.5 pr-1 py-1 rounded-xl border select-none ${
+                            inactive
+                              ? `border-dashed opacity-50 ${dark ? 'border-slate-700 bg-slate-900 text-slate-400' : 'border-slate-300 bg-slate-50 text-slate-400'}`
+                              : `cursor-grab active:cursor-grabbing ${dark ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-200 bg-white text-slate-700 shadow-sm'}`
+                          }`}
+                        >
+                          <GripVertical className={`w-3 h-3 ${dark ? 'text-slate-600' : 'text-slate-300'}`} />
+                          <span className={`w-4 h-4 rounded-full text-[10px] font-black flex items-center justify-center ${dark ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-500/10 text-blue-600'}`}>
+                            {inactive ? '–' : pos + 1}
+                          </span>
+                          <span className="text-xs font-bold whitespace-nowrap">{DIM_LABELS[dim]}</span>
+                          {!isLastActive && (
+                            <button
+                              onClick={() => removeDim(dim)}
+                              onPointerDown={e => e.stopPropagation()}
+                              title="Remover nível"
+                              className={`p-0.5 rounded-md transition-colors ${dark ? 'text-slate-500 hover:text-red-400 hover:bg-red-500/10' : 'text-slate-400 hover:text-red-500 hover:bg-red-500/10'}`}
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          )}
+                        </Reorder.Item>
+                      );
+                    })}
+                  </Reorder.Group>
+                  {availableDims.length > 0 && (
+                    <select
+                      value=""
+                      onChange={e => { if (e.target.value) addDim(e.target.value as DimKey); }}
+                      title="Adicionar nível de agrupamento"
+                      className={`text-xs font-bold rounded-xl border px-2.5 py-1.5 appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer ${dark ? 'bg-slate-900 border-slate-700 text-slate-400' : 'bg-white border-slate-200 text-slate-500'}`}
+                    >
+                      <option value="">+ Nível</option>
+                      {availableDims.map(d => <option key={d} value={d}>{DIM_LABELS[d]}</option>)}
+                    </select>
+                  )}
+                  {!isDefaultHierarchy && (
+                    <button
+                      onClick={() => applyHierarchy(DEFAULT_HIERARCHY)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-blue-500 hover:bg-blue-500/10 transition-colors ml-auto"
+                      title="Voltar ao agrupamento padrão"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" /> Padrão
+                    </button>
+                  )}
+                </div>
+              )}
+
               {filteredRows.length === 0 ? (
                 <div className="py-20 text-center flex flex-col items-center">
                   <Search className={`w-10 h-10 mb-4 ${dark ? 'text-slate-700' : 'text-slate-300'}`} />
@@ -1433,7 +1564,7 @@ const DetalheEventos: React.FC = () => {
                               <span className={`pointer-events-none absolute left-0 top-6 z-50 w-max max-w-xs rounded-xl px-4 py-3 text-xs font-medium normal-case shadow-xl opacity-0 group-hover:opacity-100 transition-opacity ${dark ? 'bg-slate-800 text-slate-200 border border-slate-700' : 'bg-white text-slate-700 border border-slate-200'}`}>
                                 Visão granular de inscrições e receita.<br />
                                 Hierarquia atual:<br/>
-                                <span className="font-mono text-[10px] mt-2 block text-blue-500">Kit → Modalidade → Pelotão{hasProdutos ? ' → Produtos' : ''} → Tamanho</span>
+                                <span className="font-mono text-[10px] mt-2 block text-blue-500">{activeHierarchy.map(d => DIM_LABELS[d]).join(' → ')}</span>
                               </span>
                             </span>
                           </div>
