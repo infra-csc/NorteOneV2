@@ -6,6 +6,7 @@ import {
   DetalheEventoPayload,
   DetalheRow,
   DetalheBancoRow,
+  userPrefsService,
 } from '../../services/api';
 import {
   Search,
@@ -79,7 +80,8 @@ const DEFAULT_HIERARCHY: DimKey[] = ['kit', 'modalidade', 'pelotao', 'produtos',
 
 const ALL_DIMS = Object.keys(DIM_LABELS) as DimKey[];
 
-// Preferência de granularidade da árvore (persistida por navegador)
+// Preferência de granularidade da árvore — a fonte da verdade é a conta do
+// usuário no servidor; o localStorage vira cache local/fallback offline.
 const HIERARCHY_STORAGE_KEY = 'detalhe_eventos_hierarchy_v1';
 
 const sameHierarchy = (a: DimKey[], b: DimKey[]) =>
@@ -90,15 +92,23 @@ const sameHierarchy = (a: DimKey[], b: DimKey[]) =>
 const FLAT_COLS_STORAGE_KEY = 'detalhe_eventos_flat_cols_v1';
 const DEFAULT_FLAT_COLS: DimKey[] = ['canal', 'kit', 'modalidade', 'pelotao', 'produtos', 'tamanho_camiseta'];
 
+// Chaves das preferências no servidor (por conta de usuário)
+const HIERARCHY_PREF_KEY = 'detalhe_eventos_hierarchy';
+const FLAT_COLS_PREF_KEY = 'detalhe_eventos_flat_cols';
+
+// Valida uma lista de dimensões vinda de fora (localStorage ou servidor)
+function sanitizeDims(parsed: unknown): DimKey[] | null {
+  if (!Array.isArray(parsed)) return null;
+  const valid = [...new Set(parsed.filter((d): d is DimKey => typeof d === 'string' && (ALL_DIMS as string[]).includes(d)))];
+  // Exige ao menos um nível além de "Produtos" (que é condicional por evento)
+  return valid.some(d => d !== 'produtos') ? valid : null;
+}
+
 function loadStoredDims(storageKey: string): DimKey[] | null {
   try {
     const raw = localStorage.getItem(storageKey);
     if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return null;
-    const valid = [...new Set(parsed.filter((d): d is DimKey => typeof d === 'string' && (ALL_DIMS as string[]).includes(d)))];
-    // Exige ao menos um nível além de "Produtos" (que é condicional por evento)
-    return valid.some(d => d !== 'produtos') ? valid : null;
+    return sanitizeDims(JSON.parse(raw));
   } catch {
     return null;
   }
@@ -774,15 +784,64 @@ const DetalheEventos: React.FC = () => {
     [hierarchy, hasProdutos]
   );
 
+  // Preferências vindas do servidor não devem sobrescrever mudanças que o
+  // usuário fez enquanto o fetch estava em andamento.
+  const hierarchyTouchedRef = useRef(false);
+  const flatColsTouchedRef = useRef(false);
+
+  // Carrega preferências salvas na conta (localStorage já foi usado como
+  // valor inicial otimista; o servidor é a fonte da verdade).
+  useEffect(() => {
+    let cancelled = false;
+    userPrefsService.getAll()
+      .then(prefs => {
+        if (cancelled) return;
+        const serverHierarchy = sanitizeDims(prefs[HIERARCHY_PREF_KEY]);
+        const serverFlatCols = sanitizeDims(prefs[FLAT_COLS_PREF_KEY]);
+        if (!hierarchyTouchedRef.current) {
+          if (serverHierarchy) {
+            setHierarchy(serverHierarchy);
+            try { localStorage.setItem(HIERARCHY_STORAGE_KEY, JSON.stringify(serverHierarchy)); } catch { /* noop */ }
+          } else {
+            // Sem preferência no servidor: migra a do navegador, se existir
+            const local = loadStoredHierarchy();
+            if (local && !sameHierarchy(local, DEFAULT_HIERARCHY)) {
+              userPrefsService.set(HIERARCHY_PREF_KEY, local).catch(() => { /* melhor esforço */ });
+            }
+          }
+        }
+        if (!flatColsTouchedRef.current) {
+          if (serverFlatCols) {
+            setFlatCols(serverFlatCols);
+            try { localStorage.setItem(FLAT_COLS_STORAGE_KEY, JSON.stringify(serverFlatCols)); } catch { /* noop */ }
+          } else {
+            const local = loadStoredFlatCols();
+            if (local && !sameHierarchy(local, DEFAULT_FLAT_COLS)) {
+              userPrefsService.set(FLAT_COLS_PREF_KEY, local).catch(() => { /* melhor esforço */ });
+            }
+          }
+        }
+      })
+      .catch(() => { /* servidor indisponível — segue com localStorage */ });
+    return () => { cancelled = true; };
+  }, []);
+
   // Troca de hierarquia invalida as chaves dos nós — reseta expansão junto.
   const applyHierarchy = useCallback((next: DimKey[]) => {
+    hierarchyTouchedRef.current = true;
     setHierarchy(next);
     setExpanded(new Set());
     setBankExpanded(new Set());
+    const isDefault = sameHierarchy(next, DEFAULT_HIERARCHY);
     try {
-      if (sameHierarchy(next, DEFAULT_HIERARCHY)) localStorage.removeItem(HIERARCHY_STORAGE_KEY);
+      if (isDefault) localStorage.removeItem(HIERARCHY_STORAGE_KEY);
       else localStorage.setItem(HIERARCHY_STORAGE_KEY, JSON.stringify(next));
     } catch { /* armazenamento indisponível — segue só em memória */ }
+    // Persiste na conta do usuário (melhor esforço; localStorage é o fallback)
+    (isDefault
+      ? userPrefsService.remove(HIERARCHY_PREF_KEY)
+      : userPrefsService.set(HIERARCHY_PREF_KEY, next)
+    ).catch(() => { /* offline/erro — preferência local continua valendo */ });
   }, []);
 
   const removeDim = useCallback((dim: DimKey) => {
@@ -813,11 +872,17 @@ const DetalheEventos: React.FC = () => {
   );
 
   const applyFlatCols = useCallback((next: DimKey[]) => {
+    flatColsTouchedRef.current = true;
     setFlatCols(next);
+    const isDefault = sameHierarchy(next, DEFAULT_FLAT_COLS);
     try {
-      if (sameHierarchy(next, DEFAULT_FLAT_COLS)) localStorage.removeItem(FLAT_COLS_STORAGE_KEY);
+      if (isDefault) localStorage.removeItem(FLAT_COLS_STORAGE_KEY);
       else localStorage.setItem(FLAT_COLS_STORAGE_KEY, JSON.stringify(next));
     } catch { /* armazenamento indisponível — segue só em memória */ }
+    (isDefault
+      ? userPrefsService.remove(FLAT_COLS_PREF_KEY)
+      : userPrefsService.set(FLAT_COLS_PREF_KEY, next)
+    ).catch(() => { /* offline/erro — preferência local continua valendo */ });
   }, []);
 
   const removeFlatCol = useCallback((dim: DimKey) => {

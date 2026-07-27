@@ -2026,6 +2026,20 @@ export interface DetalheEventoPayload {
   snapshot_updated_at?: string | null;
 }
 
+// Preferências de UI por usuário (persistidas no servidor; localStorage é cache)
+export const userPrefsService = {
+  getAll: async (): Promise<Record<string, unknown>> => {
+    const response = await api.get('/profile/prefs');
+    return response.data;
+  },
+  set: async (chave: string, valor: unknown): Promise<void> => {
+    await api.put(`/profile/prefs/${encodeURIComponent(chave)}`, { valor });
+  },
+  remove: async (chave: string): Promise<void> => {
+    await api.delete(`/profile/prefs/${encodeURIComponent(chave)}`);
+  },
+};
+
 export const detalheEventosService = {
   listEventos: async (): Promise<DetalheEventoDisponivel[]> => {
     const response = await api.get('/marketing/detalhe-eventos/eventos');

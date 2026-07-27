@@ -1,4 +1,5 @@
 from app.models.user import Usuario as Usuario
+from app.models.user_pref import UserUiPref as UserUiPref
 from app.models.dimensoes import (
     DimCentroCusto as DimCentroCusto,
     DimProjeto as DimProjeto,

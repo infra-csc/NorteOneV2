@@ -5,10 +5,23 @@ from pydantic import BaseModel
 from ...core.database import get_db
 from ...core.security import get_current_user, verify_password, get_password_hash
 from ...models.user import Usuario
+from ...models.user_pref import UserUiPref
+import json
 import os
+import re
 import uuid
 
 router = APIRouter(prefix="/profile", tags=["Perfil"])
+
+# Chaves de preferência: slug simples, evita lixo arbitrário na tabela
+PREF_KEY_RE = re.compile(r"^[a-z0-9_\-]{1,100}$")
+MAX_PREF_VALUE_LEN = 10_000
+
+
+def _validate_pref_key(chave: str) -> str:
+    if not PREF_KEY_RE.match(chave):
+        raise HTTPException(status_code=400, detail="Chave de preferência inválida")
+    return chave
 
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 MIME_MAP = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
@@ -18,6 +31,66 @@ MAX_FILE_SIZE = 5 * 1024 * 1024
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
+
+
+class PrefUpsertRequest(BaseModel):
+    # Valor JSON arbitrário (lista, objeto, etc.) — serializado ao gravar
+    valor: object
+
+
+@router.get("/prefs")
+def list_prefs(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Todas as preferências de UI do usuário logado: { chave: valor }."""
+    rows = db.query(UserUiPref).filter(UserUiPref.usuario_id == current_user.id).all()
+    out = {}
+    for r in rows:
+        try:
+            out[r.chave] = json.loads(r.valor)
+        except (ValueError, TypeError):
+            continue  # valor corrompido — ignora em vez de quebrar a tela
+    return out
+
+
+@router.put("/prefs/{chave}")
+def upsert_pref(
+    chave: str,
+    data: PrefUpsertRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _validate_pref_key(chave)
+    valor = json.dumps(data.valor, ensure_ascii=False)
+    if len(valor) > MAX_PREF_VALUE_LEN:
+        raise HTTPException(status_code=400, detail="Valor de preferência muito grande")
+    row = (
+        db.query(UserUiPref)
+        .filter(UserUiPref.usuario_id == current_user.id, UserUiPref.chave == chave)
+        .first()
+    )
+    if row is None:
+        row = UserUiPref(usuario_id=current_user.id, chave=chave, valor=valor)
+        db.add(row)
+    else:
+        row.valor = valor
+    db.commit()
+    return {"chave": chave, "valor": data.valor}
+
+
+@router.delete("/prefs/{chave}")
+def delete_pref(
+    chave: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _validate_pref_key(chave)
+    db.query(UserUiPref).filter(
+        UserUiPref.usuario_id == current_user.id, UserUiPref.chave == chave
+    ).delete()
+    db.commit()
+    return {"message": "Preferência removida"}
 
 
 @router.get("/me")
