@@ -1138,12 +1138,6 @@ const DetalheEventos: React.FC = () => {
                 animate={{ opacity: 1, height: 'auto' }}
                 className={`mt-4 pt-4 border-t ${borderCol} flex flex-wrap gap-4 items-center`}
               >
-                <div className="flex items-center gap-2">
-                  <span className={`text-[11px] font-bold uppercase tracking-wider ${textSec}`}>SKU:</span>
-                  <code className={`px-2 py-1 rounded-md text-xs font-mono font-bold ${dark ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
-                    {selectedEvento.evento_grupo}
-                  </code>
-                </div>
                 {selectedEvento.ativo_ids.length > 0 && (
                   <div className="flex items-center gap-2">
                     <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-500">Ativo IDs:</span>
@@ -1531,11 +1525,7 @@ const DetalheEventos: React.FC = () => {
                     >
                       {tab === 'consolidado' && <Layers className="w-4 h-4" />}
                       {tab !== 'consolidado' && <Database className="w-4 h-4" />}
-                      {tab === 'consolidado'
-                        ? `Consolidado (${fmt(payload.consolidado.length)})`
-                        : tab === 'ativo'
-                        ? `Ativo (${fmt(payload.por_banco.Ativo.length)})`
-                        : `Magento (${fmt(payload.por_banco.Magento.length)})`}
+                      {tab === 'consolidado' ? 'Consolidado' : tab === 'ativo' ? 'Ativo' : 'Magento'}
                     </button>
                   ))}
                 </div>
@@ -1550,9 +1540,9 @@ const DetalheEventos: React.FC = () => {
                   <button
                     onClick={() => setViewMode('flat')}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${viewMode === 'flat' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
-                    title="Visão plana"
+                    title="Visão em tabela"
                   >
-                    <Table2 className="w-3.5 h-3.5" /> Plana
+                    <Table2 className="w-3.5 h-3.5" /> Tabela
                   </button>
                 </div>
               </div>
