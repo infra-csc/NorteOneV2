@@ -29,4 +29,4 @@ líquida_por_bundle -= resíduo / qtd_bundles_do_pedido   (COALESCE(...,0) obrig
 
 Implementado via derivada `agg` (order_id → qtd_bundles, desc_itens) com pedidos-alvo **escopados por evento** (param) ou **ano corrente** (global) — nunca full scan em `sales_order_item` (5,4M linhas). Sem `COALESCE(...,0)`, pedido sem match em `agg` vira NULL e a linha sai do SUM.
 
-**How to apply:** qualquer medida nova de receita líquida Magento por item/bundle deve incluir esse rateio (o Detalhe de Eventos usa a constante compartilhada `_RECEITA_LIQUIDA_SUM`). Atenção: o breakdown Magento do Painel do evento (vendas-kit-detalhe) ainda usa a fórmula antiga sem rateio.
+**How to apply:** qualquer medida nova de receita líquida Magento por item/bundle deve incluir esse rateio (o Detalhe de Eventos usa a constante compartilhada `_RECEITA_LIQUIDA_SUM`). O breakdown Magento do Painel do evento (vendas-kit-detalhe) também aplica o rateio desde Jul/2026 — validado idêntico ao Detalhe de Eventos. Atenção: na derivada `agg`, o filtro de eventos (`v.value IN (...)`) compara coluna VARCHAR — usar IDs entre aspas, senão o cast por linha vira full scan.

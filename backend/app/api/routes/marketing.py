@@ -4707,6 +4707,9 @@ def build_query_isc_magento_detalhe(magento_event_ids: list, ano: int, cortesia_
                         10=receitaBruta, 11=receitaLiquida, 12=ticketMedio.
     """
     ids_str = ", ".join(str(int(i)) for i in magento_event_ids)
+    # Versão com aspas para comparação contra colunas VARCHAR (ex.: v.value na
+    # derivada 'agg'): IN numérico contra varchar força cast por linha = full scan.
+    ids_quoted = ", ".join(f"'{int(i)}'" for i in magento_event_ids)
     cort_ids = cortesia_magento_ids or set()
     has_cortesia = bool(cort_ids & set(str(i) for i in magento_event_ids))
     if has_cortesia:
@@ -4738,10 +4741,18 @@ SELECT /*+ MAX_EXECUTION_TIME(300000) */
     SUM(CASE
         WHEN so.base_grand_total = 0                                    THEN 0
         ELSE soi_child.price - soi_child.discount_amount
+           - COALESCE(
+                 (ABS(so.discount_amount) - COALESCE(agg.desc_itens, 0))
+                     / NULLIF(agg.qtd_bundles, 0)
+               , 0)
     END)                                                                                AS receita_liquida,
     SUM(CASE
         WHEN so.base_grand_total = 0                                    THEN 0
         ELSE soi_child.price - soi_child.discount_amount
+           - COALESCE(
+                 (ABS(so.discount_amount) - COALESCE(agg.desc_itens, 0))
+                     / NULLIF(agg.qtd_bundles, 0)
+               , 0)
     END) / NULLIF(COUNT(DISTINCT CASE
         WHEN so.base_grand_total = 0                                    THEN NULL
         ELSE soi_parent.item_id
@@ -4786,6 +4797,32 @@ LEFT JOIN (
       AND store_id     = 0
     GROUP BY entity_id
 ) AS cpev2 ON cpev2.entity_id = cpev1.value
+
+LEFT JOIN (
+    -- Agregados por pedido para o rateio do desconto de CARRINHO
+    -- (mesma fórmula do Detalhe de Eventos — _RECEITA_LIQUIDA_SUM):
+    --   qtd_bundles → denominador do rateio
+    --   desc_itens  → descontos já lançados nos itens (não-bundle)
+    -- Escopo limitado aos pedidos que contêm bundles dos eventos solicitados
+    -- (filtro DENTRO da derivada — evita full scan em sales_order_item).
+    SELECT
+        i.order_id,
+        SUM(CASE WHEN i.product_type =  'bundle' THEN 1 ELSE 0 END)                 AS qtd_bundles,
+        SUM(CASE WHEN i.product_type <> 'bundle' THEN i.discount_amount ELSE 0 END) AS desc_itens
+    FROM sales_order_item i
+    JOIN (
+        -- pedidos-alvo: têm pelo menos um bundle dos eventos solicitados
+        SELECT DISTINCT bo.order_id
+        FROM catalog_product_entity_varchar v
+        JOIN sales_order_item bo
+               ON bo.product_id   = v.entity_id
+              AND bo.product_type = 'bundle'
+        WHERE v.attribute_id = 321
+          AND v.store_id     = 0
+          AND v.value IN ({ids_quoted})
+    ) AS tgt ON tgt.order_id = i.order_id
+    GROUP BY i.order_id
+) AS agg ON agg.order_id = soi_parent.order_id
 
 JOIN (
     SELECT entity_id, MIN(value) AS value
