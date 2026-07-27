@@ -27,6 +27,7 @@ import {
   GripVertical,
   RotateCcw,
   Check,
+  Maximize2,
 } from 'lucide-react';
 import {
   BarChart,
@@ -741,6 +742,56 @@ const DetalheEventos: React.FC = () => {
   const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [refreshInProgress, setRefreshInProgress] = useState(false);
   const [tamanhoDetalhado, setTamanhoDetalhado] = useState(false);
+  const [tamanhoExpandido, setTamanhoExpandido] = useState(false);
+  // Larguras (px) editáveis das colunas da tabela "Ver Detalhes" de tamanhos
+  const [tamanhoColWidths, setTamanhoColWidths] = useState<{ tamanho: number; qtd: number }>({ tamanho: 150, qtd: 70 });
+  const [tamanhoColResizing, setTamanhoColResizing] = useState<'tamanho' | 'qtd' | null>(null);
+  const tamanhoResizeCleanup = useRef<(() => void) | null>(null);
+
+  const startTamanhoColResize = (col: 'tamanho' | 'qtd', e: React.PointerEvent<HTMLSpanElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = tamanhoColWidths[col];
+    const minW = col === 'tamanho' ? 72 : 52;
+    const maxW = col === 'tamanho' ? 480 : 220;
+    setTamanhoColResizing(col);
+    const onMove = (ev: PointerEvent) => {
+      const width = Math.round(Math.max(minW, Math.min(maxW, startW + (ev.clientX - startX))));
+      setTamanhoColWidths(prev => (prev[col] === width ? prev : { ...prev, [col]: width }));
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      setTamanhoColResizing(null);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      tamanhoResizeCleanup.current = null;
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    tamanhoResizeCleanup.current = onUp;
+  };
+
+  // Desmontagem no meio de um arraste: remove listeners globais e restaura o body
+  useEffect(() => () => { tamanhoResizeCleanup.current?.(); }, []);
+
+  // Esc fecha o pop-up ampliado e trava o scroll da página enquanto aberto
+  useEffect(() => {
+    if (!tamanhoExpandido) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setTamanhoExpandido(false); };
+    window.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [tamanhoExpandido]);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -1155,6 +1206,161 @@ const DetalheEventos: React.FC = () => {
   const totalInscritos = kpiTotais?.inscritos ?? 0;
   const activeFiltersCount = ALL_DIMS.filter(d => filters[d].length > 0).length;
 
+  // ===== "Tamanhos de Camiseta" — conteúdo compartilhado entre o card e o pop-up ampliado =====
+  const renderTamanhoCamisetas = (expandido: boolean) => (
+    <>
+      <div className="flex items-center justify-between mb-4 gap-2">
+        <p className={`text-[11px] font-bold uppercase tracking-wider ${textSec}`}>Tamanhos de Camiseta</p>
+        <div className="flex items-center gap-1.5">
+          {tamanhoChartData.length > 0 && (
+            <button
+              onClick={() => setTamanhoDetalhado(v => !v)}
+              className={`text-[10px] px-3 py-1 font-bold uppercase tracking-wider rounded-lg transition-colors ${
+                tamanhoDetalhado
+                  ? dark ? 'bg-blue-600 text-white' : 'bg-blue-600 text-white shadow-md'
+                  : dark ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              {tamanhoDetalhado ? 'Simplificado' : 'Ver Detalhes'}
+            </button>
+          )}
+          <button
+            onClick={() => setTamanhoExpandido(v => !v)}
+            title={expandido ? 'Fechar (Esc)' : 'Expandir visualização'}
+            aria-label={expandido ? 'Fechar visualização ampliada' : 'Expandir visualização'}
+            className={`p-1.5 rounded-lg transition-colors ${dark ? 'text-slate-400 hover:text-white hover:bg-slate-700' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'}`}
+          >
+            {expandido ? <X className="w-4 h-4" /> : <Maximize2 className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+      </div>
+      {tamanhoChartData.length > 0 && tamanhoShareTotal > 0 && (
+        <p
+          className={`text-[10px] font-medium -mt-2 mb-3 ${dark ? 'text-slate-500' : 'text-slate-400'}`}
+          title="O denominador do % é o total de inscritos excluindo os kits de Participação/Meia Inscrição. Inscritos sem tamanho informado continuam na base, por isso a soma pode ficar abaixo de 100%."
+        >
+          % sobre {fmt(tamanhoShareTotal)} inscritos, excl. Participação/Meia Inscrição
+        </p>
+      )}
+      <div className="flex-1 min-h-0 relative">
+        {tamanhoChartData.length > 0 ? (
+          tamanhoDetalhado ? (
+            <div className="absolute inset-0 overflow-y-auto scrollbar-thin-custom pr-2">
+              <table className={`w-full font-medium table-fixed ${expandido ? 'text-xs' : 'text-[11px]'}`}>
+                <colgroup>
+                  <col style={{ width: tamanhoColWidths.tamanho }} />
+                  <col style={{ width: tamanhoColWidths.qtd }} />
+                  <col />
+                </colgroup>
+                <thead className="sticky top-0 z-10 backdrop-blur-md pb-2">
+                  <tr className={`${dark ? 'text-slate-400 bg-slate-900/80' : 'text-slate-500 bg-white/80'} uppercase tracking-wider`}>
+                    <th className="relative text-left py-2 font-bold pr-2">
+                      Tamanho
+                      <span
+                        onPointerDown={e => startTamanhoColResize('tamanho', e)}
+                        title="Arraste para ajustar a largura"
+                        style={{ touchAction: 'none' }}
+                        className={`absolute right-0 top-1 bottom-1 w-[5px] rounded-full cursor-col-resize transition-colors ${
+                          tamanhoColResizing === 'tamanho'
+                            ? 'bg-blue-500/70'
+                            : dark ? 'bg-slate-700 hover:bg-blue-500/60' : 'bg-slate-200 hover:bg-blue-400/60'
+                        }`}
+                      />
+                    </th>
+                    <th className="relative text-right py-2 font-bold pr-3">
+                      Qtd
+                      <span
+                        onPointerDown={e => startTamanhoColResize('qtd', e)}
+                        title="Arraste para ajustar a largura"
+                        style={{ touchAction: 'none' }}
+                        className={`absolute right-0 top-1 bottom-1 w-[5px] rounded-full cursor-col-resize transition-colors ${
+                          tamanhoColResizing === 'qtd'
+                            ? 'bg-blue-500/70'
+                            : dark ? 'bg-slate-700 hover:bg-blue-500/60' : 'bg-slate-200 hover:bg-blue-400/60'
+                        }`}
+                      />
+                    </th>
+                    <th className="text-right py-2 font-bold">%</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tamanhoChartData.map((row, i) => {
+                    const pct = tamanhoShareTotal > 0 ? (row.value / tamanhoShareTotal) * 100 : 0;
+                    return (
+                      <tr key={row.name} className={`border-b last:border-0 ${dark ? 'border-slate-800/50' : 'border-slate-100'}`}>
+                        <td className="py-2 pr-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span style={{ width: 8, height: 8, borderRadius: 2, flexShrink: 0, background: CHART_COLORS[i % CHART_COLORS.length] }} />
+                            <span className={`${dark ? 'text-slate-200' : 'text-slate-700'} min-w-0 truncate font-semibold`} title={row.name}>{row.name}</span>
+                          </div>
+                        </td>
+                        <td className={`py-2 pr-3 text-right tabular-nums font-bold ${dark ? 'text-slate-300' : 'text-slate-600'}`}>{fmt(row.value)}</td>
+                        <td className="py-2 text-right">
+                          <span className={`tabular-nums font-bold ${dark ? 'text-slate-400' : 'text-slate-500'}`}>{pct.toFixed(1)}%</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="absolute inset-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+                  <Pie
+                    data={tamanhoChartDataSimple}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={expandido ? '75%' : 65}
+                    innerRadius={expandido ? '48%' : 40}
+                    stroke="none"
+                  >
+                    {tamanhoChartDataSimple.map((_, i) => (
+                      <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    content={({ active, payload: tp }) => {
+                      if (!active || !tp?.length) return null;
+                      const entry = tp[0];
+                      const baseName = entry.name as string;
+                      const total = entry.value as number;
+                      const variants = tamanhoBreakdownMap.get(baseName);
+                      const hasVariants = variants && variants.length > 1;
+                      return (
+                        <div className={`p-3 rounded-xl shadow-xl ${dark ? 'bg-slate-800 text-white' : 'bg-white text-slate-900'} border ${dark ? 'border-slate-700' : 'border-slate-100'} text-xs min-w-[160px]`}>
+                          <p className="font-bold border-b pb-2 mb-2 border-current border-opacity-10">
+                            {baseName} — {fmt(total)}{tamanhoShareTotal > 0 && ` (${((total / tamanhoShareTotal) * 100).toFixed(1)}%)`}
+                          </p>
+                          {hasVariants && variants!.map(v => {
+                            const pct = tamanhoShareTotal > 0 ? ((v.value / tamanhoShareTotal) * 100).toFixed(1) : '0';
+                            const label = v.name === baseName ? `${baseName} (único)` : v.name;
+                            return (
+                              <div key={v.name} className={`flex justify-between gap-3 mt-1.5 font-medium ${dark ? 'text-slate-300' : 'text-slate-600'}`}>
+                                <span className="truncate max-w-[120px]">{label}</span>
+                                <span className="flex-shrink-0">{fmt(v.value)} ({pct}%)</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    }}
+                  />
+                  <Legend iconSize={expandido ? 10 : 8} iconType="circle" wrapperStyle={{ fontSize: expandido ? 12 : 11, fontWeight: 600, paddingTop: 10 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          )
+        ) : (
+          <div className={`absolute inset-0 flex items-center justify-center text-sm font-medium ${textSec}`}>Sem dados de tamanho</div>
+        )}
+      </div>
+    </>
+  );
+
   const filteredEventos = useMemo(() =>
     eventos.filter(e =>
       !searchEventos ||
@@ -1542,117 +1748,16 @@ const DetalheEventos: React.FC = () => {
                 </div>
               </div>
 
-              <div className={`rounded-3xl border ${cardBg} p-6 shadow-sm backdrop-blur-xl flex flex-col`}>
-                <div className="flex items-center justify-between mb-4">
-                  <p className={`text-[11px] font-bold uppercase tracking-wider ${textSec}`}>Tamanhos de Camiseta</p>
-                  {tamanhoChartData.length > 0 && (
-                    <button
-                      onClick={() => setTamanhoDetalhado(v => !v)}
-                      className={`text-[10px] px-3 py-1 font-bold uppercase tracking-wider rounded-lg transition-colors ${
-                        tamanhoDetalhado
-                          ? dark ? 'bg-blue-600 text-white' : 'bg-blue-600 text-white shadow-md'
-                          : dark ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      }`}
-                    >
-                      {tamanhoDetalhado ? 'Simplificado' : 'Ver Detalhes'}
-                    </button>
-                  )}
-                </div>
-                {tamanhoChartData.length > 0 && tamanhoShareTotal > 0 && (
-                  <p
-                    className={`text-[10px] font-medium -mt-2 mb-3 ${dark ? 'text-slate-500' : 'text-slate-400'}`}
-                    title="O denominador do % é o total de inscritos excluindo os kits de Participação/Meia Inscrição. Inscritos sem tamanho informado continuam na base, por isso a soma pode ficar abaixo de 100%."
+              <div className="relative min-h-[260px]">
+                {!tamanhoExpandido && (
+                  <motion.div
+                    layoutId="tamanho-camiseta-card"
+                    transition={{ type: 'spring', stiffness: 260, damping: 28 }}
+                    className={`absolute inset-0 rounded-3xl border ${cardBg} p-6 shadow-sm backdrop-blur-xl flex flex-col`}
                   >
-                    % sobre {fmt(tamanhoShareTotal)} inscritos, excl. Participação/Meia Inscrição
-                  </p>
+                    {renderTamanhoCamisetas(false)}
+                  </motion.div>
                 )}
-                <div className="flex-1 min-h-0 relative">
-                  {tamanhoChartData.length > 0 ? (
-                    tamanhoDetalhado ? (
-                      <div className="absolute inset-0 overflow-y-auto scrollbar-thin-custom pr-2">
-                        <table className="w-full text-[11px] font-medium">
-                          <thead className="sticky top-0 z-10 backdrop-blur-md pb-2">
-                            <tr className={`${dark ? 'text-slate-400 bg-slate-900/80' : 'text-slate-500 bg-white/80'} uppercase tracking-wider`}>
-                              <th className="text-left py-2 font-bold pr-2">Tamanho</th>
-                              <th className="text-right py-2 font-bold pr-3">Qtd</th>
-                              <th className="text-right py-2 font-bold w-12">%</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {tamanhoChartData.map((row, i) => {
-                              const pct = tamanhoShareTotal > 0 ? (row.value / tamanhoShareTotal) * 100 : 0;
-                              return (
-                                <tr key={row.name} className={`border-b last:border-0 ${dark ? 'border-slate-800/50' : 'border-slate-100'}`}>
-                                  <td className="py-2 pr-2">
-                                    <div className="flex items-center gap-2">
-                                      <span style={{ width: 8, height: 8, borderRadius: 2, flexShrink: 0, background: CHART_COLORS[i % CHART_COLORS.length] }} />
-                                      <span className={`${dark ? 'text-slate-200' : 'text-slate-700'} truncate font-semibold`} style={{ maxWidth: 120 }}>{row.name}</span>
-                                    </div>
-                                  </td>
-                                  <td className={`py-2 pr-3 text-right tabular-nums font-bold ${dark ? 'text-slate-300' : 'text-slate-600'}`}>{fmt(row.value)}</td>
-                                  <td className="py-2 text-right w-12">
-                                    <span className={`tabular-nums font-bold ${dark ? 'text-slate-400' : 'text-slate-500'}`}>{pct.toFixed(1)}%</span>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <div className="absolute inset-0">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <PieChart margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
-                            <Pie
-                              data={tamanhoChartDataSimple}
-                              dataKey="value"
-                              nameKey="name"
-                              cx="50%"
-                              cy="50%"
-                              outerRadius={65}
-                              innerRadius={40}
-                              stroke="none"
-                            >
-                              {tamanhoChartDataSimple.map((_, i) => (
-                                <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                              ))}
-                            </Pie>
-                            <Tooltip
-                              content={({ active, payload: tp }) => {
-                                if (!active || !tp?.length) return null;
-                                const entry = tp[0];
-                                const baseName = entry.name as string;
-                                const total = entry.value as number;
-                                const variants = tamanhoBreakdownMap.get(baseName);
-                                const hasVariants = variants && variants.length > 1;
-                                return (
-                                  <div className={`p-3 rounded-xl shadow-xl ${dark ? 'bg-slate-800 text-white' : 'bg-white text-slate-900'} border ${dark ? 'border-slate-700' : 'border-slate-100'} text-xs min-w-[160px]`}>
-                                    <p className="font-bold border-b pb-2 mb-2 border-current border-opacity-10">
-                                      {baseName} — {fmt(total)}{tamanhoShareTotal > 0 && ` (${((total / tamanhoShareTotal) * 100).toFixed(1)}%)`}
-                                    </p>
-                                    {hasVariants && variants!.map(v => {
-                                      const pct = tamanhoShareTotal > 0 ? ((v.value / tamanhoShareTotal) * 100).toFixed(1) : '0';
-                                      const label = v.name === baseName ? `${baseName} (único)` : v.name;
-                                      return (
-                                        <div key={v.name} className={`flex justify-between gap-3 mt-1.5 font-medium ${dark ? 'text-slate-300' : 'text-slate-600'}`}>
-                                          <span className="truncate max-w-[120px]">{label}</span>
-                                          <span className="flex-shrink-0">{fmt(v.value)} ({pct}%)</span>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                );
-                              }}
-                            />
-                            <Legend iconSize={8} iconType="circle" wrapperStyle={{ fontSize: 11, fontWeight: 600, paddingTop: 10 }} />
-                          </PieChart>
-                        </ResponsiveContainer>
-                      </div>
-                    )
-                  ) : (
-                    <div className={`absolute inset-0 flex items-center justify-center text-sm font-medium ${textSec}`}>Sem dados de tamanho</div>
-                  )}
-                </div>
               </div>
             </div>
 
@@ -2010,6 +2115,32 @@ const DetalheEventos: React.FC = () => {
           </motion.div>
         )}
       </div>
+
+      {/* Pop-up ampliado: Tamanhos de Camiseta */}
+      <AnimatePresence>
+        {tamanhoExpandido && (
+          <motion.div
+            key="tamanho-popup"
+            className="fixed inset-0 z-[120] flex items-center justify-center p-4 sm:p-10"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.25 }}
+          >
+            <div
+              className={`absolute inset-0 ${dark ? 'bg-slate-950/60' : 'bg-slate-900/40'} backdrop-blur-sm`}
+              onClick={() => setTamanhoExpandido(false)}
+            />
+            <motion.div
+              layoutId="tamanho-camiseta-card"
+              transition={{ type: 'spring', stiffness: 260, damping: 28 }}
+              className={`relative w-full max-w-3xl h-[min(82vh,760px)] rounded-3xl border p-6 sm:p-8 shadow-2xl flex flex-col ${dark ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'}`}
+            >
+              {renderTamanhoCamisetas(true)}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
