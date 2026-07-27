@@ -1280,7 +1280,7 @@ const DetalheEventos: React.FC = () => {
                         }`}
                       />
                     </th>
-                    <th className="text-right py-2 font-bold">%</th>
+                    <th className="text-right py-2 font-bold">Share</th>
                   </tr>
                 </thead>
                 <tbody>
