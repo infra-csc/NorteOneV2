@@ -1515,14 +1515,6 @@ const DetalheEventos: React.FC = () => {
                 </div>
               )}
 
-              <div className={`px-6 py-4 flex flex-col sm:flex-row justify-between items-center gap-2 ${dark ? 'bg-slate-900/80' : 'bg-slate-50'}`}>
-                <span className={`text-[11px] font-bold uppercase tracking-wider ${textSec}`}>
-                  {filteredRows.length} combinações · {fmt(filteredRows.reduce((s, r) => s + r.inscritos, 0))} inscritos listados
-                </span>
-                <span className={`text-[11px] font-bold uppercase tracking-wider ${textSec}`}>
-                  Dataset Base: Ativo ({fmt(payload.por_banco.Ativo.length)} linhas) · Magento ({fmt(payload.por_banco.Magento.length)} linhas)
-                </span>
-              </div>
             </div>
           </motion.div>
         )}
