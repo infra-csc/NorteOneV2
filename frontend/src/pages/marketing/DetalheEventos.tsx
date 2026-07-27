@@ -1532,6 +1532,14 @@ const DetalheEventos: React.FC = () => {
                     </button>
                   )}
                 </div>
+                {tamanhoChartData.length > 0 && tamanhoShareTotal > 0 && (
+                  <p
+                    className={`text-[10px] font-medium -mt-2 mb-3 ${dark ? 'text-slate-500' : 'text-slate-400'}`}
+                    title="O denominador do % é o total de inscritos excluindo os kits de Participação/Meia Inscrição. Inscritos sem tamanho informado continuam na base, por isso a soma pode ficar abaixo de 100%."
+                  >
+                    % sobre {fmt(tamanhoShareTotal)} inscritos, excl. Participação/Meia Inscrição
+                  </p>
+                )}
                 <div className="flex-1 min-h-0 relative">
                   {tamanhoChartData.length > 0 ? (
                     tamanhoDetalhado ? (
