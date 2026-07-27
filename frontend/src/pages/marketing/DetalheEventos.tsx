@@ -567,6 +567,14 @@ const dimValue = (r: DetalheRow, d: DimKey): string => (r[d] as string | null) ?
 // Remove acentos para a busca dentro dos dropdowns de filtro.
 const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
+// Regra espelhada do mapeamento de kits (KitConfig -> isParticipacaoOuMeia):
+// kits de "Participação"/"Meia Inscrição" (custo fixo R$ 10) ficam FORA do
+// denominador do share de tamanhos de camiseta.
+const isKitParticipacaoOuMeia = (kit: string | null): boolean => {
+  const n = norm(kit || '');
+  return n.includes('participacao') || n.includes('meia');
+};
+
 interface MultiSelectFilterProps {
   label: string;
   values: string[];
@@ -1110,6 +1118,14 @@ const DetalheEventos: React.FC = () => {
     return result;
   }, [payload]);
 
+  // Denominador do share de tamanhos: total geral de inscritos SEM os kits
+  // de Participação/Meia Inscrição (mesma regra do mapeamento de kits).
+  const tamanhoShareTotal = useMemo(() => {
+    if (!payload) return 0;
+    return payload.consolidado.reduce(
+      (s, r) => s + (isKitParticipacaoOuMeia(r.kit) ? 0 : r.inscritos), 0);
+  }, [payload]);
+
   const totalInscritos = payload?.totais.inscritos ?? 0;
   const activeFiltersCount = ALL_DIMS.filter(d => filters[d].length > 0).length;
 
@@ -1530,8 +1546,7 @@ const DetalheEventos: React.FC = () => {
                           </thead>
                           <tbody>
                             {tamanhoChartData.map((row, i) => {
-                              const totalAll = tamanhoChartData.reduce((s, r) => s + r.value, 0);
-                              const pct = totalAll > 0 ? (row.value / totalAll) * 100 : 0;
+                              const pct = tamanhoShareTotal > 0 ? (row.value / tamanhoShareTotal) * 100 : 0;
                               return (
                                 <tr key={row.name} className={`border-b last:border-0 ${dark ? 'border-slate-800/50' : 'border-slate-100'}`}>
                                   <td className="py-2 pr-2">
@@ -1542,7 +1557,7 @@ const DetalheEventos: React.FC = () => {
                                   </td>
                                   <td className={`py-2 pr-3 text-right tabular-nums font-bold ${dark ? 'text-slate-300' : 'text-slate-600'}`}>{fmt(row.value)}</td>
                                   <td className="py-2 text-right w-12">
-                                    <span className={`tabular-nums font-bold ${dark ? 'text-slate-400' : 'text-slate-500'}`}>{pct.toFixed(0)}%</span>
+                                    <span className={`tabular-nums font-bold ${dark ? 'text-slate-400' : 'text-slate-500'}`}>{pct.toFixed(1)}%</span>
                                   </td>
                                 </tr>
                               );
@@ -1579,10 +1594,10 @@ const DetalheEventos: React.FC = () => {
                                 return (
                                   <div className={`p-3 rounded-xl shadow-xl ${dark ? 'bg-slate-800 text-white' : 'bg-white text-slate-900'} border ${dark ? 'border-slate-700' : 'border-slate-100'} text-xs min-w-[160px]`}>
                                     <p className="font-bold border-b pb-2 mb-2 border-current border-opacity-10">
-                                      {baseName} — {fmt(total)}
+                                      {baseName} — {fmt(total)}{tamanhoShareTotal > 0 && ` (${((total / tamanhoShareTotal) * 100).toFixed(1)}%)`}
                                     </p>
                                     {hasVariants && variants!.map(v => {
-                                      const pct = total > 0 ? ((v.value / total) * 100).toFixed(1) : '0';
+                                      const pct = tamanhoShareTotal > 0 ? ((v.value / tamanhoShareTotal) * 100).toFixed(1) : '0';
                                       const label = v.name === baseName ? `${baseName} (único)` : v.name;
                                       return (
                                         <div key={v.name} className={`flex justify-between gap-3 mt-1.5 font-medium ${dark ? 'text-slate-300' : 'text-slate-600'}`}>
