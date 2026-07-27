@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import {
   detalheEventosService,
@@ -577,6 +577,21 @@ const DetalheEventos: React.FC = () => {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [bankExpanded, setBankExpanded] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<'tree' | 'flat'>('tree');
+  // Troca de visão preservando a rolagem: ao substituir a árvore pela tabela
+  // (e vice-versa), o "scroll anchoring" do navegador pode empurrar a tela
+  // para o meio do conteúdo novo. Guardamos a posição no clique e restauramos
+  // antes do paint (useLayoutEffect), mantendo a tela exatamente onde estava.
+  const pendingScrollRef = useRef<number | null>(null);
+  const switchViewMode = useCallback((mode: 'tree' | 'flat') => {
+    pendingScrollRef.current = window.scrollY;
+    setViewMode(mode);
+  }, []);
+  useLayoutEffect(() => {
+    if (pendingScrollRef.current !== null) {
+      window.scrollTo(0, pendingScrollRef.current);
+      pendingScrollRef.current = null;
+    }
+  }, [viewMode]);
   const [hierarchy, setHierarchy] = useState<DimKey[]>(() => loadStoredHierarchy() ?? DEFAULT_HIERARCHY);
   const [flatCols, setFlatCols] = useState<DimKey[]>(() => loadStoredFlatCols() ?? DEFAULT_FLAT_COLS);
   const [activeTab, setActiveTab] = useState<'consolidado' | 'ativo' | 'magento'>('consolidado');
@@ -1531,14 +1546,14 @@ const DetalheEventos: React.FC = () => {
                 </div>
                 <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
                   <button
-                    onClick={() => setViewMode('tree')}
+                    onClick={() => switchViewMode('tree')}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${viewMode === 'tree' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
                     title="Visão hierárquica"
                   >
                     <Layers className="w-3.5 h-3.5" /> Árvore
                   </button>
                   <button
-                    onClick={() => setViewMode('flat')}
+                    onClick={() => switchViewMode('flat')}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${viewMode === 'flat' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
                     title="Visão em tabela"
                   >
