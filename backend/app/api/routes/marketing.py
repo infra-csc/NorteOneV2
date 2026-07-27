@@ -13793,6 +13793,7 @@ def recalcular_snapshot_evento(
     from .admin import (
         _user_is_diretoria, _try_acquire_evento_slot, _release_evento_slot,
         _set_evento_cooldown, _diretoria_cooldown_sec,
+        _recalc_job_start, _recalc_job_finish,
     )
 
     is_diretoria = _user_is_diretoria(current_user)
@@ -13847,50 +13848,112 @@ def recalcular_snapshot_evento(
             },
         )
 
+    # ── Execução ASSÍNCRONA em thread ──────────────────────────────────────
+    # O pipeline completo (Ativo + Magento + recálculos + persistência) pode
+    # levar vários minutos quando o Magento está lento (fila concorrência=1,
+    # SSH tunnel, retries). Rodando dentro do request, o proxy na frente do
+    # backend cortava a conexão e o cliente recebia 502 mesmo com o trabalho
+    # terminando com sucesso aqui. Agora o POST retorna {status:'started'}
+    # imediatamente e o front acompanha via
+    # GET /eventos/{evento_id}/recalcular-snapshot/status. O slot global é
+    # liberado pela própria thread ao final.
     ano = datetime.now().year
     try:
-        try:
-            result = get_marketing_event_by_id(
-                evento_id=evento_id,
-                ano=ano,
-                force_refresh=True,
-                db=db,
-                current_user=None,
-                response=None,
-            )
+        _recalc_job_start(evento_id, "recalcular-snapshot")
 
-            margem_nova = None
+        def _run_recalc_job():
+            from app.core.database import SessionLocal
+            local_db = None
             try:
-                from ...services.event_detail_snapshot_service import _extract_margem_total
-                from fastapi.encoders import jsonable_encoder
-                payload_json = jsonable_encoder(result)
-                margem_nova = _extract_margem_total(payload_json)
-            except Exception:
-                pass
+                local_db = SessionLocal()
+                result = get_marketing_event_by_id(
+                    evento_id=evento_id,
+                    ano=ano,
+                    force_refresh=True,
+                    db=local_db,
+                    current_user=None,
+                    response=None,
+                )
 
-            # Cooldown só pra Diretoria após sucesso
-            cooldown_until = None
-            cooldown_sec_used = 0
-            if is_diretoria:
-                cooldown_sec_used = _diretoria_cooldown_sec()
-                if cooldown_sec_used > 0:
-                    cooldown_until = _set_evento_cooldown(evento_id, cooldown_sec_used)
+                margem_nova = None
+                try:
+                    from ...services.event_detail_snapshot_service import _extract_margem_total
+                    from fastapi.encoders import jsonable_encoder
+                    payload_json = jsonable_encoder(result)
+                    margem_nova = _extract_margem_total(payload_json)
+                except Exception:
+                    pass
 
-            return {
-                "status": "ok",
-                "evento_id": evento_id,
-                "ano": ano,
-                "margem_recalculada": margem_nova,
-                "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
-                "cooldown_aplicado": cooldown_until is not None,
-                "cooldown_until_epoch": cooldown_until,
-                "cooldown_total_sec": cooldown_sec_used,
-            }
-        except Exception as e:
-            logger.error(f"[recalcular-snapshot] falhou para '{evento_id}': {e}")
-            raise HTTPException(status_code=500, detail=f"Erro ao recalcular snapshot: {str(e)}")
-    finally:
+                # Cooldown só pra Diretoria após sucesso
+                cooldown_until = None
+                cooldown_sec_used = 0
+                if is_diretoria:
+                    cooldown_sec_used = _diretoria_cooldown_sec()
+                    if cooldown_sec_used > 0:
+                        cooldown_until = _set_evento_cooldown(evento_id, cooldown_sec_used)
+
+                _recalc_job_finish(evento_id, result={
+                    "status": "ok",
+                    "evento_id": evento_id,
+                    "ano": ano,
+                    "margem_recalculada": margem_nova,
+                    "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
+                    "cooldown_aplicado": cooldown_until is not None,
+                    "cooldown_until_epoch": cooldown_until,
+                    "cooldown_total_sec": cooldown_sec_used,
+                })
+            except Exception as e:
+                logger.error(f"[recalcular-snapshot] falhou para '{evento_id}': {e}")
+                _recalc_job_finish(evento_id, error=f"Erro ao recalcular snapshot: {str(e)[:400]}")
+            finally:
+                # Slot global liberado pela thread (não mais pelo request).
+                _release_evento_slot(evento_id)
+                if local_db is not None:
+                    try:
+                        local_db.close()
+                    except Exception:
+                        pass
+
+        _threading.Thread(
+            target=_run_recalc_job, daemon=True,
+            name=f"recalc-snapshot-{evento_id[:40]}",
+        ).start()
+    except Exception as e:
+        # Falha ANTES da thread assumir (ex.: Thread.start): libera o slot
+        # aqui, senão ficaria preso para sempre.
         _release_evento_slot(evento_id)
+        _recalc_job_finish(evento_id, error=f"Falha ao iniciar reconsolidação: {e}")
+        logger.error(f"[recalcular-snapshot] falha ao iniciar thread p/ '{evento_id}': {e}")
+        raise HTTPException(status_code=500, detail=f"Falha ao iniciar reconsolidação: {e}")
+
+    return {"status": "started", "evento_id": evento_id, "ano": ano}
+
+
+@router.get("/eventos/{evento_id}/recalcular-snapshot/status")
+def get_recalcular_snapshot_status(
+    evento_id: str,
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Status do job assíncrono de reconsolidação disparado pelo POST acima
+    (ou pelo /admin/snapshots/consolidar-evento, que registra o job sob o
+    nome do grupo sem prefixo).
+
+    `state`: 'idle' (nenhum job conhecido — ex.: servidor reiniciou),
+    'running', 'done' (com `result`) ou 'error' (com `error`). Apenas
+    leitura de metadados — exige somente usuário autenticado."""
+    from .admin import _recalc_job_get
+    rec = _recalc_job_get(evento_id)
+    if rec is None:
+        return {"evento_id": evento_id, "state": "idle"}
+    return {
+        "evento_id": evento_id,
+        "kind": rec.get("kind"),
+        "state": rec.get("state"),
+        "started_at": rec.get("started_at"),
+        "finished_at": rec.get("finished_at"),
+        "error": rec.get("error"),
+        "result": rec.get("result"),
+    }
 
 
 @router.get("/eventos/{evento_id}/reconsolidar-cooldown")

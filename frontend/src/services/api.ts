@@ -723,20 +723,24 @@ export const adminService = {
     };
   },
   consolidarEvento: async (eventoGrupo: string, incremental: boolean = false) => {
-    // Timeout longo (5 min): endpoint é síncrono no backend e pode consultar Magento.
+    // Dispara em BACKGROUND no servidor (retorna {status:'started'} na hora).
+    // Acompanhar via marketingService.aguardarRecalcularSnapshot(eventoGrupo) —
+    // o job fica registrado sob o nome do grupo. Antes era síncrono (5 min de
+    // timeout) e o proxy cortava a conexão com 502 quando o Magento estava lento.
     const response = await api.post(
       `/admin/snapshots/consolidar-evento?evento_grupo=${encodeURIComponent(eventoGrupo)}&incremental=${incremental}`,
       null,
-      { timeout: 300000 }
+      { timeout: 60000 }
     );
     return response.data as {
       status: string;
       evento_grupo: string;
       incremental: boolean;
-      qtd_antes: number | null;
-      qtd_depois: number | null;
-      duracao_ms: number;
-      ciclo_id: string;
+      ciclo_id?: string;
+      // Campos legados (resposta síncrona antiga):
+      qtd_antes?: number | null;
+      qtd_depois?: number | null;
+      duracao_ms?: number;
     };
   },
   getSyncPauseStatus: async () => {
@@ -1225,6 +1229,34 @@ export function isMarketingCacheStale(params?: {
   return cached.age > CACHE_MAX_AGE;
 }
 
+// Status do job assíncrono de reconsolidação (recalcular-snapshot /
+// consolidar-evento). Os estados 'cancelled' | 'timeout' | 'unreachable' são
+// sintéticos do cliente (aguardarRecalcularSnapshot), não vêm do backend.
+export interface RecalcSnapshotStatus {
+  evento_id: string;
+  state: 'idle' | 'running' | 'done' | 'error' | 'cancelled' | 'timeout' | 'unreachable';
+  kind?: string;
+  started_at?: number | null;
+  finished_at?: number | null;
+  error?: string | null;
+  result?: {
+    status?: string;
+    evento_id?: string;
+    evento_grupo?: string;
+    ano?: number;
+    incremental?: boolean;
+    margem_recalculada?: number | null;
+    ultima_atualizacao?: string;
+    qtd_antes?: number | null;
+    qtd_depois?: number | null;
+    duracao_ms?: number;
+    ciclo_id?: string;
+    cooldown_aplicado?: boolean;
+    cooldown_until_epoch?: number | null;
+    cooldown_total_sec?: number;
+  } | null;
+}
+
 export const marketingService = {
   getEventos: async (params?: {
     ano?: number;
@@ -1340,22 +1372,65 @@ export const marketingService = {
     status: string;
     evento_id: string;
     ano: number;
-    margem_recalculada: number | null;
-    ultima_atualizacao: string;
+    // Campos abaixo só existem na resposta síncrona LEGADA (backend antigo).
+    // O backend atual responde {status:'started'} imediatamente.
+    margem_recalculada?: number | null;
+    ultima_atualizacao?: string;
     cooldown_aplicado?: boolean;
     cooldown_until_epoch?: number | null;
     cooldown_total_sec?: number;
   }> => {
-    // Timeout longo (10 min): pipeline Magento + Ativo + recálculos pode demorar bastante
-    // quando o Magento está instável (SSH tunnel + retries). O backend tem proteção própria
-    // contra abuso (slot lock global por evento + cooldown da Diretoria de 20min), então
-    // estender o timeout do cliente não cria risco. Antes era 180s e estourava em picos.
+    // Dispara a reconsolidação em BACKGROUND no servidor e retorna na hora
+    // ({status:'started'}). Acompanhar via aguardarRecalcularSnapshot().
+    // Antes o endpoint era síncrono (timeout de 10 min) e o proxy na frente
+    // do backend cortava a conexão com 502 quando o Magento estava lento,
+    // mesmo com a reconsolidação terminando OK no servidor.
     const response = await api.post(
       `/marketing/eventos/${encodeURIComponent(eventoId)}/recalcular-snapshot`,
       null,
-      { timeout: 600000 }
+      { timeout: 60000 }
     );
     return response.data;
+  },
+  getRecalcularSnapshotStatus: async (eventoId: string): Promise<RecalcSnapshotStatus> => {
+    const response = await api.get(
+      `/marketing/eventos/${encodeURIComponent(eventoId)}/recalcular-snapshot/status`,
+      { timeout: 15000 }
+    );
+    return response.data;
+  },
+  aguardarRecalcularSnapshot: async (
+    eventoId: string,
+    opts?: { intervalMs?: number; timeoutMs?: number; isCancelled?: () => boolean }
+  ): Promise<RecalcSnapshotStatus> => {
+    // Polling do job assíncrono até estado terminal ('done' | 'error' | 'idle').
+    // Sintéticos: 'cancelled' (isCancelled), 'timeout' (excedeu timeoutMs) e
+    // 'unreachable' (5 falhas de rede consecutivas). Em todos os casos o job
+    // continua rodando no servidor — o slot global evita duplicidade.
+    const intervalMs = opts?.intervalMs ?? 4000;
+    const timeoutMs = opts?.timeoutMs ?? 20 * 60 * 1000;
+    const t0 = Date.now();
+    let falhasRede = 0;
+    while (true) {
+      if (opts?.isCancelled?.()) return { evento_id: eventoId, state: 'cancelled' };
+      if (Date.now() - t0 > timeoutMs) return { evento_id: eventoId, state: 'timeout' };
+      await new Promise(r => setTimeout(r, intervalMs));
+      try {
+        const st: RecalcSnapshotStatus = (await api.get(
+          `/marketing/eventos/${encodeURIComponent(eventoId)}/recalcular-snapshot/status`,
+          { timeout: 15000 }
+        )).data;
+        falhasRede = 0;
+        // Cancelamento pode ter ocorrido DURANTE o sleep/request — checa de
+        // novo antes de devolver estado terminal, senão a run antiga aplicaria
+        // resultado/erro na tela de outro evento.
+        if (opts?.isCancelled?.()) return { evento_id: eventoId, state: 'cancelled' };
+        if (st.state === 'done' || st.state === 'error' || st.state === 'idle') return st;
+      } catch {
+        falhasRede += 1;
+        if (falhasRede >= 5) return { evento_id: eventoId, state: 'unreachable' };
+      }
+    }
   },
   getReconsolidarCooldown: async (eventoId: string): Promise<{
     evento_id: string;

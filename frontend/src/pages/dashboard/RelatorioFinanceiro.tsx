@@ -102,8 +102,16 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading, onRefresh }) => {
 
     try {
       const res = await marketingService.recalcularSnapshot(key);
-      const msg = res.margem_recalculada != null
-        ? `Margem recalculada: ${formatCurrency(res.margem_recalculada)}`
+      let final: { margem_recalculada?: number | null } = res;
+      if (res.status === 'started') {
+        // Backend roda a reconsolidação em background — aguarda por polling.
+        const st = await marketingService.aguardarRecalcularSnapshot(key);
+        if (st.state === 'error') throw { response: { data: { detail: st.error || 'Erro ao recalcular' } } };
+        if (st.state !== 'done') throw { response: { data: { detail: 'Reconsolidação ainda em andamento no servidor — atualize a página em alguns minutos.' } } };
+        final = st.result || {};
+      }
+      const msg = final.margem_recalculada != null
+        ? `Margem recalculada: ${formatCurrency(final.margem_recalculada)}`
         : 'Snapshot atualizado';
       setRecalcMessages(prev => ({ ...prev, [key]: msg }));
       if (onRefresh) setTimeout(onRefresh, 800);

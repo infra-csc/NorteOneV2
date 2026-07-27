@@ -491,6 +491,15 @@ const EventDetail: React.FC = () => {
   // apenas progresso/resultado/erro (sem escolha de modo "completa vs incremental").
   const [reconsolidarSimple, setReconsolidarSimple] = useState(false);
   const [reconsolidarStartMs, setReconsolidarStartMs] = useState<number | null>(null);
+  // Invalida o acompanhamento (polling) de reconsolidações quando o usuário
+  // troca de evento ou sai da tela — o job continua rodando no servidor.
+  // Token por execução: cada run captura o valor no início e é cancelada se
+  // ele mudar (um boolean compartilhado seria re-zerado pelo effect do novo
+  // id e a run antiga escaparia do cancelamento).
+  const reconsolidarRunTokenRef = useRef(0);
+  useEffect(() => {
+    return () => { reconsolidarRunTokenRef.current += 1; };
+  }, [id]);
 
   const handleOpenSyncModal = useCallback(() => setShowSyncModal(true), []);
 
@@ -507,8 +516,23 @@ const EventDetail: React.FC = () => {
     setConsolidarError(null);
     setConsolidarResult(null);
     try {
+      const runToken = ++reconsolidarRunTokenRef.current;
       const res = await adminService.consolidarEvento(grupoNome, consolidarIncremental);
-      setConsolidarResult({ status: res.status, qtd_antes: res.qtd_antes, qtd_depois: res.qtd_depois, duracao_ms: res.duracao_ms });
+      // Backend atual responde {status:'started'} e roda em background; o job
+      // fica registrado sob o nome do grupo — acompanhamos por polling.
+      let final: { status?: string; qtd_antes?: number | null; qtd_depois?: number | null; duracao_ms?: number } = res;
+      if (res.status === 'started') {
+        const st = await marketingService.aguardarRecalcularSnapshot(grupoNome, {
+          isCancelled: () => reconsolidarRunTokenRef.current !== runToken,
+        });
+        if (st.state === 'cancelled') return; // trocou de tela — job segue no servidor
+        if (st.state === 'error') throw new Error(st.error || 'Erro ao consolidar');
+        if (st.state !== 'done') throw new Error('A reconsolidação continua rodando no servidor — verifique novamente em alguns minutos.');
+        final = st.result || {};
+      }
+      // Navegou para outro evento durante o await? Não escreve estado alheio.
+      if (reconsolidarRunTokenRef.current !== runToken) return;
+      setConsolidarResult({ status: final.status ?? 'ok', qtd_antes: final.qtd_antes ?? null, qtd_depois: final.qtd_depois ?? null, duracao_ms: final.duracao_ms ?? 0 });
       // Invalida o cache do dashboard (lista de eventos) para que ao voltar
       // à primeira tela os dados reflitam a reconsolidação recém-executada.
       clearMarketingDashboardCache();
@@ -517,7 +541,10 @@ const EventDetail: React.FC = () => {
       // os dados já estarão atualizados na tela sem precisar clicar em nada.
       fetchEventRef.current?.(true, true);
     } catch (e: any) {
-      setConsolidarError(e?.response?.data?.detail ?? e?.message ?? 'Erro ao consolidar');
+      const d = e?.response?.data?.detail;
+      setConsolidarError(
+        typeof d === 'object' && d?.message ? d.message : (typeof d === 'string' ? d : (e?.message ?? 'Erro ao consolidar'))
+      );
     } finally {
       setConsolidarLoading(false);
     }
@@ -1061,13 +1088,31 @@ const EventDetail: React.FC = () => {
     setReconsolidarStartMs(_t0);
     setShowConsolidarModal(true);
     try {
+      const runToken = ++reconsolidarRunTokenRef.current;
       const resp = await marketingService.recalcularSnapshot(id);
+      // Backend atual responde {status:'started'} e roda em background —
+      // acompanhamos por polling (o request síncrono antigo estourava 502 no
+      // proxy). Se vier 'ok', é resposta síncrona de backend legado.
+      let final: { cooldown_aplicado?: boolean; cooldown_total_sec?: number } = resp;
+      if (resp.status === 'started') {
+        const st = await marketingService.aguardarRecalcularSnapshot(id, {
+          isCancelled: () => reconsolidarRunTokenRef.current !== runToken,
+        });
+        if (st.state === 'cancelled') return; // trocou de tela — job segue no servidor
+        if (st.state === 'error') throw new Error(st.error || 'Falha ao reconsolidar. Tente novamente em alguns minutos.');
+        if (st.state === 'timeout') throw new Error('A reconsolidação está demorando mais que o esperado e continua rodando no servidor. Os dados aparecerão atualizados quando concluir.');
+        if (st.state === 'idle') throw new Error('Não foi possível acompanhar a reconsolidação (o servidor pode ter reiniciado). Verifique a última atualização do evento em alguns minutos.');
+        if (st.state === 'unreachable') throw new Error('Conexão instável ao acompanhar a reconsolidação — ela continua no servidor. Recarregue a página em alguns minutos.');
+        final = st.result || {};
+      }
+      // Navegou para outro evento durante o await? Não escreve estado alheio.
+      if (reconsolidarRunTokenRef.current !== runToken) return;
       // Aplica cooldown localmente (Diretoria) com base na resposta do backend.
-      if (resp.cooldown_aplicado && resp.cooldown_total_sec && resp.cooldown_total_sec > 0) {
+      if (final.cooldown_aplicado && final.cooldown_total_sec && final.cooldown_total_sec > 0) {
         setReconsolidarCooldown({
           locked: true,
-          remainingSec: resp.cooldown_total_sec,
-          totalSec: resp.cooldown_total_sec,
+          remainingSec: final.cooldown_total_sec,
+          totalSec: final.cooldown_total_sec,
           outroEmAndamento: false,
           eventoEmAndamento: null,
         });
@@ -2304,7 +2349,7 @@ const EventDetail: React.FC = () => {
       {/* ── Modal Reconsolidar Evento (admin) ─────────────────────────────────── */}
       {showConsolidarModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { if (!consolidarLoading) { setShowConsolidarModal(false); setReconsolidarSimple(false); } }} />
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { setShowConsolidarModal(false); setReconsolidarSimple(false); }} />
           <div className={`relative w-full max-w-md rounded-2xl shadow-2xl border overflow-hidden ${isDark ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}>
 
             {/* Header */}
@@ -2319,9 +2364,8 @@ const EventDetail: React.FC = () => {
                 </div>
               </div>
               <button
-                onClick={() => { if (!consolidarLoading) { setShowConsolidarModal(false); setReconsolidarSimple(false); } }}
-                disabled={consolidarLoading}
-                className={`p-1.5 rounded-lg transition-colors disabled:opacity-30 ${isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-200 text-gray-500'}`}
+                onClick={() => { setShowConsolidarModal(false); setReconsolidarSimple(false); }}
+                className={`p-1.5 rounded-lg transition-colors ${isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-200 text-gray-500'}`}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -2338,12 +2382,12 @@ const EventDetail: React.FC = () => {
                   <div className="text-center space-y-1">
                     <p className={`text-sm font-bold ${isDark ? 'text-indigo-200' : 'text-indigo-800'}`}>Reconsolidando dados…</p>
                     <p className={`text-xs ${isDark ? 'text-indigo-300/80' : 'text-indigo-700/80'}`}>
-                      Consultando Ativo e Magento. Pode demorar até 1 minuto.
+                      Consultando Ativo e Magento em segundo plano. Pode levar alguns minutos quando as fontes estão lentas.
                     </p>
                   </div>
                   <ReconsolidarProgressBar startedAt={reconsolidarStartMs} isDark={isDark} />
                   <p className={`text-[11px] text-center ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                    Você pode aguardar esta janela ou fechá-la ao final.
+                    Pode fechar esta janela — a reconsolidação continua no servidor e a tela é atualizada ao concluir.
                   </p>
                 </div>
               )}

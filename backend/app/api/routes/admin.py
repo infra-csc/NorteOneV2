@@ -202,6 +202,54 @@ def _set_evento_cooldown(evento_grupo: str, ttl_sec: int) -> float:
         _evento_cooldown[evento_grupo] = until
     return until
 
+
+# ── Registro de jobs de reconsolidação assíncrona ───────────────────────────
+# A reconsolidação manual (POST /marketing/.../recalcular-snapshot e
+# POST /admin/snapshots/consolidar-evento) roda em thread de background: o
+# POST retorna na hora e o front acompanha por polling do status. O pipeline
+# (Ativo + Magento) pode levar vários minutos e, quando rodava dentro do
+# request, o proxy na frente do backend cortava a conexão com 502. Registro em
+# memória — mesma premissa single-process do _evento_inflight acima.
+_recalc_jobs: dict = {}
+_recalc_jobs_lock = _threading.Lock()
+
+
+def _recalc_job_start(evento_key: str, kind: str) -> dict:
+    """Registra job 'running' para a chave (sobrescreve resultado anterior)."""
+    rec = {
+        "evento_id": evento_key,
+        "kind": kind,
+        "state": "running",
+        "started_at": _time_module.time(),
+        "finished_at": None,
+        "error": None,
+        "result": None,
+    }
+    with _recalc_jobs_lock:
+        _recalc_jobs[evento_key] = rec
+    return rec
+
+
+def _recalc_job_finish(evento_key: str, *, error: Optional[str] = None,
+                       result: Optional[dict] = None) -> None:
+    """Marca job como done/error. No-op se o registro sumiu (restart)."""
+    with _recalc_jobs_lock:
+        rec = _recalc_jobs.get(evento_key)
+        if rec is None:
+            return
+        rec["state"] = "error" if error else "done"
+        rec["error"] = error
+        rec["result"] = result
+        rec["finished_at"] = _time_module.time()
+
+
+def _recalc_job_get(evento_key: str) -> Optional[dict]:
+    """Cópia rasa do registro do job (ou None)."""
+    with _recalc_jobs_lock:
+        rec = _recalc_jobs.get(evento_key)
+        return dict(rec) if rec else None
+
+
 ONLINE_THRESHOLD_MINUTES = 5
 AWAY_THRESHOLD_MINUTES = 30
 
@@ -1425,7 +1473,6 @@ def trigger_consolidar_evento(
     acquired, remaining, busy_evento = _try_acquire_evento_slot(
         evento_grupo, check_cooldown=is_diretoria
     )
-    slot_acquired = acquired
     if not acquired:
         if busy_evento is not None:
             if busy_evento == evento_grupo:
@@ -1467,89 +1514,127 @@ def trigger_consolidar_evento(
             },
         )
 
-    # Tudo abaixo do acquire fica dentro de try/finally para garantir que
-    # qualquer exceção (incluindo em new_ciclo_id, log_evento, queries de
-    # qtd_antes/depois) libere o slot in_flight.
+    # ── Execução ASSÍNCRONA em thread ──────────────────────────────────────
+    # O pipeline (Ativo + Magento + regravação do snapshot) pode levar vários
+    # minutos com Magento lento; rodando dentro do request o proxy cortava a
+    # conexão e o cliente recebia 502 mesmo com o trabalho concluindo aqui.
+    # O POST agora retorna {status:'started'} na hora e o front acompanha via
+    # GET /marketing/eventos/{evento_grupo}/recalcular-snapshot/status (o job
+    # fica registrado sob o nome do grupo). O slot global é liberado pela
+    # própria thread ao final.
     try:
         ciclo_id = new_ciclo_id()
         triggered_by = current_user.email if hasattr(current_user, 'email') else str(current_user.id)
         ano = _date.today().year
         yesterday = _date.today() - timedelta(days=1)
 
-        # qtd_antes
-        try:
-            qtd_antes = int(
-                db.query(sa_func2.coalesce(sa_func2.sum(VendasDiariaSnapshot.quantidade), 0))
-                .filter(
-                    VendasDiariaSnapshot.evento_grupo == evento_grupo,
-                    VendasDiariaSnapshot.fonte == 'CONSOLIDADO',
-                    VendasDiariaSnapshot.ano == ano,
-                ).scalar() or 0
-            )
-        except Exception:
-            qtd_antes = None
+        _recalc_job_start(evento_grupo, "consolidar-evento")
 
-        log_evento(ciclo_id, "consolidar_evento_manual", "iniciado", nivel="ciclo",
-                   detalhes=f"grupo={evento_grupo} incremental={incremental} por {triggered_by}")
-
-        t0 = _t.time()
-        try:
-            consolidar_vendas_grupo(
-                db, evento_grupo, ano,
-                data_inicio=None, data_fim=yesterday,
-                incremental=incremental,
-                ciclo_id=ciclo_id,
-                parent_job_name="consolidar_evento_manual",
-            )
-            duracao_ms = int((_t.time() - t0) * 1000)
-
+        def _run_consolidar_job():
+            from app.core.database import SessionLocal
+            local_db = None
+            t0 = _t.time()
             try:
-                qtd_depois = int(
-                    db.query(sa_func2.coalesce(sa_func2.sum(VendasDiariaSnapshot.quantidade), 0))
-                    .filter(
-                        VendasDiariaSnapshot.evento_grupo == evento_grupo,
-                        VendasDiariaSnapshot.fonte == 'CONSOLIDADO',
-                        VendasDiariaSnapshot.ano == ano,
-                    ).scalar() or 0
+                local_db = SessionLocal()
+
+                # qtd_antes
+                try:
+                    qtd_antes = int(
+                        local_db.query(sa_func2.coalesce(sa_func2.sum(VendasDiariaSnapshot.quantidade), 0))
+                        .filter(
+                            VendasDiariaSnapshot.evento_grupo == evento_grupo,
+                            VendasDiariaSnapshot.fonte == 'CONSOLIDADO',
+                            VendasDiariaSnapshot.ano == ano,
+                        ).scalar() or 0
+                    )
+                except Exception:
+                    qtd_antes = None
+
+                log_evento(ciclo_id, "consolidar_evento_manual", "iniciado", nivel="ciclo",
+                           detalhes=f"grupo={evento_grupo} incremental={incremental} por {triggered_by}")
+
+                consolidar_vendas_grupo(
+                    local_db, evento_grupo, ano,
+                    data_inicio=None, data_fim=yesterday,
+                    incremental=incremental,
+                    ciclo_id=ciclo_id,
+                    parent_job_name="consolidar_evento_manual",
                 )
-            except Exception:
-                qtd_depois = None
+                duracao_ms = int((_t.time() - t0) * 1000)
 
-            log_evento(ciclo_id, "consolidar_evento_manual", "concluido", nivel="ciclo",
-                       detalhes=f"qtd_antes={qtd_antes} qtd_depois={qtd_depois}",
-                       duracao_ms=duracao_ms)
+                try:
+                    qtd_depois = int(
+                        local_db.query(sa_func2.coalesce(sa_func2.sum(VendasDiariaSnapshot.quantidade), 0))
+                        .filter(
+                            VendasDiariaSnapshot.evento_grupo == evento_grupo,
+                            VendasDiariaSnapshot.fonte == 'CONSOLIDADO',
+                            VendasDiariaSnapshot.ano == ano,
+                        ).scalar() or 0
+                    )
+                except Exception:
+                    qtd_depois = None
 
-            # ── Cooldown: grava lock só para perfil Diretoria após sucesso ─────
-            cooldown_until = None
-            cooldown_sec_used = 0
-            if is_diretoria:
-                cooldown_sec_used = _diretoria_cooldown_sec()
-                if cooldown_sec_used > 0:
-                    cooldown_until = _set_evento_cooldown(evento_grupo, cooldown_sec_used)
+                log_evento(ciclo_id, "consolidar_evento_manual", "concluido", nivel="ciclo",
+                           detalhes=f"qtd_antes={qtd_antes} qtd_depois={qtd_depois}",
+                           duracao_ms=duracao_ms)
 
-            return {
-                "status": "ok",
-                "evento_grupo": evento_grupo,
-                "incremental": incremental,
-                "qtd_antes": qtd_antes,
-                "qtd_depois": qtd_depois,
-                "duracao_ms": duracao_ms,
-                "ciclo_id": ciclo_id,
-                "cooldown_aplicado": cooldown_until is not None,
-                "cooldown_until_epoch": cooldown_until,
-                "cooldown_total_sec": cooldown_sec_used,
-            }
-        except Exception as exc:
-            duracao_ms = int((_t.time() - t0) * 1000)
-            logger.error(f"consolidar_evento_manual: erro grupo='{evento_grupo}': {exc}")
-            log_evento(ciclo_id, "consolidar_evento_manual", "falha", nivel="ciclo",
-                       grupo=evento_grupo, motivo=str(exc)[:300], duracao_ms=duracao_ms)
-            raise HTTPException(status_code=500, detail=str(exc))
-    finally:
-        # Sempre libera o slot in_flight em caso de Diretoria (sucesso OU
-        # exceção). Em falha, NÃO seta cooldown — usuário pode tentar de novo.
-        if slot_acquired:
-            _release_evento_slot(evento_grupo)
+                # ── Cooldown: grava lock só para perfil Diretoria após sucesso ─
+                cooldown_until = None
+                cooldown_sec_used = 0
+                if is_diretoria:
+                    cooldown_sec_used = _diretoria_cooldown_sec()
+                    if cooldown_sec_used > 0:
+                        cooldown_until = _set_evento_cooldown(evento_grupo, cooldown_sec_used)
+
+                _recalc_job_finish(evento_grupo, result={
+                    "status": "ok",
+                    "evento_grupo": evento_grupo,
+                    "incremental": incremental,
+                    "qtd_antes": qtd_antes,
+                    "qtd_depois": qtd_depois,
+                    "duracao_ms": duracao_ms,
+                    "ciclo_id": ciclo_id,
+                    "cooldown_aplicado": cooldown_until is not None,
+                    "cooldown_until_epoch": cooldown_until,
+                    "cooldown_total_sec": cooldown_sec_used,
+                })
+            except Exception as exc:
+                duracao_ms = int((_t.time() - t0) * 1000)
+                logger.error(f"consolidar_evento_manual: erro grupo='{evento_grupo}': {exc}")
+                try:
+                    log_evento(ciclo_id, "consolidar_evento_manual", "falha", nivel="ciclo",
+                               grupo=evento_grupo, motivo=str(exc)[:300], duracao_ms=duracao_ms)
+                except Exception:
+                    pass
+                _recalc_job_finish(evento_grupo, error=str(exc)[:400])
+            finally:
+                # Sempre libera o slot in_flight (sucesso OU exceção). Em
+                # falha, NÃO seta cooldown — usuário pode tentar de novo.
+                _release_evento_slot(evento_grupo)
+                if local_db is not None:
+                    try:
+                        local_db.close()
+                    except Exception:
+                        pass
+
+        _threading.Thread(
+            target=_run_consolidar_job, daemon=True,
+            name=f"consolidar-evento-{evento_grupo[:40]}",
+        ).start()
+    except Exception as exc:
+        # Falha ANTES da thread assumir (ex.: new_ciclo_id, Thread.start):
+        # libera o slot aqui, senão ficaria preso para sempre.
+        _release_evento_slot(evento_grupo)
+        _recalc_job_finish(evento_grupo, error=f"Falha ao iniciar: {exc}")
+        logger.error(f"consolidar_evento_manual: falha ao iniciar thread p/ '{evento_grupo}': {exc}")
+        raise HTTPException(status_code=500, detail=f"Falha ao iniciar reconsolidação: {exc}")
+
+    return {
+        "status": "started",
+        "evento_grupo": evento_grupo,
+        "incremental": incremental,
+        "ciclo_id": ciclo_id,
+    }
 
 
 @router.get("/sync-logs/cycles")
