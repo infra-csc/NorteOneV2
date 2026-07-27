@@ -1,0 +1,318 @@
+-- =====================================================================
+-- Magento | Detalhamento consolidado por evento
+--   Base: query principal "SemCamiseta".
+--
+--   Alteracoes nesta versao:
+--     - REMOVIDO  : tipo_categoria  (e os joins cpei_tipo / eaov_tipo)
+--     - REMOVIDO  : distancia (soi_child.name) -> granularidade agora
+--                   colapsa no nivel de 'modalidade' (mesma logica do Ativo)
+--     - ADICIONADO: tamanho_camiseta (derivada 'shirt' = attribute_set 27 /
+--                   atributo 207), conforme a query auxiliar "ComCamiseta"
+--     - CORRIGIDO : GROUP BY referenciava 'modalidade_ajustada' (alias
+--                   inexistente nesta query) -> trocado pelo CASE de
+--                   'modalidade', IDENTICO ao SELECT.
+--
+-- MANUTENCAO: os CASE de 'canal' e de 'modalidade' precisam ser
+-- IDENTICOS no SELECT e no GROUP BY.
+-- =====================================================================
+SELECT STRAIGHT_JOIN
+    CONVERT_TZ(NOW(), '+00:00', '-03:00')                                           AS 'Data extração',
+    'Magento'                                                                       AS banco,
+    cpev1.id_evento                                                                 AS id_evento,
+    cpev2.value                                                                     AS evento,
+
+    CASE
+        WHEN so.base_grand_total = 0                                    THEN 'Cortesia'
+        WHEN soi_child.price - soi_child.discount_amount = 0           THEN 'Cortesia'
+        WHEN so.discount_description LIKE '%GRUPOS%'                   THEN 'Grupos/B2B'
+        WHEN so.coupon_code LIKE 'GRUP%'                               THEN 'Grupos/B2B'
+        ELSE                                                                 'Site'
+    END                                                                             AS canal,
+
+    soi_parent.name                                                                 AS kit,
+
+    CASE
+        WHEN soi_child.name LIKE '%Corrida e Caminhada Infantil%'        THEN 'Corrida e Caminhada Infantil'
+        WHEN soi_child.name LIKE '%corridinha + skate + bravinhos + bike%' THEN 'corridinha + skate + bravinhos + bike'
+        WHEN soi_child.name LIKE '%Obstáculo + Corrida%'                 THEN 'Obstáculo + Corrida'
+        WHEN soi_child.name LIKE '%Corrida + Obstáculo%'                 THEN 'Corrida + Obstáculo'
+        WHEN soi_child.name LIKE '%Corrida + Bravinhos%'                 THEN 'Corrida + Bravinhos'
+        WHEN soi_child.name LIKE '%Corrida + Bike%'                      THEN 'Corrida + Bike'
+        WHEN soi_child.name LIKE '%Corrida + Skate%'                     THEN 'Corrida + Skate'
+        WHEN soi_child.name LIKE '%Corrida de Obstáculo%'                THEN 'Corrida de Obstáculo'
+        WHEN soi_child.name LIKE '%Passeio Ciclístico%'                  THEN 'Passeio Ciclístico (10km)'
+        WHEN soi_child.name LIKE '%Travessia 1500m%'                     THEN 'Travessia 1500m'
+        WHEN soi_child.name LIKE '%5Km - Corrida e Caminhada%'           THEN '5Km - Corrida e Caminhada'
+        WHEN soi_child.name LIKE '%5Km - Corrida%'                       THEN '5Km - Corrida'
+        WHEN soi_child.name LIKE '%1Km - Caminhada%'                     THEN '1Km - Caminhada'
+        WHEN soi_child.name LIKE '%Caminhada 3Km%'
+          OR soi_child.name LIKE '%3Km - Caminhada%'                     THEN '3Km - Caminhada'
+        WHEN soi_child.name LIKE '%Yoga%'                                THEN 'Yoga - Corrida e Meditação'
+        WHEN soi_child.name LIKE '%Treinão%'                             THEN 'Treinão'
+        WHEN soi_child.name LIKE '%corridinha%'                          THEN 'corridinha'
+        WHEN soi_child.name LIKE '%Bravinhos%'                           THEN 'Bravinhos'
+        WHEN soi_child.name LIKE '%Bike%'                                THEN 'Bike'
+        WHEN soi_child.name LIKE '%Olímpico%'                            THEN 'Olímpico'
+        WHEN soi_child.name LIKE '%Short%'                               THEN 'Short'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '3800m%' THEN '3800m'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '1500m%' THEN '1500m'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '50K%'   THEN '50K'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '50m%'   THEN '50m'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '42K%'   THEN '42Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '21K%'   THEN '21Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '18K%'   THEN '18Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '16K%'   THEN '16Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '15K%'   THEN '15Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '14K%'   THEN '14Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '13K%'   THEN '13Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '12K%'   THEN '12Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '11K%'   THEN '11Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '10K%'   THEN '10Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '7,5K%'  THEN '7,5K'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '2,5K%'  THEN '2,5K'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '8K%'    THEN '8Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '7K%'    THEN '7Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '5K%'    THEN '5Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '4K%'    THEN '4Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '3K%'    THEN '3Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '2K%'    THEN '2Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '1K%'    THEN '1Km'
+        ELSE TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name) + 1))
+    END                                                                             AS modalidade,
+
+    soi_parent.ext_order_item_id                                                    AS pelotao,
+    prod.produtos                                                                   AS produtos,         -- NOVO
+    shirt.tamanho_camiseta                                                          AS tamanho_camiseta, -- NOVO
+
+    COUNT(DISTINCT soi_parent.item_id)                                              AS inscritos,
+
+    SUM(CASE WHEN so.base_grand_total = 0 THEN 0 ELSE soi_child.price END)           AS receita_bruta,
+
+    -- receita_liquida AGORA com desconto de carrinho rateado por bundle do pedido.
+    -- resíduo de carrinho = (desconto total do pedido) - (descontos já lançados nos itens),
+    -- rateado por qtd de bundles do pedido (agg.qtd_bundles).
+    -- COALESCE(...,0) protege o SUM: sem ele, um pedido sem match em 'agg' viraria NULL
+    -- e a linha inteira sairia do somatório (SUM ignora NULL).
+    SUM(CASE
+        WHEN so.base_grand_total = 0                                                THEN 0
+        ELSE (
+            soi_child.price
+          - soi_child.discount_amount
+          - COALESCE(
+                (ABS(so.discount_amount) - COALESCE(agg.desc_itens, 0))
+                    / NULLIF(agg.qtd_bundles, 0)
+              , 0)
+        )
+    END)                                                                                                AS receita_liquida,
+
+    -- ticket_medio sempre recalculado (nunca somado) a partir da receita_liquida nova
+    SUM(CASE
+        WHEN so.base_grand_total = 0                                                THEN 0
+        ELSE (
+            soi_child.price
+          - soi_child.discount_amount
+          - COALESCE(
+                (ABS(so.discount_amount) - COALESCE(agg.desc_itens, 0))
+                    / NULLIF(agg.qtd_bundles, 0)
+              , 0)
+        )
+    END)
+      / NULLIF(COUNT(DISTINCT CASE WHEN so.base_grand_total = 0 THEN NULL ELSE soi_parent.item_id END), 0) AS ticket_medio
+
+FROM (
+    SELECT cpev.entity_id AS product_id,
+           cpev.value     AS id_evento
+    FROM catalog_product_entity_varchar cpev
+    JOIN catalog_product_entity cpe
+          ON cpe.entity_id = cpev.entity_id
+         AND cpe.type_id   = 'bundle'
+    WHERE cpev.attribute_id = 321
+      AND cpev.store_id     = 0
+      AND cpev.value IN ( 48129 )  -- ID EVENTO
+) AS cpev1
+
+JOIN sales_order_item soi_parent
+       ON soi_parent.product_id   = cpev1.product_id
+      AND soi_parent.product_type = 'bundle'
+
+JOIN sales_order_item soi_child
+       ON soi_child.order_id       = soi_parent.order_id
+      AND soi_child.parent_item_id = soi_parent.item_id
+      AND soi_child.product_type   = 'simple'
+      AND (
+            soi_child.name LIKE '%Distância%'
+     OR soi_child.name LIKE '%Distancia%'
+     OR soi_child.name LIKE '%Distâncias%'
+     OR soi_child.name LIKE '%Modalidade%'
+     OR soi_child.name REGEXP '-[0-9]+[Kk]m$'
+     OR soi_child.name REGEXP '^[0-9]+[Kk]m?$'
+     OR soi_child.name LIKE 'Kit Participação%'
+     OR soi_child.name LIKE 'Olímpico%'
+     OR soi_child.name LIKE 'Yoga%'
+      )
+
+JOIN sales_order so
+       ON so.entity_id = soi_parent.order_id
+      AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
+      AND so.state NOT IN ('canceled')
+      AND so.increment_id NOT REGEXP '-[0-9]'
+
+JOIN (
+    SELECT entity_id, MIN(value) AS value
+    FROM catalog_product_entity_varchar
+    WHERE attribute_id = 73
+      AND store_id     = 0
+      AND entity_id IN ( 48129 )  -- ID EVENTO
+    GROUP BY entity_id
+) AS cpev2 ON cpev2.entity_id = cpev1.id_evento
+
+-- =========================================================================
+-- NOVO: agregados por pedido para o desconto de CARRINHO
+--   qtd_bundles -> denominador do rateio
+--   desc_itens  -> soma dos descontos já lançados nos itens (não-bundle)
+-- Escopo limitado aos pedidos que contêm bundles dos eventos parametrizados
+-- (filtro DENTRO da derivada -> evita full scan em sales_order_item).
+-- =========================================================================
+LEFT JOIN (
+    SELECT
+        i.order_id,
+        SUM(CASE WHEN i.product_type =  'bundle' THEN 1 ELSE 0 END)                 AS qtd_bundles,
+        SUM(CASE WHEN i.product_type <> 'bundle' THEN i.discount_amount ELSE 0 END) AS desc_itens
+    FROM sales_order_item i
+    JOIN (
+        -- pedidos-alvo: têm pelo menos um bundle de evento parametrizado
+        SELECT DISTINCT b.order_id
+        FROM catalog_product_entity_varchar v
+        JOIN sales_order_item b
+               ON b.product_id   = v.entity_id
+              AND b.product_type = 'bundle'
+        WHERE v.attribute_id = 321
+          AND v.store_id     = 0
+          AND v.value        IN ( 48129 )   -- ID EVENTO (trocar por :evento no Replit)
+    ) AS tgt ON tgt.order_id = i.order_id
+    GROUP BY i.order_id
+) AS agg ON agg.order_id = soi_parent.order_id
+
+-- ===== Tamanho Camiseta (atributo 207 nos filhos do attribute_set 27) =====
+-- ESCOPADA POR EVENTO: junta aos itens-pai (bundle) do evento ANTES do GROUP BY,
+-- podando as linhas antes da materializacao (MySQL 5.7 nao faz pushdown em derivada).
+LEFT JOIN (
+    SELECT
+        si.parent_item_id,
+        MAX(eaov.value) AS tamanho_camiseta
+    FROM catalog_product_entity_varchar cpev_e   -- bundles do evento
+          -- entra pelo filtro mais seletivo: o(s) produto(s) bundle do evento
+    JOIN sales_order_item p_ev
+          ON p_ev.product_id   = cpev_e.entity_id
+         AND p_ev.product_type = 'bundle'
+    JOIN sales_order_item si                      -- filhos desses itens-pai
+          ON si.parent_item_id = p_ev.item_id
+    JOIN catalog_product_entity cpe_shirt
+          ON cpe_shirt.entity_id        = si.product_id
+         AND cpe_shirt.attribute_set_id = 27
+    JOIN catalog_product_entity_int cpei_s
+          ON cpei_s.entity_id    = si.product_id
+         AND cpei_s.attribute_id = 207
+    JOIN eav_attribute_option_value eaov
+          ON eaov.option_id = cpei_s.value
+    WHERE cpev_e.attribute_id = 321
+      AND cpev_e.store_id     = 0
+      AND cpev_e.value        IN ( 48129 )   -- ID EVENTO (trocar por :evento no Replit)
+    GROUP BY si.parent_item_id
+) AS shirt ON shirt.parent_item_id = soi_parent.item_id
+-- =================================================================================
+
+-- ===== Produtos (nomes dos filhos FORA dos attribute_sets 30/28/27/31) =====
+-- ESCOPADA POR EVENTO (mesma logica da derivada 'shirt').
+LEFT JOIN (
+    SELECT
+        si.parent_item_id,
+        GROUP_CONCAT(DISTINCT si.name ORDER BY si.name SEPARATOR ', ') AS produtos
+    FROM catalog_product_entity_varchar cpev_e   -- bundles do evento
+    JOIN sales_order_item p_ev
+          ON p_ev.product_id   = cpev_e.entity_id
+         AND p_ev.product_type = 'bundle'
+    JOIN sales_order_item si                      -- filhos desses itens-pai
+          ON si.parent_item_id = p_ev.item_id
+    JOIN catalog_product_entity cpe_p
+          ON cpe_p.entity_id = si.product_id
+         AND cpe_p.attribute_set_id NOT IN (30, 28, 27, 31)
+    WHERE cpev_e.attribute_id = 321
+      AND cpev_e.store_id     = 0
+      AND cpev_e.value        IN ( 48129 )   -- ID EVENTO (trocar por :evento no Replit)
+    GROUP BY si.parent_item_id
+) AS prod ON prod.parent_item_id = soi_parent.item_id
+-- =================================================================================
+
+GROUP BY
+    cpev1.id_evento,
+    cpev2.value,
+    soi_parent.name,
+    -- (toggle) descomente para preservar a granularidade da distancia bruta,
+    -- mesmo sem exibi-la como coluna:
+    -- soi_child.name,
+    -- 'modalidade': CASE deve ser IDENTICO ao SELECT
+    CASE
+        WHEN soi_child.name LIKE '%Corrida e Caminhada Infantil%'        THEN 'Corrida e Caminhada Infantil'
+        WHEN soi_child.name LIKE '%corridinha + skate + bravinhos + bike%' THEN 'corridinha + skate + bravinhos + bike'
+        WHEN soi_child.name LIKE '%Obstáculo + Corrida%'                 THEN 'Obstáculo + Corrida'
+        WHEN soi_child.name LIKE '%Corrida + Obstáculo%'                 THEN 'Corrida + Obstáculo'
+        WHEN soi_child.name LIKE '%Corrida + Bravinhos%'                 THEN 'Corrida + Bravinhos'
+        WHEN soi_child.name LIKE '%Corrida + Bike%'                      THEN 'Corrida + Bike'
+        WHEN soi_child.name LIKE '%Corrida + Skate%'                     THEN 'Corrida + Skate'
+        WHEN soi_child.name LIKE '%Corrida de Obstáculo%'                THEN 'Corrida de Obstáculo'
+        WHEN soi_child.name LIKE '%Passeio Ciclístico%'                  THEN 'Passeio Ciclístico (10km)'
+        WHEN soi_child.name LIKE '%Travessia 1500m%'                     THEN 'Travessia 1500m'
+        WHEN soi_child.name LIKE '%5Km - Corrida e Caminhada%'           THEN '5Km - Corrida e Caminhada'
+        WHEN soi_child.name LIKE '%5Km - Corrida%'                       THEN '5Km - Corrida'
+        WHEN soi_child.name LIKE '%1Km - Caminhada%'                     THEN '1Km - Caminhada'
+        WHEN soi_child.name LIKE '%Caminhada 3Km%'
+          OR soi_child.name LIKE '%3Km - Caminhada%'                     THEN '3Km - Caminhada'
+        WHEN soi_child.name LIKE '%Yoga%'                                THEN 'Yoga - Corrida e Meditação'
+        WHEN soi_child.name LIKE '%Treinão%'                             THEN 'Treinão'
+        WHEN soi_child.name LIKE '%corridinha%'                          THEN 'corridinha'
+        WHEN soi_child.name LIKE '%Bravinhos%'                           THEN 'Bravinhos'
+        WHEN soi_child.name LIKE '%Bike%'                                THEN 'Bike'
+        WHEN soi_child.name LIKE '%Olímpico%'                            THEN 'Olímpico'
+        WHEN soi_child.name LIKE '%Short%'                               THEN 'Short'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '3800m%' THEN '3800m'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '1500m%' THEN '1500m'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '50K%'   THEN '50K'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '50m%'   THEN '50m'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '42K%'   THEN '42Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '21K%'   THEN '21Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '18K%'   THEN '18Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '16K%'   THEN '16Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '15K%'   THEN '15Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '14K%'   THEN '14Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '13K%'   THEN '13Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '12K%'   THEN '12Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '11K%'   THEN '11Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '10K%'   THEN '10Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '7,5K%'  THEN '7,5K'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '2,5K%'  THEN '2,5K'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '8K%'    THEN '8Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '7K%'    THEN '7Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '5K%'    THEN '5Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '4K%'    THEN '4Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '3K%'    THEN '3Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '2K%'    THEN '2Km'
+        WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '1K%'    THEN '1Km'
+        ELSE TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name) + 1))
+    END,
+    -- 'canal': CASE deve ser IDENTICO ao SELECT
+    CASE
+        WHEN so.base_grand_total = 0                                    THEN 'Cortesia'
+        WHEN soi_child.price - soi_child.discount_amount = 0           THEN 'Cortesia'
+        WHEN so.discount_description LIKE '%GRUPOS%'                   THEN 'Grupos/B2B'
+        WHEN so.coupon_code LIKE 'GRUP%'                               THEN 'Grupos/B2B'
+        ELSE                                                                 'Site'
+    END,
+    soi_parent.ext_order_item_id,
+    prod.produtos,                    -- NOVO
+    shirt.tamanho_camiseta            -- NOVO
+
+ORDER BY
+    cpev1.id_evento,
+    canal,
+    soi_parent.name;
