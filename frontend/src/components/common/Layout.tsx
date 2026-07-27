@@ -58,7 +58,7 @@ const marketingItems = [
   { path: '/marketing/configuracoes', icon: Settings, label: 'Configuracoes', modulo: 'marketing_configuracoes' },
 ];
 
-const detalheEventosItem = { path: '/marketing/detalhe', icon: Table2, label: 'Painel do evento', modulo: 'marketing_dashboard' };
+const detalheEventosItem = { path: '/marketing/detalhe', icon: Table2, label: 'Painel do evento', modulo: 'marketing_detalhe' };
 
 const adminItems = [
   { path: '/admin/dados-consolidados', icon: Database, label: 'Dados Consolidados', modulo: 'admin_dados_consolidados' },

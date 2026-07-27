@@ -40,3 +40,4 @@
 - [Reconsolidar 502 = job + polling](recalc-502-job-polling.md) — ação longa nunca roda dentro do request (proxy corta → 502; timeout de cliente não resolve); thread + registro em memória + status polling.
 - [Cancel token em polling React](react-poll-cancel-token.md) — boolean compartilhado re-zerado pelo effect do novo id não cancela run antiga; generation token + recheck pós-await.
 - [Modalidade Ativo + rateio carrinho Magento](ativo-modalidade-magento-rateio.md) — rótulo confiável é nm_modalidade via categoria (ds_ fica vazia); líquida Magento deve ratear desconto de CARRINHO via agg por pedido.
+- [Split de módulo de permissão](perfil-permissao-module-split.md) — UI revoga DELETANDO a linha (submit filtra all-false); backfill de módulo novo exige guard global one-shot, nunca anti-join por perfil.

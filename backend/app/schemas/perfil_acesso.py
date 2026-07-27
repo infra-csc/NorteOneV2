@@ -10,6 +10,7 @@ MODULOS_SISTEMA = [
     {"key": "orcamento", "label": "Orçamento"},
     {"key": "atletas", "label": "Atletas"},
     {"key": "marketing_dashboard", "label": "Marketing - Dashboard ISC"},
+    {"key": "marketing_detalhe", "label": "Marketing - Painel do evento"},
     {"key": "marketing_pricing", "label": "Marketing - Análise de Pricing"},
     {"key": "marketing_comparativo", "label": "Marketing - Comparativo"},
     {"key": "marketing_configuracoes", "label": "Marketing - Configurações"},

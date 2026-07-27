@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import require_permission
 from app.services.detalhe_eventos_service import (
     list_eventos_disponiveis,
     get_detalhe,
@@ -18,7 +18,7 @@ from app.services.detalhe_eventos_service import (
 router = APIRouter(
     prefix="/api/marketing/detalhe-eventos",
     tags=["Detalhe Eventos"],
-    dependencies=[Depends(get_current_user)],
+    dependencies=[Depends(require_permission("marketing_detalhe", "pode_visualizar"))],
 )
 
 

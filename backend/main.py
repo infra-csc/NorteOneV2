@@ -1724,6 +1724,25 @@ def _run_column_migrations():
               AND k.id < k2.id
             """,
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_projecao_kit_nome ON projecao_inscritos_kit (projecao_id, nome_kit)",
+            # perfil_permissao: dedupe + indice unico (update de perfil e DELETE+INSERT;
+            # sem indice unico, saves concorrentes duplicam linhas — e o backfill abaixo
+            # poderia duplicar em startup concorrente de multiplas instancias).
+            """DELETE FROM perfil_permissao a USING perfil_permissao b
+               WHERE a.id < b.id
+               AND a.perfil_acesso_id = b.perfil_acesso_id
+               AND a.modulo = b.modulo""",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_perfil_permissao_perfil_modulo ON perfil_permissao (perfil_acesso_id, modulo)",
+            # Backfill one-shot: modulo dedicado do Painel do evento (marketing_detalhe).
+            # Copia as flags de marketing_dashboard dos perfis existentes UMA vez.
+            # Guard GLOBAL de proposito (NOT EXISTS qualquer linha marketing_detalhe):
+            # a UI de perfis revoga DELETANDO a linha (submit filtra all-false), entao um
+            # anti-join por perfil re-concederia revogacoes a cada restart. Nao trocar.
+            """INSERT INTO perfil_permissao (perfil_acesso_id, modulo, pode_visualizar, pode_criar, pode_editar, pode_deletar)
+               SELECT p.perfil_acesso_id, 'marketing_detalhe', p.pode_visualizar, p.pode_criar, p.pode_editar, p.pode_deletar
+               FROM perfil_permissao p
+               WHERE p.modulo = 'marketing_dashboard'
+                 AND NOT EXISTS (SELECT 1 FROM perfil_permissao q WHERE q.modulo = 'marketing_detalhe')
+               ON CONFLICT (perfil_acesso_id, modulo) DO NOTHING""",
         ]
         kit_basico_idx = [
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_kit_basico_per_evento ON kit_config (id_evento) WHERE is_kit_basico = TRUE",
