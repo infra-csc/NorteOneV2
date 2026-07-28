@@ -17,13 +17,14 @@ import re
 import secrets
 import threading
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import and_, func, or_, text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from ...core.database import get_db
 from ...core.security import is_user_admin, require_permission
@@ -43,6 +44,7 @@ from ...schemas.cortesia_solicitacao import (
     CortesiaSolicitacaoCupomCreate,
     CortesiaSolicitacaoResponse,
     CupomCodigoItem,
+    EventoFilaOpcao,
     EventoSaldoResponse,
     SaldoAreaItem,
 )
@@ -54,6 +56,15 @@ router = APIRouter(prefix="/cortesia-solicitacao", tags=["Solicitação de Corte
 # Módulo próprio de permissão (Perfil de Acesso): visualizar/criar solicitações
 # é o fluxo do responsável de área; editar é reservado a quem gera os cupons.
 CORTESIA_SOLICITACAO_PERMISSION = "cortesia_solicitacao"
+
+# Sem um evento_id explícito, cupons já gerados há mais de
+# _FILA_GERADOS_JANELA_DIAS dias saem da fila padrão — do contrário ela
+# cresce sem limite conforme os anos de eventos se acumulam. Pendentes nunca
+# entram nessa janela (ver fila_geracao_cupons): é fila de trabalho, um
+# pedido esquecido não pode sumir. Selecionar um evento no filtro busca o
+# histórico completo (sem a janela) daquele evento, para localizar/exportar
+# cupons mais antigos.
+_FILA_GERADOS_JANELA_DIAS = 90
 
 _UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "uploads", "cortesia_solicitacao")
 _ALLOWED_EXTENSOES = {".xlsx", ".xls", ".csv"}
@@ -419,23 +430,96 @@ def list_solicitacoes(
 
 @router.get("/fila-geracao", response_model=list[CortesiaSolicitacaoResponse])
 def fila_geracao_cupons(
+    evento_id: int = Query(None, description="Se informado, ignora a janela padrão e retorna o histórico completo de gerados deste evento."),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission(CORTESIA_SOLICITACAO_PERMISSION, "pode_editar")),
 ):
     """Fila dedicada de quem gera os cupons: todas as solicitações do tipo
     cupom, sem recorte por área — a mesma regra de acesso que já vale hoje
     para marcar uma solicitação como gerada (pode_editar do módulo, não
-    depende de vínculo com a área). O frontend separa pendentes x gerados."""
-    rows = (
+    depende de vínculo com a área). O frontend separa pendentes x gerados.
+
+    Pendentes: sempre completos, nunca filtrados por evento nem pela janela
+    — é fila de trabalho, um pedido esquecido não pode sumir da lista.
+    Gerados: por padrão limitados aos últimos _FILA_GERADOS_JANELA_DIAS dias
+    (por gerado_em) e a um teto de segurança; passar evento_id troca para o
+    histórico completo daquele evento, sem janela nem teto."""
+    base = (
         db.query(CortesiaSolicitacao)
+        .options(
+            joinedload(CortesiaSolicitacao.evento),
+            joinedload(CortesiaSolicitacao.area_projecao),
+            joinedload(CortesiaSolicitacao.solicitante),
+            joinedload(CortesiaSolicitacao.gerador),
+            joinedload(CortesiaSolicitacao.codigos).joinedload(CortesiaCupomCodigo.usuario_uso),
+        )
         .filter(
             CortesiaSolicitacao.tipo == TIPO_CUPOM,
             CortesiaSolicitacao.deleted_at.is_(None),
         )
+    )
+
+    pendentes = (
+        base.filter(CortesiaSolicitacao.status == STATUS_SOLICITADO)
         .order_by(CortesiaSolicitacao.created_at.desc())
         .all()
     )
-    return [_serialize(r) for r in rows]
+
+    gerados_query = base.filter(CortesiaSolicitacao.status == STATUS_GERADO)
+    if evento_id:
+        gerados = (
+            gerados_query
+            .filter(CortesiaSolicitacao.evento_id == evento_id)
+            .order_by(CortesiaSolicitacao.gerado_em.desc())
+            .all()
+        )
+    else:
+        limite = datetime.now(ZoneInfo('America/Sao_Paulo')).replace(tzinfo=None) - timedelta(days=_FILA_GERADOS_JANELA_DIAS)
+        gerados = (
+            gerados_query
+            .filter(CortesiaSolicitacao.gerado_em >= limite)
+            .order_by(CortesiaSolicitacao.gerado_em.desc())
+            .limit(1000)
+            .all()
+        )
+
+    return [_serialize(r) for r in pendentes + gerados]
+
+
+@router.get("/fila-geracao/eventos", response_model=list[EventoFilaOpcao])
+def listar_eventos_fila_geracao(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(CORTESIA_SOLICITACAO_PERMISSION, "pode_editar")),
+):
+    """Eventos com pelo menos um cupom já gerado — alimenta o filtro que
+    busca além da janela padrão da fila. Cresce com o número de eventos
+    distintos, não com o total de solicitações, então continua rápido mesmo
+    com anos de histórico acumulado."""
+    rows = (
+        db.query(
+            CadastroEvento.id,
+            CadastroEvento.nome,
+            CadastroEvento.data_evento,
+        )
+        .join(CortesiaSolicitacao, CortesiaSolicitacao.evento_id == CadastroEvento.id)
+        .filter(
+            CortesiaSolicitacao.tipo == TIPO_CUPOM,
+            CortesiaSolicitacao.status == STATUS_GERADO,
+            CortesiaSolicitacao.deleted_at.is_(None),
+            CadastroEvento.deleted_at.is_(None),
+        )
+        .distinct()
+        .order_by(CadastroEvento.data_evento.desc().nullslast(), CadastroEvento.nome.asc())
+        .all()
+    )
+    return [
+        EventoFilaOpcao(
+            evento_id=r.id,
+            evento_nome=r.nome,
+            evento_data=r.data_evento.isoformat() if r.data_evento else None,
+        )
+        for r in rows
+    ]
 
 
 @router.post("/cupom", response_model=CortesiaSolicitacaoResponse)
@@ -790,11 +874,22 @@ def exportar_cupons(
     current_user: Usuario = Depends(require_permission(CORTESIA_SOLICITACAO_PERMISSION, "pode_editar")),
 ):
     """CSV com um código de cupom por linha, dos lotes já gerados — mesma
-    regra de acesso e mesmo recorte (sem filtro de área) da fila de geração."""
-    query = db.query(CortesiaSolicitacao).filter(
-        CortesiaSolicitacao.tipo == TIPO_CUPOM,
-        CortesiaSolicitacao.status == STATUS_GERADO,
-        CortesiaSolicitacao.deleted_at.is_(None),
+    regra de acesso e mesmo recorte (sem filtro de área) da fila de geração.
+    Sem janela por padrão (ação explícita e pontual, não carregamento de
+    tela); use evento_id/area_projecao_id para restringir uma exportação."""
+    query = (
+        db.query(CortesiaSolicitacao)
+        .options(
+            joinedload(CortesiaSolicitacao.evento),
+            joinedload(CortesiaSolicitacao.area_projecao),
+            joinedload(CortesiaSolicitacao.solicitante),
+            joinedload(CortesiaSolicitacao.gerador),
+        )
+        .filter(
+            CortesiaSolicitacao.tipo == TIPO_CUPOM,
+            CortesiaSolicitacao.status == STATUS_GERADO,
+            CortesiaSolicitacao.deleted_at.is_(None),
+        )
     )
     if evento_id:
         query = query.filter(CortesiaSolicitacao.evento_id == evento_id)

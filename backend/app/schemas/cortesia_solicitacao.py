@@ -20,6 +20,14 @@ class EventoSaldoResponse(BaseModel):
     areas: List[SaldoAreaItem] = []
 
 
+class EventoFilaOpcao(BaseModel):
+    """Opção enxuta para o filtro por evento da fila de geração de cupons —
+    só id/nome/data, sem os números de saldo (que não fazem sentido aqui)."""
+    evento_id: int
+    evento_nome: str
+    evento_data: Optional[str] = None
+
+
 class CortesiaSolicitacaoCupomCreate(BaseModel):
     evento_id: int
     area_projecao_id: int

@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { cortesiaSolicitacaoService } from '../../services/api';
-import type { CortesiaEventoSaldoResponse, CortesiaSolicitacaoResponse, CupomCodigoItem } from '../../services/api';
+import type { CortesiaEventoSaldoResponse, CortesiaEventoFilaOpcao, CortesiaSolicitacaoResponse, CupomCodigoItem } from '../../services/api';
 import { useTheme } from '../../context/ThemeContext';
 import { usePermissions } from '../../context/PermissionContext';
 import {
   Gift, Plus, X, RefreshCw, AlertTriangle, Ticket, FileSpreadsheet,
   CheckCircle2, Clock, Download, Trash2, ChevronDown, ChevronUp,
   LayoutGrid, List as ListIcon, Copy, Check, ClipboardList, FileDown,
-  ToggleLeft, ToggleRight,
+  ToggleLeft, ToggleRight, Filter,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────
@@ -27,6 +27,11 @@ import {
 // ─────────────────────────────────────────────────────────────
 
 const VISUALIZACAO_STORAGE_KEY = 'cortesias_solicitacoes_visualizacao';
+
+// Deve ficar em sincronia com _FILA_GERADOS_JANELA_DIAS no backend
+// (backend/app/api/routes/cortesia_solicitacao.py) — é só o texto exibido,
+// o corte de verdade é aplicado no servidor.
+const FILA_GERADOS_JANELA_DIAS = 90;
 
 const fmtData = (iso: string | null | undefined): string => {
   if (!iso) return '—';
@@ -380,6 +385,11 @@ const SolicitacaoCortesias: React.FC = () => {
   const [loadingFila, setLoadingFila] = useState(true);
   const [errorFila, setErrorFila] = useState<string | null>(null);
   const [exportando, setExportando] = useState(false);
+  // Filtro por evento dos "Gerados": vazio = janela padrão (últimos
+  // FILA_GERADOS_JANELA_DIAS dias); com evento selecionado, o backend troca
+  // para o histórico completo daquele evento. Nunca afeta os "Pendentes".
+  const [filaEventoId, setFilaEventoId] = useState<number | ''>('');
+  const [eventosFila, setEventosFila] = useState<CortesiaEventoFilaOpcao[]>([]);
 
   const [form, setForm] = useState<FormState | null>(null);
   const [tipo, setTipo] = useState<'cupom' | 'planilha'>('cupom');
@@ -426,12 +436,26 @@ const SolicitacaoCortesias: React.FC = () => {
     setLoadingFila(true);
     setErrorFila(null);
     try {
-      const data = await cortesiaSolicitacaoService.filaGeracao();
+      const data = await cortesiaSolicitacaoService.filaGeracao(
+        filaEventoId ? { evento_id: filaEventoId } : undefined
+      );
       setFilaGeracao(data);
     } catch (e) {
       setErrorFila(extractError(e));
     } finally {
       setLoadingFila(false);
+    }
+  };
+
+  // Opções do filtro por evento — carregado à parte da fila em si (não
+  // precisa recarregar quando o filtro muda, só quando um novo cupom é
+  // gerado) e falha em silêncio: sem as opções, o filtro só fica vazio.
+  const carregarEventosFila = async () => {
+    try {
+      const data = await cortesiaSolicitacaoService.eventosFilaGeracao();
+      setEventosFila(data);
+    } catch (e) {
+      console.error('Erro ao carregar eventos da fila de geração:', e);
     }
   };
 
@@ -447,9 +471,15 @@ const SolicitacaoCortesias: React.FC = () => {
       setLoadingFila(false);
       return;
     }
-    carregarFila();
+    carregarEventosFila();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [podeGerarCupom]);
+
+  useEffect(() => {
+    if (!podeGerarCupom) return;
+    carregarFila();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [podeGerarCupom, filaEventoId]);
 
   const abrirForm = (f: FormState) => {
     setForm(f);
@@ -579,7 +609,9 @@ const SolicitacaoCortesias: React.FC = () => {
   const exportarCupons = async () => {
     setExportando(true);
     try {
-      await cortesiaSolicitacaoService.exportarCupons();
+      // Exporta sem janela de data (ação explícita); respeita o mesmo
+      // filtro de evento selecionado na fila, se houver.
+      await cortesiaSolicitacaoService.exportarCupons(filaEventoId ? { evento_id: filaEventoId } : undefined);
     } catch (e) {
       window.alert(extractError(e));
     } finally {
@@ -898,7 +930,9 @@ const SolicitacaoCortesias: React.FC = () => {
           <div className={`flex items-center justify-between p-4 border-b ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`}>
             <div>
               <h2 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Fila de Geração de Cupons</h2>
-              <p className={`text-xs mt-0.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Todas as solicitações de cupom, de todas as áreas.</p>
+              <p className={`text-xs mt-0.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                Pendentes de todas as áreas, sempre completos. Gerados dos últimos {FILA_GERADOS_JANELA_DIAS} dias por padrão — filtre por evento para ver o histórico completo.
+              </p>
             </div>
             <div className="flex items-center gap-1.5">
               <button
@@ -910,7 +944,7 @@ const SolicitacaoCortesias: React.FC = () => {
                 <FileDown className="w-3.5 h-3.5" /> {exportando ? 'Exportando...' : 'Exportar CSV'}
               </button>
               <button
-                onClick={carregarFila}
+                onClick={() => { carregarFila(); carregarEventosFila(); }}
                 className={`p-2 rounded-lg transition-colors ${isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}
                 title="Atualizar"
               >
@@ -960,11 +994,35 @@ const SolicitacaoCortesias: React.FC = () => {
                   )}
                 </section>
                 <section>
-                  <h3 className={`text-xs font-bold uppercase tracking-wide mb-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                    Gerados <span className={isDark ? 'text-gray-600' : 'text-gray-400'}>({geradosFila.length})</span>
-                  </h3>
+                  <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
+                    <h3 className={`text-xs font-bold uppercase tracking-wide ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                      Gerados <span className={isDark ? 'text-gray-600' : 'text-gray-400'}>({geradosFila.length})</span>
+                    </h3>
+                    <div className="flex items-center gap-1.5">
+                      <Filter className={`w-3.5 h-3.5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
+                      <select
+                        value={filaEventoId}
+                        onChange={e => setFilaEventoId(e.target.value ? Number(e.target.value) : '')}
+                        className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 ${isDark ? 'bg-gray-900/50 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
+                      >
+                        <option value="">Últimos {FILA_GERADOS_JANELA_DIAS} dias</option>
+                        {eventosFila.map(ev => (
+                          <option key={ev.evento_id} value={ev.evento_id}>
+                            {ev.evento_nome}{ev.evento_data ? ` — ${fmtData(ev.evento_data)}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <p className={`text-xs mb-2 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                    {filaEventoId
+                      ? 'Histórico completo de cupons gerados para o evento selecionado.'
+                      : `Mostrando apenas os gerados nos últimos ${FILA_GERADOS_JANELA_DIAS} dias. Selecione um evento para buscar códigos mais antigos.`}
+                  </p>
                   {geradosFila.length === 0 ? (
-                    <p className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhum cupom gerado ainda.</p>
+                    <p className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                      {filaEventoId ? 'Nenhum cupom gerado para este evento.' : `Nenhum cupom gerado nos últimos ${FILA_GERADOS_JANELA_DIAS} dias.`}
+                    </p>
                   ) : (
                     <div className="space-y-3">
                       {geradosFila.map(sol => (
