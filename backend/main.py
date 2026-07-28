@@ -1349,6 +1349,9 @@ def _run_column_migrations():
             "ALTER TABLE cadastro_kit_produto ADD COLUMN IF NOT EXISTS ativo_categoria VARCHAR(100)",
             "ALTER TABLE kit_config ALTER COLUMN ativo_categoria TYPE VARCHAR(500)",
             "ALTER TABLE vendas_diaria_snapshot ADD COLUMN IF NOT EXISTS ano INTEGER",
+            # Ano do evento no snapshot de Mapeamento de Kits — distingue edições
+            # do ano corrente e do ano seguinte quando ambas aparecem juntas.
+            "ALTER TABLE kit_mapping_snapshot ADD COLUMN IF NOT EXISTS ano INTEGER",
             # sync_event_log: log estruturado dos batches de sincronização
             """CREATE TABLE IF NOT EXISTS sync_event_log (
                 id BIGSERIAL PRIMARY KEY,

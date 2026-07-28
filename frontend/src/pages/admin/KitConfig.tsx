@@ -29,6 +29,7 @@ interface KitRow {
   fonte?: string | null;
   cenario_ciclismo: string | null;
   ignorado: boolean;
+  ano?: number | null;
 }
 
 const fmtBRL = (v: number | null | undefined): string => {
@@ -1237,6 +1238,18 @@ const KitConfig: React.FC = () => {
                           <span title={kit.nome_evento || ''}>
                             {kit.nome_evento || '—'}
                           </span>
+                          {kit.ano != null && kit.ano !== new Date().getFullYear() && (
+                            <span
+                              className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 border ${
+                                isDark
+                                  ? 'bg-blue-900/30 text-blue-300 border-blue-700'
+                                  : 'bg-blue-100 text-blue-700 border-blue-300'
+                              }`}
+                              title="Evento de uma próxima edição (ano seguinte)"
+                            >
+                              {kit.ano}
+                            </span>
+                          )}
                         </div>
                       </td>
 

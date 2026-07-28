@@ -406,6 +406,9 @@ SELECT /*+ MAX_EXECUTION_TIME(60000) */
     cpe_parent.entity_id                    AS bundle_entity_id,
     cpev_kit_name.value                     AS nome_kit,
     eaov_tipo.value                         AS tipo_categoria,
+    -- Ano do evento (para distinguir edições do ano corrente e do ano seguinte
+    -- que aparecem juntas na tela quando ambas têm carrinho ativo).
+    YEAR(cped_date.value)                   AS ano,
 
     -- price (De/strikethrough): MAX(componente Distância/Modalidade) + MAX(componente addon não-blacklisted).
     -- A primeira parcela é COALESCE para 0: em bundles cujo componente "distância"
@@ -635,8 +638,11 @@ LEFT JOIN catalog_product_entity_int cpei_status
       AND cpei_status.attribute_id = attrs.status_id
 
 WHERE cpe_parent.type_id = 'bundle'
+  -- Janela dinâmica: ano corrente + ano seguinte (carrinho da próxima edição
+  -- pode abrir antes do fim da atual). Nunca hardcodear o ano; desliza sozinha
+  -- a cada virada de ano. Ver task "ano seguinte em eventos agrupados".
   AND cped_date.value >= DATE_FORMAT(CURDATE(), '%Y-01-01')
-  AND cped_date.value <  DATE_FORMAT(CURDATE(), '%Y-01-01') + INTERVAL 1 YEAR
+  AND cped_date.value <  DATE_FORMAT(CURDATE(), '%Y-01-01') + INTERVAL 2 YEAR
 
 GROUP BY
     cpev1.value,
@@ -644,7 +650,8 @@ GROUP BY
     cpe_parent.entity_id,
     cpev_kit_name.value,
     eaov_tipo.value,
-    pi_pai.min_price
+    pi_pai.min_price,
+    cped_date.value
 
 ORDER BY
     cpev1.value,
@@ -780,7 +787,8 @@ SELECT
     c.nr_valor                                          AS special_price,
     el_atual.dt_limite                                  AS lote_dt_limite,
     el_atual.ds_classificacao                           AS lote_classificacao,
-    'combo'                                             AS origem
+    'combo'                                             AS origem,
+    YEAR(e.dt_evento)                                   AS ano
 FROM sa_combo c
 JOIN sa_combo_evento_categoria cec
        ON cec.id_combo = c.id_combo
@@ -803,7 +811,8 @@ LEFT JOIN sa_evento_lote el_atual
       )
 LEFT JOIN sa_lotes l_atual
        ON l_atual.id_lote = el_atual.id_lote
-WHERE YEAR(e.dt_evento) = YEAR(CURDATE())
+-- Janela dinâmica: ano corrente + ano seguinte (mesma regra da query Magento acima).
+WHERE YEAR(e.dt_evento) IN (YEAR(CURDATE()), YEAR(CURDATE()) + 1)
 GROUP BY
     e.id_evento,
     e.ds_evento,
@@ -814,7 +823,8 @@ GROUP BY
     c.nr_valor,
     l_atual.ds_lote,
     el_atual.dt_limite,
-    el_atual.ds_classificacao
+    el_atual.ds_classificacao,
+    e.dt_evento
 
 UNION ALL
 
@@ -828,7 +838,8 @@ SELECT
     MIN(mck.vl_kit)                                     AS special_price,
     el_atual.dt_limite                                  AS lote_dt_limite,
     el_atual.ds_classificacao                           AS lote_classificacao,
-    'modalidade'                                        AS origem
+    'modalidade'                                        AS origem,
+    YEAR(e.dt_evento)                                   AS ano
 FROM sa_evento_modalidade em
 JOIN sa_evento e
        ON e.id_evento = em.id_evento
@@ -854,7 +865,8 @@ JOIN sa_modalidade_categoria_kit mck
       AND mck.id_evento_lote = el_atual.id_evento_lote
 LEFT JOIN sa_lotes l_atual
        ON l_atual.id_lote = el_atual.id_lote
-WHERE YEAR(e.dt_evento) = YEAR(CURDATE())
+-- Janela dinâmica: ano corrente + ano seguinte (mesma regra da query Magento acima).
+WHERE YEAR(e.dt_evento) IN (YEAR(CURDATE()), YEAR(CURDATE()) + 1)
   AND NOT EXISTS (
         SELECT 1
         FROM sa_combo_evento_categoria cec2
@@ -866,7 +878,8 @@ GROUP BY
     mc.ds_categoria,
     l_atual.ds_lote,
     el_atual.dt_limite,
-    el_atual.ds_classificacao
+    el_atual.ds_classificacao,
+    e.dt_evento
 ORDER BY
     id_evento,
     nome_kit,
@@ -957,6 +970,7 @@ def _fetch_ativo_kits_indexed_impl(force_refresh: bool = False):
             "price": float(rd["price"]) if rd.get("price") is not None else None,
             "special_price": float(rd["special_price"]) if rd.get("special_price") is not None else None,
             "origem": rd.get("origem"),
+            "ano": int(rd["ano"]) if rd.get("ano") is not None else None,
         })
 
     _ativo_kits_cache["data"] = indexed
@@ -1165,6 +1179,7 @@ def _apply_overlay_to_snapshot(db: Session, snapshot_dicts: list) -> List[KitRow
             fonte=d.get("fonte"),
             cenario_ciclismo=cfg.cenario_ciclismo if cfg else None,
             ignorado=cfg.ignorado if cfg else False,
+            ano=d.get("ano"),
         ))
     return rows
 
@@ -1328,6 +1343,7 @@ def _build_kit_rows_internal(db: Session, force_refresh: bool = False,
             cenario_ciclismo=cfg.cenario_ciclismo if cfg else None,
             ignorado=cfg.ignorado if cfg else False,
             pi_pai_min_price=pi_pai_min_price_raw,
+            ano=int(row_dict["ano"]) if row_dict.get("ano") is not None else None,
         ))
 
     # --- Ativo-only events ---
@@ -1338,6 +1354,9 @@ def _build_kit_rows_internal(db: Session, force_refresh: bool = False,
     # results (not all historical MAGENTO SkuMappings), to avoid hiding Ativo events
     # that share a SKU with a Magento mapping from a different year.
     current_year = date.today().year
+    # Janela dinâmica: ano corrente + ano seguinte (mesma regra das queries acima)
+    # — nunca hardcodear o ano, desliza sozinha a cada virada de ano.
+    allowed_years = (current_year, current_year + 1)
 
     # Build SKU set from the actual Magento rows returned by this request
     current_magento_event_ids: set = set()
@@ -1361,7 +1380,7 @@ def _build_kit_rows_internal(db: Session, force_refresh: bool = False,
     ativo_maps = db.query(SkuMapping).filter(
         SkuMapping.fonte == 'ATIVO',
         SkuMapping.ativo == True,
-        SkuMapping.ano == current_year,
+        SkuMapping.ano.in_(allowed_years),
     ).all()
 
     # Índice (id_evento_ativo, nome_kit_normalizado) → variantes com preço/lote.
@@ -1421,7 +1440,7 @@ def _build_kit_rows_internal(db: Session, force_refresh: bool = False,
         if not cadastro:
             _dbg["no_cadastro"] += 1
             continue
-        if cadastro.ano_evento and cadastro.ano_evento != current_year:
+        if cadastro.ano_evento and cadastro.ano_evento not in allowed_years:
             _dbg["wrong_year"] += 1
             continue
 
@@ -1499,6 +1518,7 @@ def _build_kit_rows_internal(db: Session, force_refresh: bool = False,
                     fonte="ativo",
                     cenario_ciclismo=cfg.cenario_ciclismo if cfg else None,
                     ignorado=cfg.ignorado if cfg else False,
+                    ano=sm.ano,
                 ))
 
     # ── PATH DIRETO (Ativo-only sem cadastro) ─────────────────────────────
@@ -1570,6 +1590,7 @@ def _build_kit_rows_internal(db: Session, force_refresh: bool = False,
                 fonte="ativo",
                 cenario_ciclismo=cenario_ciclismo_val,
                 ignorado=cfg.ignorado if cfg else False,
+                ano=v.get("ano"),
             ))
             direct_emitted += 1
 
@@ -1665,8 +1686,9 @@ def get_unconfigured_summary(
                       )
                )
             WHERE cpe.type_id = 'bundle'
+              -- Janela dinâmica: ano corrente + ano seguinte, mesma regra de MAGENTO_KITS_QUERY.
               AND cped_date.value >= DATE_FORMAT(CURDATE(), '%Y-01-01')
-              AND cped_date.value <  DATE_FORMAT(CURDATE(), '%Y-01-01') + INTERVAL 1 YEAR
+              AND cped_date.value <  DATE_FORMAT(CURDATE(), '%Y-01-01') + INTERVAL 2 YEAR
         """
         from app.core.db_retry import magento_run as _magento_run
 

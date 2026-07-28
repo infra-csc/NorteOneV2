@@ -60,6 +60,7 @@ def _content_hash(row: KitRow) -> str:
         f"{row.pi_pai_min_price:.2f}" if row.pi_pai_min_price is not None else "",
         row.status_kit or "",
         row.fonte or "",
+        row.ano or "",
     ))
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
@@ -186,6 +187,7 @@ def rebuild_kit_snapshot(db: Session) -> dict:
                     special_price=row.special_price,
                     pi_pai_min_price=row.pi_pai_min_price,
                     status_kit=row.status_kit,
+                    ano=row.ano,
                     content_hash=h,
                     atualizado_em=started_at,
                     visto_em=started_at,
@@ -206,6 +208,7 @@ def rebuild_kit_snapshot(db: Session) -> dict:
                 ex.special_price     = row.special_price
                 ex.pi_pai_min_price  = row.pi_pai_min_price
                 ex.status_kit        = row.status_kit
+                ex.ano               = row.ano
                 ex.content_hash      = h
                 ex.atualizado_em     = started_at
                 ex.visto_em          = started_at
@@ -307,6 +310,7 @@ def read_kit_snapshot(db: Session) -> Optional[List[dict]]:
             "special_price": float(r.special_price) if r.special_price is not None else None,
             "pi_pai_min_price": float(r.pi_pai_min_price) if r.pi_pai_min_price is not None else None,
             "status_kit": r.status_kit,
+            "ano": r.ano,
         }
         for r in rows
     ]

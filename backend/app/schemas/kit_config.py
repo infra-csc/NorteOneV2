@@ -84,3 +84,6 @@ class KitRow(BaseModel):
     status_kit: Optional[str] = None
     fonte: Optional[str] = None
     pi_pai_min_price: Optional[float] = None
+    # Ano do evento — distingue edições do ano corrente e do ano seguinte que
+    # aparecem juntas na tela quando ambas têm carrinho ativo simultaneamente.
+    ano: Optional[int] = None
