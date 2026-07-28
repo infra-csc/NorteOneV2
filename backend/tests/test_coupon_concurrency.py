@@ -1,7 +1,7 @@
 """Concurrency tests: coupon codes must never collide when two gerar_cupom
-requests fire at the same instant.
+requests fire at the same instant; planilha double-submits must be blocked.
 
-Two strategies are used together:
+Two strategies are used together for gerar_cupom:
 
 1. **Real concurrent threads** – a `threading.Barrier` forces both callers to
    start executing at the exact same moment. SQLite (StaticPool) serialises
@@ -20,8 +20,15 @@ Two strategies are used together:
 The ``ux_cortesia_cupom_codigo_codigo`` unique index lives in a migration, not
 in the ORM model, so it is created explicitly on the in-memory SQLite engine
 (see memory: coupon-code-auto-generation).
+
+Planilha double-submit tests confirm that:
+* A second identical upload within the 30-second window is rejected with 409.
+* No orphan file is left on disk when the DB commit fails after a file write.
 """
 
+import asyncio
+import os
+import tempfile
 import threading
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -40,6 +47,7 @@ from app.models.cortesia_solicitacao import (
     STATUS_GERADO,
     STATUS_SOLICITADO,
     TIPO_CUPOM,
+    TIPO_PLANILHA,
     CortesiaCupomCodigo,
     CortesiaSolicitacao,
 )
@@ -49,6 +57,8 @@ from app.models.user import Usuario
 from app.api.routes.cortesia_solicitacao import (
     _CODIGO_CUPOM_INDICE_UNICO,
     _gerar_codigo_cupom_unico,
+    _planilha_advisory_lock_params,
+    criar_solicitacao_planilha,
     gerar_cupom,
 )
 
@@ -214,13 +224,26 @@ def test_concurrent_gerar_no_duplicate_codes(SessionFactory, seed_data):
     )
 
     # ------------------------------------------------------------------
-    # Invariant B: each successful result carries exactly `quantidade` codes
+    # Invariant B: each successful call persisted exactly `quantidade` codes.
+    # Verified via a fresh session rather than result.codigos_detalhes: with
+    # SQLite StaticPool (shared connection) the in-flight lazy relationship
+    # can appear stale when two sessions overlap, while a fresh query always
+    # returns the committed truth.
     # ------------------------------------------------------------------
-    for label, result in results.items():
-        assert len(result.codigos_detalhes) == seed_data["quantidade"], (
-            f"{label}: expected {seed_data['quantidade']} codes in response, "
-            f"got {len(result.codigos_detalhes)}"
-        )
+    db_b = SessionFactory()
+    try:
+        for label, result in results.items():
+            code_count = (
+                db_b.query(CortesiaCupomCodigo)
+                .filter_by(solicitacao_id=result.id)
+                .count()
+            )
+            assert code_count == seed_data["quantidade"], (
+                f"{label}: expected {seed_data['quantidade']} code rows in DB for "
+                f"sol {result.id}, got {code_count}"
+            )
+    finally:
+        db_b.close()
 
     # ------------------------------------------------------------------
     # Invariant C: no half-generated state — status and code-row count agree
@@ -517,3 +540,370 @@ def test_retry_budget_exhausted_raises_409(SessionFactory):
         )
     finally:
         db.close()
+
+
+# ===========================================================================
+# Advisory-lock key helper unit test
+# ===========================================================================
+
+def test_planilha_advisory_lock_params_stability():
+    """``_planilha_advisory_lock_params`` must return identical values for the
+    same inputs regardless of Python process state (no hash randomisation).
+
+    Properties verified
+    -------------------
+    * Same inputs → same output (idempotent / deterministic).
+    * Swapping evento_id and area_projecao_id produces different keys
+      (no accidental symmetry that would cause unrelated uploads to collide).
+    * Both outputs are valid signed 32-bit integers (PG ``int`` range).
+    * Large IDs (> 2**31) fold stably — calling twice gives the same result.
+    """
+    # Determinism: same call twice must return the same pair.
+    k1a, k2a = _planilha_advisory_lock_params(6001, 5001)
+    k1b, k2b = _planilha_advisory_lock_params(6001, 5001)
+    assert (k1a, k2a) == (k1b, k2b), "Key derivation must be deterministic"
+
+    # Asymmetry: swapping IDs must produce a different pair.
+    k1s, k2s = _planilha_advisory_lock_params(5001, 6001)
+    assert (k1a, k2a) != (k1s, k2s), (
+        "Swapped (evento, área) must not collide with the original key pair"
+    )
+
+    # Range: both values must fit in a signed 32-bit integer.
+    INT32_MIN, INT32_MAX = -(2**31), 2**31 - 1
+    for k in (k1a, k2a, k1s, k2s):
+        assert INT32_MIN <= k <= INT32_MAX, (
+            f"Key {k} is outside signed int32 range — PG will reject it"
+        )
+
+    # Stability for large IDs (> 2**31) — folding must be idempotent.
+    large_ev, large_ar = 3_000_000_000, 2_500_000_000
+    ka1, ka2 = _planilha_advisory_lock_params(large_ev, large_ar)
+    kb1, kb2 = _planilha_advisory_lock_params(large_ev, large_ar)
+    assert (ka1, ka2) == (kb1, kb2), "Large-ID key derivation must be stable"
+    for k in (ka1, ka2):
+        assert INT32_MIN <= k <= INT32_MAX, (
+            f"Large-ID key {k} is outside signed int32 range"
+        )
+
+
+# ===========================================================================
+# Planilha double-submit tests
+# ===========================================================================
+
+# Minimal CSV content used across all planilha tests.
+_CSV_CONTENT = b"nome,email\nJoao,joao@test.local\nMaria,maria@test.local\n"
+
+
+class _FakeUploadFile:
+    """Minimal stand-in for FastAPI's UploadFile (only `.filename` and async
+    `.read()` are required by `criar_solicitacao_planilha`)."""
+
+    def __init__(self, filename: str = "lista.csv", content: bytes = _CSV_CONTENT):
+        self.filename = filename
+        self._content = content
+
+    async def read(self) -> bytes:
+        return self._content
+
+
+def _call_criar_planilha(db, upload_dir: str, fake_user, *, evento_id=6001,
+                         area_projecao_id=5001, quantidade=2,
+                         filename="lista.csv", content=_CSV_CONTENT):
+    """Call the async `criar_solicitacao_planilha` route synchronously via
+    ``asyncio.run``, with ``_UPLOAD_DIR`` redirected to a temp directory so
+    tests do not touch the real filesystem."""
+    fake_upload = _FakeUploadFile(filename=filename, content=content)
+    with (
+        patch("app.api.routes.cortesia_solicitacao.is_user_admin", return_value=True),
+        patch("app.api.routes.cortesia_solicitacao._UPLOAD_DIR", upload_dir),
+        # Bypass the saldo check — we care about the duplicate guard, not quota.
+        patch(
+            "app.api.routes.cortesia_solicitacao._calcular_saldo",
+            return_value=(100, 0, 100),
+        ),
+    ):
+        return asyncio.run(
+            criar_solicitacao_planilha(
+                evento_id=evento_id,
+                area_projecao_id=area_projecao_id,
+                quantidade=quantidade,
+                observacao=None,
+                arquivo=fake_upload,
+                db=db,
+                current_user=fake_user,
+            )
+        )
+
+
+# ---------------------------------------------------------------------------
+# Planilha test 1 – real concurrent threads: only one upload lands in DB
+# ---------------------------------------------------------------------------
+
+def test_planilha_concurrent_double_submit_only_one_succeeds(SessionFactory, seed_data):
+    """Two threads submit a planilha for the same evento+area at the same
+    instant (barrier-synchronised).  The per-(evento, área) threading.Lock
+    inside ``criar_solicitacao_planilha`` serialises them; the second thread
+    must find the first record via the DB dedup check and receive HTTP 409.
+
+    Invariants verified
+    -------------------
+    * Exactly one ``CortesiaSolicitacao`` row (tipo=planilha) in the DB.
+    * Exactly one file on disk (no orphan from the rejected request).
+    * At least one call returned a valid response; the other raised HTTP 409.
+    """
+    from fastapi import HTTPException
+
+    # Use a distinct evento_id (6002) so these records are isolated from
+    # any planilha rows left by other tests in this module.
+    EVENTO_ID = 6002
+    AREA_ID = 5001
+
+    # Seed a bare-minimum event row so the FK constraint is satisfied.
+    db_setup = SessionFactory()
+    try:
+        from app.models.cadastro_evento import CadastroEvento as _CE
+        if not db_setup.query(_CE).filter_by(id=EVENTO_ID).first():
+            db_setup.add(_CE(id=EVENTO_ID, nome="Evento Planilha Concurrent", sku="PLN2026"))
+            db_setup.commit()
+    finally:
+        db_setup.close()
+
+    fake_user = _make_fake_admin()
+    upload_dir = tempfile.mkdtemp(prefix="test_planilha_concurrent_")
+
+    barrier = threading.Barrier(2)
+    results: dict = {}
+    errors: dict = {}
+
+    def run(label: str):
+        db = SessionFactory()
+        try:
+            barrier.wait(timeout=15)  # synchronise both threads at the entry point
+            result = _call_criar_planilha(
+                db, upload_dir, fake_user,
+                evento_id=EVENTO_ID,
+                area_projecao_id=AREA_ID,
+            )
+            results[label] = result
+        except Exception as exc:  # noqa: BLE001
+            errors[label] = exc
+        finally:
+            db.close()
+
+    t1 = threading.Thread(target=run, args=("t1",), daemon=True)
+    t2 = threading.Thread(target=run, args=("t2",), daemon=True)
+    t1.start()
+    t2.start()
+    t1.join(timeout=30)
+    t2.join(timeout=30)
+
+    assert not t1.is_alive(), "Thread 1 timed out — criar_solicitacao_planilha hung"
+    assert not t2.is_alive(), "Thread 2 timed out — criar_solicitacao_planilha hung"
+
+    # At least one call must succeed; both failing means a real bug.
+    assert results, (
+        "Both concurrent planilha calls failed.\n"
+        f"Errors: { {k: str(v) for k, v in errors.items()} }"
+    )
+
+    # The thread that failed must have raised HTTP 409.
+    for label, exc in errors.items():
+        assert isinstance(exc, HTTPException), (
+            f"{label} raised {type(exc).__name__} instead of HTTPException: {exc}"
+        )
+        assert exc.status_code == 409, (
+            f"{label} raised HTTP {exc.status_code}, expected 409"
+        )
+
+    # ------------------------------------------------------------------
+    # Invariant A: exactly one solicitação row in the DB
+    # ------------------------------------------------------------------
+    db_check = SessionFactory()
+    try:
+        count = (
+            db_check.query(CortesiaSolicitacao)
+            .filter(
+                CortesiaSolicitacao.evento_id == EVENTO_ID,
+                CortesiaSolicitacao.area_projecao_id == AREA_ID,
+                CortesiaSolicitacao.tipo == TIPO_PLANILHA,
+                CortesiaSolicitacao.deleted_at.is_(None),
+            )
+            .count()
+        )
+    finally:
+        db_check.close()
+
+    assert count == 1, (
+        f"Expected exactly 1 planilha solicitação after concurrent double-submit, found {count}"
+    )
+
+    # ------------------------------------------------------------------
+    # Invariant B: exactly one file on disk (no orphan from the blocked call)
+    # ------------------------------------------------------------------
+    disk_files = os.listdir(upload_dir)
+    assert len(disk_files) == 1, (
+        f"Expected 1 file on disk after concurrent upload, found {disk_files}"
+    )
+
+    import shutil
+    shutil.rmtree(upload_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Planilha test 2 – sequential second call within window → HTTP 409
+# ---------------------------------------------------------------------------
+
+def test_planilha_sequential_duplicate_second_is_rejected(SessionFactory, seed_data):
+    """A second upload that arrives after the first has already committed (but
+    within the 30-second DB dedup window) must be rejected with HTTP 409.
+
+    This exercises the DB-level belt-and-suspenders check that catches requests
+    arriving after the threading lock has been released.
+    """
+    from fastapi import HTTPException
+
+    EVENTO_ID = 6003
+    AREA_ID = 5001
+
+    db_setup = SessionFactory()
+    try:
+        from app.models.cadastro_evento import CadastroEvento as _CE
+        if not db_setup.query(_CE).filter_by(id=EVENTO_ID).first():
+            db_setup.add(_CE(id=EVENTO_ID, nome="Evento Planilha Sequential", sku="PLN2027"))
+            db_setup.commit()
+    finally:
+        db_setup.close()
+
+    fake_user = _make_fake_admin()
+    upload_dir = tempfile.mkdtemp(prefix="test_planilha_seq_")
+
+    try:
+        # Call 1: must succeed.
+        db1 = SessionFactory()
+        try:
+            result1 = _call_criar_planilha(
+                db1, upload_dir, fake_user,
+                evento_id=EVENTO_ID, area_projecao_id=AREA_ID,
+            )
+        finally:
+            db1.close()
+
+        assert result1.tipo == TIPO_PLANILHA
+
+        # Call 2: must be rejected (record exists within 30 s).
+        db2 = SessionFactory()
+        try:
+            with pytest.raises(HTTPException) as exc_info:
+                _call_criar_planilha(
+                    db2, upload_dir, fake_user,
+                    evento_id=EVENTO_ID, area_projecao_id=AREA_ID,
+                )
+        finally:
+            db2.close()
+
+        assert exc_info.value.status_code == 409
+        assert "30 segundos" in (exc_info.value.detail or "")
+
+        # DB: still exactly one row.
+        db_check = SessionFactory()
+        try:
+            count = (
+                db_check.query(CortesiaSolicitacao)
+                .filter(
+                    CortesiaSolicitacao.evento_id == EVENTO_ID,
+                    CortesiaSolicitacao.area_projecao_id == AREA_ID,
+                    CortesiaSolicitacao.tipo == TIPO_PLANILHA,
+                    CortesiaSolicitacao.deleted_at.is_(None),
+                )
+                .count()
+            )
+        finally:
+            db_check.close()
+
+        assert count == 1, f"Expected 1 planilha row, found {count}"
+
+        # Disk: still exactly one file (guard fires before any file write).
+        disk_files = os.listdir(upload_dir)
+        assert len(disk_files) == 1, (
+            f"Expected 1 file on disk after rejected duplicate, found {disk_files}"
+        )
+
+    finally:
+        import shutil
+        shutil.rmtree(upload_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Planilha test 3 – orphan file is removed when DB commit fails
+# ---------------------------------------------------------------------------
+
+def test_planilha_orphan_file_cleaned_on_db_failure(SessionFactory, seed_data):
+    """If the DB commit raises after the file has been written to disk, the
+    route must delete the file before re-raising, leaving no orphan behind."""
+
+    EVENTO_ID = 6004
+    AREA_ID = 5001
+
+    db_setup = SessionFactory()
+    try:
+        from app.models.cadastro_evento import CadastroEvento as _CE
+        if not db_setup.query(_CE).filter_by(id=EVENTO_ID).first():
+            db_setup.add(_CE(id=EVENTO_ID, nome="Evento Planilha Orphan", sku="PLN2028"))
+            db_setup.commit()
+    finally:
+        db_setup.close()
+
+    fake_user = _make_fake_admin()
+    upload_dir = tempfile.mkdtemp(prefix="test_planilha_orphan_")
+
+    try:
+        db = SessionFactory()
+        try:
+            from datetime import datetime, timedelta
+            from zoneinfo import ZoneInfo
+            # Push _now_brasilia well into the future so the DB dedup check
+            # finds no "recent" records and lets the route proceed to the
+            # file-write + commit step.
+            future = datetime.now(ZoneInfo("America/Sao_Paulo")).replace(tzinfo=None) + timedelta(seconds=120)
+
+            call_count = [0]
+            real_commit = db.commit
+
+            def commit_fail_once():
+                call_count[0] += 1
+                if call_count[0] == 1:
+                    raise Exception("simulated DB failure")
+                real_commit()
+
+            with (
+                patch("app.api.routes.cortesia_solicitacao.is_user_admin", return_value=True),
+                patch("app.api.routes.cortesia_solicitacao._UPLOAD_DIR", upload_dir),
+                patch("app.api.routes.cortesia_solicitacao._calcular_saldo", return_value=(100, 0, 100)),
+                patch("app.api.routes.cortesia_solicitacao._now_brasilia", return_value=future),
+                patch.object(db, "commit", side_effect=commit_fail_once),
+            ):
+                with pytest.raises(Exception):
+                    asyncio.run(
+                        criar_solicitacao_planilha(
+                            evento_id=EVENTO_ID,
+                            area_projecao_id=AREA_ID,
+                            quantidade=2,
+                            observacao=None,
+                            arquivo=_FakeUploadFile(),
+                            db=db,
+                            current_user=fake_user,
+                        )
+                    )
+        finally:
+            db.close()
+
+        # Upload directory must be empty — route cleaned up the orphan.
+        remaining_files = os.listdir(upload_dir)
+        assert remaining_files == [], (
+            f"Expected no files after DB failure, found {remaining_files}"
+        )
+
+    finally:
+        import shutil
+        shutil.rmtree(upload_dir, ignore_errors=True)

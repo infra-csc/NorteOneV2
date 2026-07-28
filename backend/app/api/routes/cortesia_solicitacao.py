@@ -15,12 +15,13 @@ import logging
 import os
 import re
 import secrets
+import threading
 import uuid
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, func, or_, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -62,6 +63,51 @@ _MAX_UPLOAD_BYTES = 15 * 1024 * 1024  # 15MB
 # mas aceitamos colar/importar separado por vírgula ou ponto e vírgula
 # também — tanto no salvamento quanto na leitura de dados antigos.
 _CODIGO_CUPOM_SPLIT_RE = re.compile(r"[\r\n,;]+")
+
+# ---------------------------------------------------------------------------
+# Per-(evento_id, area_projecao_id) in-process mutex for planilha uploads.
+#
+# Two requests arriving before either has committed could both pass a plain
+# SELECT duplicate check (there is nothing to lock yet — the row does not
+# exist).  Holding this threading.Lock for the full insert critical-section
+# serialises concurrent in-process requests so the second one always sees the
+# first record in the database before deciding to proceed.
+#
+# For multi-process / distributed deployments the route also acquires a
+# PostgreSQL transaction-scoped advisory lock so the guarantee holds across
+# workers (pg_advisory_xact_lock is silently skipped on SQLite / other
+# backends).
+# ---------------------------------------------------------------------------
+_PLANILHA_LOCKS: dict[tuple[int, int], threading.Lock] = {}
+_PLANILHA_LOCKS_META = threading.Lock()
+
+
+def _get_planilha_upload_lock(evento_id: int, area_projecao_id: int) -> threading.Lock:
+    """Return (and lazily create) the threading.Lock for this (evento, área)."""
+    key = (evento_id, area_projecao_id)
+    with _PLANILHA_LOCKS_META:
+        if key not in _PLANILHA_LOCKS:
+            _PLANILHA_LOCKS[key] = threading.Lock()
+        return _PLANILHA_LOCKS[key]
+
+
+def _planilha_advisory_lock_params(evento_id: int, area_projecao_id: int) -> tuple[int, int]:
+    """Return the two 32-bit signed integers used as PostgreSQL advisory-lock
+    keys for a planilha upload of (evento_id, area_projecao_id).
+
+    PostgreSQL's ``pg_advisory_xact_lock(key1 int, key2 int)`` accepts two
+    plain integers, so we pass the IDs directly — no hashing, deterministic
+    and identical in every Python process for the same input.
+
+    IDs are masked to the int32 range to satisfy PG's type requirement; IDs
+    above 2**31-1 fold into the negative half, which is still a stable unique
+    value as long as both callers use the same formula.
+    """
+    def _to_int32(n: int) -> int:
+        n = n & 0xFFFFFFFF
+        return n if n < 0x80000000 else n - 0x100000000
+
+    return _to_int32(evento_id), _to_int32(area_projecao_id)
 
 
 def _parse_codigos_cupom(texto: str | None) -> list[str]:
@@ -486,42 +532,111 @@ async def criar_solicitacao_planilha(
             detail=f"Quantidade informada ({quantidade}) maior que o saldo disponível ({saldo}) para esta área.",
         )
 
-    nome_original = arquivo.filename or "planilha"
-    ext = os.path.splitext(nome_original)[1].lower()
-    if ext not in _ALLOWED_EXTENSOES:
+    # ------------------------------------------------------------------
+    # Double-submit guard (two layers):
+    #
+    # 1. threading.Lock — serialises concurrent in-process requests.  Two
+    #    requests arriving before either inserts cannot both pass a plain
+    #    SELECT check (nothing to lock yet).  Holding the lock for the full
+    #    critical section means the second request always observes the first
+    #    row in the DB before deciding to proceed.
+    #
+    # 2. PostgreSQL advisory lock — extends the same guarantee across worker
+    #    processes on multi-process deployments.  Silently skipped on SQLite
+    #    and other non-PG backends (the threading lock is enough there).
+    # ------------------------------------------------------------------
+    _upload_lock = _get_planilha_upload_lock(evento_id, area_projecao_id)
+    if not _upload_lock.acquire(timeout=10):
         raise HTTPException(
-            status_code=400,
-            detail="Formato de arquivo não suportado. Envie um arquivo .xlsx, .xls ou .csv.",
+            status_code=409,
+            detail="Outro envio para este evento e área está em andamento. Tente novamente em instantes.",
         )
+    caminho_completo: str | None = None
+    try:
+        # Advisory lock for multi-process safety (PostgreSQL only).
+        # Uses the two-argument form pg_advisory_xact_lock(key1 int, key2 int)
+        # so the keys are the raw IDs — deterministic and identical across
+        # every Python process with no hashing.
+        try:
+            _k1, _k2 = _planilha_advisory_lock_params(evento_id, area_projecao_id)
+            db.execute(text("SELECT pg_advisory_xact_lock(:k1, :k2)"), {"k1": _k1, "k2": _k2})
+        except Exception:
+            pass  # SQLite / non-PG backend — threading lock is sufficient
 
-    conteudo = await arquivo.read()
-    if len(conteudo) > _MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=400, detail="Arquivo maior que o limite de 15MB.")
-    if not conteudo:
-        raise HTTPException(status_code=400, detail="Arquivo vazio.")
+        # DB-level dedup check: belt-and-suspenders for requests that arrive
+        # after the in-process lock has already been released by the first
+        # upload but still within the 30-second window.
+        recent_cutoff = _now_brasilia() - timedelta(seconds=30)
+        duplicate = (
+            db.query(CortesiaSolicitacao.id)
+            .filter(
+                CortesiaSolicitacao.evento_id == evento_id,
+                CortesiaSolicitacao.area_projecao_id == area_projecao_id,
+                CortesiaSolicitacao.tipo == TIPO_PLANILHA,
+                CortesiaSolicitacao.deleted_at.is_(None),
+                CortesiaSolicitacao.created_at >= recent_cutoff,
+            )
+            .first()
+        )
+        if duplicate:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Uma planilha para este evento e área já foi enviada nos últimos 30 segundos. "
+                    "Aguarde antes de tentar novamente."
+                ),
+            )
 
-    os.makedirs(_UPLOAD_DIR, exist_ok=True)
-    nome_salvo = f"{uuid.uuid4().hex}{ext}"
-    caminho_completo = os.path.join(_UPLOAD_DIR, nome_salvo)
-    with open(caminho_completo, "wb") as f:
-        f.write(conteudo)
+        nome_original = arquivo.filename or "planilha"
+        ext = os.path.splitext(nome_original)[1].lower()
+        if ext not in _ALLOWED_EXTENSOES:
+            raise HTTPException(
+                status_code=400,
+                detail="Formato de arquivo não suportado. Envie um arquivo .xlsx, .xls ou .csv.",
+            )
 
-    quantidade_linhas = _contar_linhas_planilha(nome_original, conteudo)
+        conteudo = await arquivo.read()
+        if len(conteudo) > _MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=400, detail="Arquivo maior que o limite de 15MB.")
+        if not conteudo:
+            raise HTTPException(status_code=400, detail="Arquivo vazio.")
 
-    sol = CortesiaSolicitacao(
-        evento_id=evento_id,
-        area_projecao_id=area_projecao_id,
-        tipo=TIPO_PLANILHA,
-        quantidade=quantidade,
-        status=STATUS_SOLICITADO,
-        observacao=(observacao or "").strip() or None,
-        nome_arquivo=nome_original,
-        caminho_arquivo=nome_salvo,
-        quantidade_linhas=quantidade_linhas,
-        solicitado_por=current_user.id,
-    )
-    db.add(sol)
-    db.commit()
+        os.makedirs(_UPLOAD_DIR, exist_ok=True)
+        nome_salvo = f"{uuid.uuid4().hex}{ext}"
+        caminho_completo = os.path.join(_UPLOAD_DIR, nome_salvo)
+        with open(caminho_completo, "wb") as f:
+            f.write(conteudo)
+
+        quantidade_linhas = _contar_linhas_planilha(nome_original, conteudo)
+
+        sol = CortesiaSolicitacao(
+            evento_id=evento_id,
+            area_projecao_id=area_projecao_id,
+            tipo=TIPO_PLANILHA,
+            quantidade=quantidade,
+            status=STATUS_SOLICITADO,
+            observacao=(observacao or "").strip() or None,
+            nome_arquivo=nome_original,
+            caminho_arquivo=nome_salvo,
+            quantidade_linhas=quantidade_linhas,
+            solicitado_por=current_user.id,
+        )
+        db.add(sol)
+        try:
+            db.commit()
+        except Exception:
+            # DB insert failed — roll back and remove the file already written
+            # to avoid leaving an orphan on disk.
+            db.rollback()
+            try:
+                if caminho_completo:
+                    os.remove(caminho_completo)
+            except OSError:
+                pass
+            raise
+    finally:
+        _upload_lock.release()
+
     db.refresh(sol)
     return _serialize(sol)
 
