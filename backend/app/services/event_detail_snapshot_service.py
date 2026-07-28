@@ -482,13 +482,41 @@ def aggregate_eventos_list_from_snapshots(
     # Sem isso, um mesmo evento físico podia aparecer duas vezes (uma como
     # standalone "<projeto.id>" e outra como agrupado "grp_<nome>") quando o
     # mapeamento de SKU é criado/alterado depois do primeiro snapshot.
-    # A limpeza no banco é feita ao final, em sessão separada, para não
-    # expirar os objetos ORM ainda em uso neste caminho de leitura.
+    # A limpeza no banco é feita em sessão separada, para não expirar os
+    # objetos ORM ainda em uso neste caminho de leitura.
     stale_ids_to_cleanup: list[str] = []
     if valid_evento_ids is not None:
         stale_ids_to_cleanup = [r.evento_id for r in rows if r.evento_id not in valid_evento_ids]
         if stale_ids_to_cleanup:
             rows = [r for r in rows if r.evento_id in valid_evento_ids]
+
+    # Limpeza dos snapshots órfãos detectados acima — executada ANTES do
+    # early-return de cobertura baixa, para que a remoção ocorra mesmo quando
+    # a função decide cair para o caminho lento. Falhas aqui são apenas
+    # logadas: a deduplicação já foi aplicada em memória acima.
+    if stale_ids_to_cleanup:
+        try:
+            from ..core.database import SessionLocal as _SL
+            _cleanup_db = _SL()
+            try:
+                (
+                    _cleanup_db.query(EventoDetailSnapshot)
+                    .filter(
+                        EventoDetailSnapshot.ano == ano,
+                        EventoDetailSnapshot.evento_id.in_(stale_ids_to_cleanup),
+                    )
+                    .delete(synchronize_session=False)
+                )
+                _cleanup_db.commit()
+                logger.info(
+                    f"[EventosListSnap] removidos {len(stale_ids_to_cleanup)} snapshot(s) "
+                    f"órfão(s) ano={ano}: {stale_ids_to_cleanup[:5]}"
+                    f"{'...' if len(stale_ids_to_cleanup) > 5 else ''}"
+                )
+            finally:
+                _cleanup_db.close()
+        except Exception as _del_e:
+            logger.warning(f"[EventosListSnap] falha ao remover snapshots órfãos: {_del_e}")
 
     coverage = (len(rows) / float(expected)) if expected > 0 else 1.0
     logger.info(
@@ -560,34 +588,6 @@ def aggregate_eventos_list_from_snapshots(
         avisos = list(_giw() or [])
     except Exception:
         pass
-
-    # Limpeza dos snapshots órfãos detectados acima — feita em sessão própria
-    # para não comprometer o estado ORM da sessão de leitura (evita expirar
-    # objetos via commit). Falhas aqui são apenas logadas: a deduplicação
-    # já foi aplicada em memória acima.
-    if stale_ids_to_cleanup:
-        try:
-            from ..core.database import SessionLocal as _SL
-            _cleanup_db = _SL()
-            try:
-                (
-                    _cleanup_db.query(EventoDetailSnapshot)
-                    .filter(
-                        EventoDetailSnapshot.ano == ano,
-                        EventoDetailSnapshot.evento_id.in_(stale_ids_to_cleanup),
-                    )
-                    .delete(synchronize_session=False)
-                )
-                _cleanup_db.commit()
-                logger.info(
-                    f"[EventosListSnap] removidos {len(stale_ids_to_cleanup)} snapshot(s) "
-                    f"órfão(s) ano={ano}: {stale_ids_to_cleanup[:5]}"
-                    f"{'...' if len(stale_ids_to_cleanup) > 5 else ''}"
-                )
-            finally:
-                _cleanup_db.close()
-        except Exception as _del_e:
-            logger.warning(f"[EventosListSnap] falha ao remover snapshots órfãos: {_del_e}")
 
     return {
         "status": "success",
