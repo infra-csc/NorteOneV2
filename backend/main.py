@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 import os
 import time
 from app.core.database import engine, Base, init_mysql_connections, engine_ativo, init_ssh_tunnel, close_ssh_tunnel, stop_ssh_watchdog, engine_ssh
-from app.api.routes import auth, users, centros_custo, projetos, categorias_atletas, dashboard, nori, tarefas, cadastros, atletas_externos, magento, inscricoes_consolidado, marketing, sku_mappings, perfil_acesso, distancias, cotacoes, admin, kit_config, profile, projecao, detalhe_eventos, detalhe_alias, cortesia
+from app.api.routes import auth, users, centros_custo, projetos, categorias_atletas, dashboard, nori, tarefas, cadastros, atletas_externos, magento, inscricoes_consolidado, marketing, sku_mappings, perfil_acesso, distancias, cotacoes, admin, kit_config, profile, projecao, detalhe_eventos, detalhe_alias, cortesia, cortesia_solicitacao
 from app.core.cache import (
     cache_scheduler, warm_all_caches_from_db,
     set_last_full_refresh, set_full_refresh_in_progress, 
@@ -2120,6 +2120,7 @@ async def lifespan(app: FastAPI):
             from app.models import nori_insights as _ni_models  # noqa: F401 — ensure table is registered
             from app.models import system_health as _sh_models  # noqa: F401 — ensure health tables are registered
             from app.models import projecao as _proj_models  # noqa: F401 — ensure projecao tables are registered
+            from app.models import cortesia_solicitacao as _cort_sol_models  # noqa: F401 — ensure cortesia_solicitacao table is registered
             from app.models import job_run_health as _jrh_models  # noqa: F401 — ensure job_run_health table is registered
             from app.models import evento_detail_snapshot as _eds_models  # noqa: F401 — ensure detail snapshot table is registered
             from app.models import user_session as _us_models  # noqa: F401 — ensure user_sessions table is registered
@@ -2992,6 +2993,7 @@ app.include_router(detalhe_alias.router, tags=["Detalhe Dimensao Alias"])
 app.include_router(profile.router, prefix="/api", tags=["Perfil"])
 app.include_router(projecao.router, prefix="/api", tags=["Projeção de Inscritos"])
 app.include_router(cortesia.router, prefix="/api", tags=["Cortesias"])
+app.include_router(cortesia_solicitacao.router, prefix="/api", tags=["Solicitação de Cortesias"])
 
 @app.get("/api/health")
 async def health_check():

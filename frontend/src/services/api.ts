@@ -1773,6 +1773,96 @@ export const cortesiaService = {
   },
 };
 
+export interface CortesiaSaldoAreaItem {
+  area_projecao_id: number;
+  area_projecao_nome: string;
+  projetado: number;
+  solicitado: number;
+  saldo: number;
+}
+
+export interface CortesiaEventoSaldoResponse {
+  evento_id: number;
+  evento_nome: string;
+  evento_data: string | null;
+  areas: CortesiaSaldoAreaItem[];
+}
+
+export interface CortesiaSolicitacaoResponse {
+  id: number;
+  evento_id: number;
+  evento_nome?: string | null;
+  evento_data?: string | null;
+  area_projecao_id: number;
+  area_projecao_nome?: string | null;
+  tipo: 'cupom' | 'planilha';
+  quantidade: number;
+  status: 'solicitado' | 'gerado';
+  observacao?: string | null;
+  codigo_cupom?: string | null;
+  gerado_por_nome?: string | null;
+  gerado_em?: string | null;
+  nome_arquivo?: string | null;
+  quantidade_linhas?: number | null;
+  solicitado_por_nome?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+// Tela nova e independente da Cortesias por Evento (proxy externo): fluxo de
+// solicitação/registro interno de cortesias, com trava de saldo pela
+// Projeção de Inscritos.
+export const cortesiaSolicitacaoService = {
+  listEventosSaldo: async (): Promise<CortesiaEventoSaldoResponse[]> => {
+    const response = await api.get('/cortesia-solicitacao/eventos');
+    return response.data;
+  },
+  getSaldo: async (evento_id: number): Promise<CortesiaSaldoAreaItem[]> => {
+    const response = await api.get('/cortesia-solicitacao/saldo', { params: { evento_id } });
+    return response.data;
+  },
+  list: async (params?: { evento_id?: number; area_projecao_id?: number }): Promise<CortesiaSolicitacaoResponse[]> => {
+    const response = await api.get('/cortesia-solicitacao/', { params });
+    return response.data;
+  },
+  criarCupom: async (data: { evento_id: number; area_projecao_id: number; quantidade: number; observacao?: string }): Promise<CortesiaSolicitacaoResponse> => {
+    const response = await api.post('/cortesia-solicitacao/cupom', data);
+    return response.data;
+  },
+  criarPlanilha: async (data: { evento_id: number; area_projecao_id: number; quantidade: number; observacao?: string; arquivo: File }): Promise<CortesiaSolicitacaoResponse> => {
+    const form = new FormData();
+    form.append('evento_id', String(data.evento_id));
+    form.append('area_projecao_id', String(data.area_projecao_id));
+    form.append('quantidade', String(data.quantidade));
+    if (data.observacao) form.append('observacao', data.observacao);
+    form.append('arquivo', data.arquivo);
+    const response = await api.post('/cortesia-solicitacao/planilha', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000,
+    });
+    return response.data;
+  },
+  gerarCupom: async (id: number, codigo_cupom: string): Promise<CortesiaSolicitacaoResponse> => {
+    const response = await api.post(`/cortesia-solicitacao/${id}/gerar`, { codigo_cupom });
+    return response.data;
+  },
+  cancelar: async (id: number) => {
+    const response = await api.delete(`/cortesia-solicitacao/${id}`);
+    return response.data;
+  },
+  baixarArquivo: async (id: number, nomeArquivo: string): Promise<void> => {
+    const response = await api.get(`/cortesia-solicitacao/${id}/arquivo`, { responseType: 'blob' });
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', nomeArquivo || 'planilha');
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  },
+};
+
 export const projecaoService = {
   listAreas: async () => {
     const response = await api.get('/projecao/areas');

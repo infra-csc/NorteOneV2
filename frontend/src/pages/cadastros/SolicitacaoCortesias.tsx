@@ -1,0 +1,610 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { cortesiaSolicitacaoService } from '../../services/api';
+import type { CortesiaEventoSaldoResponse, CortesiaSolicitacaoResponse } from '../../services/api';
+import { useTheme } from '../../context/ThemeContext';
+import { usePermissions } from '../../context/PermissionContext';
+import {
+  Gift, Plus, X, RefreshCw, AlertTriangle, Ticket, FileSpreadsheet,
+  CheckCircle2, Clock, Download, Trash2, ChevronDown, ChevronUp,
+} from 'lucide-react';
+
+// ─────────────────────────────────────────────────────────────
+// Solicitação de Cortesias
+//
+// Tela nova e independente da "Cortesias por Evento" (que só espelha o app
+// externo, somente-leitura). Aqui o responsável de cada área abre uma
+// solicitação de cortesias para um evento — cupom a ser gerado manualmente
+// depois, ou planilha do cliente com a lista de participantes — respeitando
+// como trava o saldo (projetado na Projeção de Inscritos - já solicitado).
+// Sem etapa de aprovação: a checagem de saldo já é a única trava.
+// ─────────────────────────────────────────────────────────────
+
+const fmtData = (iso: string | null | undefined): string => {
+  if (!iso) return '—';
+  const [y, m, d] = iso.split('-');
+  if (!y || !m || !d) return iso;
+  return `${d}/${m}/${y}`;
+};
+
+const fmtDataHora = (iso: string | null | undefined): string => {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString('pt-BR');
+  } catch {
+    return iso;
+  }
+};
+
+const extractError = (e: any): string => {
+  const detail = e?.response?.data?.detail;
+  if (typeof detail === 'string' && detail.trim()) return detail;
+  return 'Não foi possível concluir a operação. Tente novamente.';
+};
+
+interface FormState {
+  evento_id: number;
+  evento_nome: string;
+  area_projecao_id: number;
+  area_projecao_nome: string;
+  saldo: number;
+}
+
+const SolicitacaoCortesias: React.FC = () => {
+  const { isDark } = useTheme();
+  const { canView, canCreate, canEdit, canDelete } = usePermissions();
+
+  const podeVisualizar = canView('cortesia_solicitacao');
+  const podeCriar = canCreate('cortesia_solicitacao');
+  const podeGerarCupom = canEdit('cortesia_solicitacao');
+  const podeCancelar = canDelete('cortesia_solicitacao');
+
+  const [eventos, setEventos] = useState<CortesiaEventoSaldoResponse[]>([]);
+  const [loadingEventos, setLoadingEventos] = useState(true);
+  const [errorEventos, setErrorEventos] = useState<string | null>(null);
+  const [eventoExpandido, setEventoExpandido] = useState<number | null>(null);
+
+  const [solicitacoes, setSolicitacoes] = useState<CortesiaSolicitacaoResponse[]>([]);
+  const [loadingSolic, setLoadingSolic] = useState(true);
+  const [errorSolic, setErrorSolic] = useState<string | null>(null);
+
+  const [form, setForm] = useState<FormState | null>(null);
+  const [tipo, setTipo] = useState<'cupom' | 'planilha'>('cupom');
+  const [quantidade, setQuantidade] = useState<string>('');
+  const [observacao, setObservacao] = useState('');
+  const [arquivo, setArquivo] = useState<File | null>(null);
+  const [salvando, setSalvando] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const [gerarAlvo, setGerarAlvo] = useState<CortesiaSolicitacaoResponse | null>(null);
+  const [codigoCupom, setCodigoCupom] = useState('');
+  const [gerandoSalvando, setGerandoSalvando] = useState(false);
+  const [gerarError, setGerarError] = useState<string | null>(null);
+
+  const [cancelandoId, setCancelandoId] = useState<number | null>(null);
+
+  const carregarEventos = async () => {
+    setLoadingEventos(true);
+    setErrorEventos(null);
+    try {
+      const data = await cortesiaSolicitacaoService.listEventosSaldo();
+      setEventos(data);
+    } catch (e) {
+      setErrorEventos(extractError(e));
+    } finally {
+      setLoadingEventos(false);
+    }
+  };
+
+  const carregarSolicitacoes = async () => {
+    setLoadingSolic(true);
+    setErrorSolic(null);
+    try {
+      const data = await cortesiaSolicitacaoService.list();
+      setSolicitacoes(data);
+    } catch (e) {
+      setErrorSolic(extractError(e));
+    } finally {
+      setLoadingSolic(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!podeVisualizar) return;
+    carregarEventos();
+    carregarSolicitacoes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [podeVisualizar]);
+
+  const abrirForm = (f: FormState) => {
+    setForm(f);
+    setTipo('cupom');
+    setQuantidade('');
+    setObservacao('');
+    setArquivo(null);
+    setFormError(null);
+  };
+
+  const fecharForm = () => {
+    setForm(null);
+    setSalvando(false);
+    setFormError(null);
+  };
+
+  const submitForm = async () => {
+    if (!form) return;
+    const qtd = parseInt(quantidade, 10);
+    if (!qtd || qtd <= 0) {
+      setFormError('Informe uma quantidade maior que zero.');
+      return;
+    }
+    if (qtd > form.saldo) {
+      setFormError(`Quantidade maior que o saldo disponível (${form.saldo}).`);
+      return;
+    }
+    if (tipo === 'planilha' && !arquivo) {
+      setFormError('Selecione o arquivo enviado pelo cliente.');
+      return;
+    }
+    setSalvando(true);
+    setFormError(null);
+    try {
+      if (tipo === 'cupom') {
+        await cortesiaSolicitacaoService.criarCupom({
+          evento_id: form.evento_id,
+          area_projecao_id: form.area_projecao_id,
+          quantidade: qtd,
+          observacao: observacao.trim() || undefined,
+        });
+      } else {
+        await cortesiaSolicitacaoService.criarPlanilha({
+          evento_id: form.evento_id,
+          area_projecao_id: form.area_projecao_id,
+          quantidade: qtd,
+          observacao: observacao.trim() || undefined,
+          arquivo: arquivo as File,
+        });
+      }
+      fecharForm();
+      await Promise.all([carregarEventos(), carregarSolicitacoes()]);
+    } catch (e) {
+      setFormError(extractError(e));
+      setSalvando(false);
+    }
+  };
+
+  const submitGerar = async () => {
+    if (!gerarAlvo) return;
+    if (!codigoCupom.trim()) {
+      setGerarError('Informe o(s) código(s) do cupom gerado.');
+      return;
+    }
+    setGerandoSalvando(true);
+    setGerarError(null);
+    try {
+      await cortesiaSolicitacaoService.gerarCupom(gerarAlvo.id, codigoCupom.trim());
+      setGerarAlvo(null);
+      setCodigoCupom('');
+      await carregarSolicitacoes();
+    } catch (e) {
+      setGerarError(extractError(e));
+    } finally {
+      setGerandoSalvando(false);
+    }
+  };
+
+  const cancelar = async (sol: CortesiaSolicitacaoResponse) => {
+    if (!window.confirm('Cancelar esta solicitação? O saldo da área será liberado.')) return;
+    setCancelandoId(sol.id);
+    try {
+      await cortesiaSolicitacaoService.cancelar(sol.id);
+      await Promise.all([carregarEventos(), carregarSolicitacoes()]);
+    } catch (e) {
+      window.alert(extractError(e));
+    } finally {
+      setCancelandoId(null);
+    }
+  };
+
+  const baixar = async (sol: CortesiaSolicitacaoResponse) => {
+    try {
+      await cortesiaSolicitacaoService.baixarArquivo(sol.id, sol.nome_arquivo || 'planilha');
+    } catch (e) {
+      window.alert(extractError(e));
+    }
+  };
+
+  const cardCls = `rounded-2xl overflow-hidden ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`;
+  const inputCls = `w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 ${isDark ? 'bg-gray-900/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'}`;
+
+  if (!podeVisualizar) {
+    return (
+      <div className="p-6">
+        <div className={`${cardCls} p-6 flex items-center gap-3`}>
+          <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
+          <p className={isDark ? 'text-gray-300' : 'text-gray-700'}>Você não tem permissão para acessar esta tela.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 md:p-6 space-y-5">
+      <div className="flex items-center gap-3">
+        <div className={`flex items-center justify-center w-10 h-10 rounded-xl ${isDark ? 'bg-emerald-500/20' : 'bg-emerald-100'}`}>
+          <Gift className={`w-5 h-5 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`} />
+        </div>
+        <div>
+          <h1 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Solicitação de Cortesias</h1>
+          <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+            Registre pedidos de cupom ou planilha do cliente, dentro do saldo projetado da sua área.
+          </p>
+        </div>
+      </div>
+
+      {/* Eventos com saldo por área */}
+      <div className={cardCls}>
+        <div className={`flex items-center justify-between p-4 border-b ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`}>
+          <h2 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Eventos e saldo por área</h2>
+          <button
+            onClick={carregarEventos}
+            className={`p-2 rounded-lg transition-colors ${isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}
+            title="Atualizar"
+          >
+            <RefreshCw className={`w-4 h-4 ${loadingEventos ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+        <div className="p-4">
+          {errorEventos && (
+            <div className={`flex items-center gap-2 p-3 mb-3 rounded-xl text-sm ${isDark ? 'bg-red-500/10 text-red-400' : 'bg-red-50 text-red-600'}`}>
+              <AlertTriangle className="w-4 h-4 shrink-0" /> {errorEventos}
+            </div>
+          )}
+          {loadingEventos ? (
+            <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Carregando...</p>
+          ) : eventos.length === 0 ? (
+            <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+              Nenhum evento futuro com projeção cadastrada para as suas áreas.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {eventos.map(ev => {
+                const expandido = eventoExpandido === ev.evento_id;
+                return (
+                  <div key={ev.evento_id} className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                    <button
+                      type="button"
+                      onClick={() => setEventoExpandido(expandido ? null : ev.evento_id)}
+                      className={`w-full flex items-center justify-between gap-3 px-4 py-3 text-left transition-colors ${isDark ? 'hover:bg-gray-700/30' : 'hover:bg-gray-50'}`}
+                    >
+                      <div>
+                        <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{ev.evento_nome}</p>
+                        <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{fmtData(ev.evento_data)}</p>
+                      </div>
+                      {expandido ? <ChevronUp className="w-4 h-4 shrink-0" /> : <ChevronDown className="w-4 h-4 shrink-0" />}
+                    </button>
+                    {expandido && (
+                      <div className={`border-t ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className={isDark ? 'text-gray-400' : 'text-gray-500'}>
+                              <th className="text-left font-medium px-4 py-2">Área</th>
+                              <th className="text-right font-medium px-4 py-2">Projetado</th>
+                              <th className="text-right font-medium px-4 py-2">Solicitado</th>
+                              <th className="text-right font-medium px-4 py-2">Saldo</th>
+                              {podeCriar && <th className="px-4 py-2" />}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {ev.areas.map(area => (
+                              <tr key={area.area_projecao_id} className={`border-t ${isDark ? 'border-gray-700/50' : 'border-gray-100'}`}>
+                                <td className={`px-4 py-2 ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{area.area_projecao_nome}</td>
+                                <td className={`px-4 py-2 text-right ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{area.projetado}</td>
+                                <td className={`px-4 py-2 text-right ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{area.solicitado}</td>
+                                <td className={`px-4 py-2 text-right font-semibold ${area.saldo > 0 ? (isDark ? 'text-emerald-400' : 'text-emerald-600') : (isDark ? 'text-gray-500' : 'text-gray-400')}`}>
+                                  {area.saldo}
+                                </td>
+                                {podeCriar && (
+                                  <td className="px-4 py-2 text-right">
+                                    <button
+                                      type="button"
+                                      disabled={area.saldo <= 0}
+                                      onClick={() => abrirForm({
+                                        evento_id: ev.evento_id,
+                                        evento_nome: ev.evento_nome,
+                                        area_projecao_id: area.area_projecao_id,
+                                        area_projecao_nome: area.area_projecao_nome,
+                                        saldo: area.saldo,
+                                      })}
+                                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                                        area.saldo <= 0
+                                          ? (isDark ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-gray-100 text-gray-400 cursor-not-allowed')
+                                          : (isDark ? 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200')
+                                      }`}
+                                    >
+                                      <Plus className="w-3.5 h-3.5" /> Solicitar
+                                    </button>
+                                  </td>
+                                )}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Histórico de solicitações */}
+      <div className={cardCls}>
+        <div className={`flex items-center justify-between p-4 border-b ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`}>
+          <h2 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Solicitações</h2>
+          <button
+            onClick={carregarSolicitacoes}
+            className={`p-2 rounded-lg transition-colors ${isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}
+            title="Atualizar"
+          >
+            <RefreshCw className={`w-4 h-4 ${loadingSolic ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+        <div className="p-4">
+          {errorSolic && (
+            <div className={`flex items-center gap-2 p-3 mb-3 rounded-xl text-sm ${isDark ? 'bg-red-500/10 text-red-400' : 'bg-red-50 text-red-600'}`}>
+              <AlertTriangle className="w-4 h-4 shrink-0" /> {errorSolic}
+            </div>
+          )}
+          {loadingSolic ? (
+            <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Carregando...</p>
+          ) : solicitacoes.length === 0 ? (
+            <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Nenhuma solicitação registrada ainda.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className={isDark ? 'text-gray-400' : 'text-gray-500'}>
+                    <th className="text-left font-medium px-3 py-2">Evento</th>
+                    <th className="text-left font-medium px-3 py-2">Área</th>
+                    <th className="text-left font-medium px-3 py-2">Tipo</th>
+                    <th className="text-right font-medium px-3 py-2">Qtd</th>
+                    <th className="text-left font-medium px-3 py-2">Status</th>
+                    <th className="text-left font-medium px-3 py-2">Solicitante</th>
+                    <th className="text-left font-medium px-3 py-2">Data</th>
+                    <th className="px-3 py-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {solicitacoes.map(sol => (
+                    <tr key={sol.id} className={`border-t ${isDark ? 'border-gray-700/50' : 'border-gray-100'}`}>
+                      <td className={`px-3 py-2 ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{sol.evento_nome}</td>
+                      <td className={`px-3 py-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{sol.area_projecao_nome}</td>
+                      <td className="px-3 py-2">
+                        <span className={`inline-flex items-center gap-1 text-xs font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                          {sol.tipo === 'cupom' ? <Ticket className="w-3.5 h-3.5" /> : <FileSpreadsheet className="w-3.5 h-3.5" />}
+                          {sol.tipo === 'cupom' ? 'Cupom' : 'Planilha'}
+                        </span>
+                      </td>
+                      <td className={`px-3 py-2 text-right font-semibold ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{sol.quantidade}</td>
+                      <td className="px-3 py-2">
+                        {sol.tipo === 'cupom' ? (
+                          sol.status === 'gerado' ? (
+                            <span className={`inline-flex items-center gap-1 text-xs font-semibold ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Gerado
+                            </span>
+                          ) : (
+                            <span className={`inline-flex items-center gap-1 text-xs font-semibold ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
+                              <Clock className="w-3.5 h-3.5" /> Aguardando geração
+                            </span>
+                          )
+                        ) : (
+                          <span className={`inline-flex items-center gap-1 text-xs font-semibold ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Recebida
+                          </span>
+                        )}
+                        {sol.tipo === 'cupom' && sol.status === 'gerado' && sol.codigo_cupom && (
+                          <p className={`text-[11px] mt-0.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Código: {sol.codigo_cupom}</p>
+                        )}
+                      </td>
+                      <td className={`px-3 py-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{sol.solicitado_por_nome || '—'}</td>
+                      <td className={`px-3 py-2 text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{fmtDataHora(sol.created_at)}</td>
+                      <td className="px-3 py-2">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {sol.tipo === 'planilha' && sol.nome_arquivo && (
+                            <button
+                              type="button"
+                              onClick={() => baixar(sol)}
+                              title="Baixar arquivo"
+                              className={`p-1.5 rounded-lg transition-colors ${isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}
+                            >
+                              <Download className="w-4 h-4" />
+                            </button>
+                          )}
+                          {sol.tipo === 'cupom' && sol.status === 'solicitado' && podeGerarCupom && (
+                            <button
+                              type="button"
+                              onClick={() => { setGerarAlvo(sol); setCodigoCupom(''); setGerarError(null); }}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${isDark ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'}`}
+                            >
+                              Marcar gerado
+                            </button>
+                          )}
+                          {podeCancelar && (
+                            <button
+                              type="button"
+                              disabled={cancelandoId === sol.id}
+                              onClick={() => cancelar(sol)}
+                              title="Cancelar solicitação"
+                              className={`p-1.5 rounded-lg transition-colors ${isDark ? 'hover:bg-red-500/20 text-red-400' : 'hover:bg-red-50 text-red-500'} disabled:opacity-50`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Modal: nova solicitação */}
+      {form && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className={`w-full max-w-md rounded-2xl shadow-2xl border ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+            <div className={`flex items-center justify-between p-4 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+              <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Nova solicitação de cortesia</h3>
+              <button onClick={fecharForm} className={isDark ? 'text-gray-400 hover:text-white' : 'text-gray-400 hover:text-gray-700'}>
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-3">
+              <div className={`text-xs p-2.5 rounded-lg ${isDark ? 'bg-gray-900/50 text-gray-300' : 'bg-gray-50 text-gray-700'}`}>
+                <p><strong>{form.evento_nome}</strong> — {form.area_projecao_nome}</p>
+                <p className="mt-0.5">Saldo disponível: <strong>{form.saldo}</strong></p>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTipo('cupom')}
+                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border transition-colors ${
+                    tipo === 'cupom'
+                      ? (isDark ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-emerald-50 border-emerald-400 text-emerald-700')
+                      : (isDark ? 'border-gray-600 text-gray-300' : 'border-gray-300 text-gray-600')
+                  }`}
+                >
+                  <Ticket className="w-4 h-4" /> Gerar cupom
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTipo('planilha')}
+                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border transition-colors ${
+                    tipo === 'planilha'
+                      ? (isDark ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-emerald-50 border-emerald-400 text-emerald-700')
+                      : (isDark ? 'border-gray-600 text-gray-300' : 'border-gray-300 text-gray-600')
+                  }`}
+                >
+                  <FileSpreadsheet className="w-4 h-4" /> Planilha do cliente
+                </button>
+              </div>
+
+              <div>
+                <label className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Quantidade</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={form.saldo}
+                  value={quantidade}
+                  onChange={e => setQuantidade(e.target.value)}
+                  className={inputCls}
+                  placeholder="Ex.: 10"
+                />
+              </div>
+
+              {tipo === 'planilha' && (
+                <div>
+                  <label className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Arquivo (.xlsx, .xls ou .csv)</label>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    onChange={e => setArquivo(e.target.files?.[0] || null)}
+                    className={`w-full text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Observação (opcional)</label>
+                <textarea
+                  value={observacao}
+                  onChange={e => setObservacao(e.target.value)}
+                  rows={2}
+                  className={inputCls}
+                  placeholder="Contexto adicional para quem for gerar/receber"
+                />
+              </div>
+
+              {formError && (
+                <div className={`flex items-center gap-2 p-2.5 rounded-lg text-sm ${isDark ? 'bg-red-500/10 text-red-400' : 'bg-red-50 text-red-600'}`}>
+                  <AlertTriangle className="w-4 h-4 shrink-0" /> {formError}
+                </div>
+              )}
+            </div>
+            <div className={`flex items-center justify-end gap-2 p-4 border-t ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+              <button
+                onClick={fecharForm}
+                className={`px-4 py-2 rounded-xl text-sm font-semibold ${isDark ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-600 hover:bg-gray-100'}`}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={submitForm}
+                disabled={salvando}
+                className="px-4 py-2 rounded-xl text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {salvando ? 'Enviando...' : 'Enviar solicitação'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: marcar cupom gerado */}
+      {gerarAlvo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className={`w-full max-w-sm rounded-2xl shadow-2xl border ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+            <div className={`flex items-center justify-between p-4 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+              <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Marcar cupom como gerado</h3>
+              <button onClick={() => setGerarAlvo(null)} className={isDark ? 'text-gray-400 hover:text-white' : 'text-gray-400 hover:text-gray-700'}>
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-3">
+              <p className={`text-xs ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                {gerarAlvo.evento_nome} — {gerarAlvo.area_projecao_nome} ({gerarAlvo.quantidade} cortesias)
+              </p>
+              <div>
+                <label className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Código(s) do cupom</label>
+                <textarea
+                  value={codigoCupom}
+                  onChange={e => setCodigoCupom(e.target.value)}
+                  rows={2}
+                  className={inputCls}
+                  placeholder="Ex.: CORTESIA123"
+                />
+              </div>
+              {gerarError && (
+                <div className={`flex items-center gap-2 p-2.5 rounded-lg text-sm ${isDark ? 'bg-red-500/10 text-red-400' : 'bg-red-50 text-red-600'}`}>
+                  <AlertTriangle className="w-4 h-4 shrink-0" /> {gerarError}
+                </div>
+              )}
+            </div>
+            <div className={`flex items-center justify-end gap-2 p-4 border-t ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+              <button
+                onClick={() => setGerarAlvo(null)}
+                className={`px-4 py-2 rounded-xl text-sm font-semibold ${isDark ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-600 hover:bg-gray-100'}`}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={submitGerar}
+                disabled={gerandoSalvando}
+                className="px-4 py-2 rounded-xl text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {gerandoSalvando ? 'Salvando...' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default SolicitacaoCortesias;
