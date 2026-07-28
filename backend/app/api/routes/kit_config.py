@@ -41,7 +41,7 @@ def _ativo_synthetic_id(id_evento_ativo: int, kit_name: str) -> int:
 logger = logging.getLogger(__name__)
 
 
-def _normalize_special_price(price, special_price):
+def _normalize_special_price(price, special_price, *, is_ativo_sem_combo: bool = False):
     """Regra B (acordada com usuário, mai/2026):
     o campo `special_price` só deve aparecer quando representa uma promoção
     REAL — isto é, quando for estritamente menor que `price`. Quando o
@@ -50,8 +50,21 @@ def _normalize_special_price(price, special_price):
     semanticamente NÃO existe promoção, então retornamos None.
     Aplicar este filtro UMA VEZ na leitura (cache/snapshot/live) evita
     espalhar a regra por múltiplos pontos de construção do KitRow.
+
+    Exceção (jun/2026, task #186): eventos do Ativo em modalidade simples
+    (sem modelo de combo) não têm um par "de/por" de preços — existe um
+    único valor de kit, e ATIVO_KITS_QUERY preenche price e special_price
+    com esse mesmo valor por construção (ver metade "modalidade" do UNION
+    ALL). Para esses kits, price == special_price É o dado correto (não um
+    resíduo obsoleto como no caso do Magento que motivou a Regra B), então
+    a supressão não se aplica — Special Price deve mostrar o mesmo valor
+    do Price. O caller identifica esse caso via `is_ativo_sem_combo`
+    (fonte='ativo' + tipo_categoria vazio — sinal já emitido pela query e
+    presente tanto no KitRow ao vivo quanto no snapshot persistido).
     """
     if special_price is None or price is None:
+        return special_price
+    if is_ativo_sem_combo:
         return special_price
     try:
         if float(special_price) >= float(price):
@@ -59,6 +72,19 @@ def _normalize_special_price(price, special_price):
     except (TypeError, ValueError):
         return special_price
     return special_price
+
+
+def _is_ativo_kit_sem_combo(fonte, tipo_categoria) -> bool:
+    """True quando a linha é um kit do Ativo em modalidade simples (sem
+    combo). Sinal: fonte='ativo' + tipo_categoria vazio.
+
+    A metade "combo" de ATIVO_KITS_QUERY sempre traz `cec.ds_categoria`
+    (não vazio) em tipo_categoria; a metade "modalidade" (eventos sem
+    nenhum combo cadastrado, via NOT EXISTS) sempre grava tipo_categoria
+    como string vazia. Verificado contra dados reais: 0 exceções em ambos
+    os lados. Kits do Magento (fonte='magento') nunca entram aqui.
+    """
+    return (fonte or "").strip().lower() == "ativo" and not (tipo_categoria or "").strip()
 
 
 _kits_cache: dict = {"data": None, "ts": 0.0}
@@ -760,17 +786,22 @@ JOIN sa_combo_evento_categoria cec
        ON cec.id_combo = c.id_combo
 JOIN sa_evento e
        ON e.id_evento = cec.id_evento
-JOIN sa_evento_lote el_atual
+LEFT JOIN sa_evento_lote el_atual
        ON el_atual.id_evento = cec.id_evento
-      AND el_atual.id_evento_lote = (
-            SELECT id_evento_lote
-            FROM sa_evento_lote
-            WHERE id_evento = cec.id_evento
-              AND dt_limite >= CURDATE()
-            ORDER BY dt_limite ASC
-            LIMIT 1
+      AND el_atual.id_evento_lote = COALESCE(
+            (SELECT id_evento_lote
+             FROM sa_evento_lote
+             WHERE id_evento = cec.id_evento
+               AND dt_limite >= CURDATE()
+             ORDER BY dt_limite ASC
+             LIMIT 1),
+            (SELECT id_evento_lote
+             FROM sa_evento_lote
+             WHERE id_evento = cec.id_evento
+             ORDER BY dt_limite DESC
+             LIMIT 1)
       )
-JOIN sa_lotes l_atual
+LEFT JOIN sa_lotes l_atual
        ON l_atual.id_lote = el_atual.id_lote
 WHERE YEAR(e.dt_evento) = YEAR(CURDATE())
 GROUP BY
@@ -803,20 +834,25 @@ JOIN sa_evento e
        ON e.id_evento = em.id_evento
 JOIN sa_modalidade_categoria mc
        ON mc.id_modalidade = em.id_modalidade
-JOIN sa_evento_lote el_atual
+LEFT JOIN sa_evento_lote el_atual
        ON el_atual.id_evento = em.id_evento
-      AND el_atual.id_evento_lote = (
-            SELECT id_evento_lote
-            FROM sa_evento_lote
-            WHERE id_evento = em.id_evento
-              AND dt_limite >= CURDATE()
-            ORDER BY dt_limite ASC
-            LIMIT 1
+      AND el_atual.id_evento_lote = COALESCE(
+            (SELECT id_evento_lote
+             FROM sa_evento_lote
+             WHERE id_evento = em.id_evento
+               AND dt_limite >= CURDATE()
+             ORDER BY dt_limite ASC
+             LIMIT 1),
+            (SELECT id_evento_lote
+             FROM sa_evento_lote
+             WHERE id_evento = em.id_evento
+             ORDER BY dt_limite DESC
+             LIMIT 1)
       )
 JOIN sa_modalidade_categoria_kit mck
        ON mck.id_categoria  = mc.id_categoria
       AND mck.id_evento_lote = el_atual.id_evento_lote
-JOIN sa_lotes l_atual
+LEFT JOIN sa_lotes l_atual
        ON l_atual.id_lote = el_atual.id_lote
 WHERE YEAR(e.dt_evento) = YEAR(CURDATE())
   AND NOT EXISTS (
@@ -972,8 +1008,9 @@ def get_kits_with_config(
             r.special_price = r.pi_pai_min_price
             r.special_price_base = r.pi_pai_min_price
         else:
-            r.special_price = _normalize_special_price(r.price, r.special_price)
-            r.special_price_base = _normalize_special_price(r.price_base, r.special_price_base)
+            sem_combo = _is_ativo_kit_sem_combo(r.fonte, r.tipo_categoria)
+            r.special_price = _normalize_special_price(r.price, r.special_price, is_ativo_sem_combo=sem_combo)
+            r.special_price_base = _normalize_special_price(r.price_base, r.special_price_base, is_ativo_sem_combo=sem_combo)
     return rows
 
 
@@ -1097,7 +1134,10 @@ def _apply_overlay_to_snapshot(db: Session, snapshot_dicts: list) -> List[KitRow
         _sp_norm = (
             _pi_sp
             if (_pi_sp and float(_pi_sp) > 0)
-            else _normalize_special_price(d.get("price"), d.get("special_price"))
+            else _normalize_special_price(
+                d.get("price"), d.get("special_price"),
+                is_ativo_sem_combo=_is_ativo_kit_sem_combo(d.get("fonte"), d.get("tipo_categoria")),
+            )
         )
         rows.append(KitRow(
             id_evento=d.get("id_evento"),

@@ -51,3 +51,19 @@ No read path (overlay de snapshot e `_fetch_ticket_atual_map`): se
 **Após deploy:** reiniciar backend + clicar "Atualizar" no Mapeamento de Kits
 para popular `pi_pai_min_price` no snapshot existente (ticket ISC já corrige
 imediatamente pois usa Magento ao vivo, não o snapshot).
+
+## Bypass Ativo sem-combo (task #186, jul/2026)
+
+Kits do Ativo em modalidade simples (sem combo cadastrado) não têm par
+"de/por": `ATIVO_KITS_QUERY` preenche `price` E `special_price` com o MESMO
+valor por construção (não é resíduo obsoleto, é o dado correto). A Regra B
+raw estava zerando `special_price` nesses casos porque `special_price >=
+price` sempre é verdade quando são iguais.
+
+**Sinal para o bypass:** `fonte == "ativo"` (case-insensitive) E
+`tipo_categoria` vazio/blank — a metade "combo" do UNION ALL sempre traz
+`tipo_categoria` não-vazio; a metade "modalidade" sempre grava vazio.
+Verificado contra dados reais: 0 exceções. Ver `_is_ativo_kit_sem_combo` e o
+kwarg `is_ativo_sem_combo` de `_normalize_special_price` em `kit_config.py` —
+mesmo padrão de bypass do `pi_pai_min_price`, aplicado nos 3 call-sites
+(live, overlay de snapshot, e o cálculo de `special_price_base` de cada um).
