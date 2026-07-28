@@ -1,5 +1,5 @@
 from datetime import date, datetime, timedelta
-from typing import Optional
+from typing import List, Optional
 import os
 import time
 from sqlalchemy import func as sa_func
@@ -1252,7 +1252,8 @@ def rebuild_rolling_grupos_batch(db: Session) -> dict:
     log_evento(_ciclo, "rebuild_rolling_grupos_batch", "iniciado", nivel="ciclo",
                detalhes=f"fatia={_n}")
 
-    ano = date.today().year
+    ano_base = date.today().year
+    anos = [ano_base, ano_base + 1]
     yesterday = date.today() - timedelta(days=1)
 
     freeze_days = _freeze_after_days()
@@ -1267,26 +1268,32 @@ def rebuild_rolling_grupos_batch(db: Session) -> dict:
     # (menor MIN(updated_at)). O incremental só atualiza o updated_at dos dias
     # recentes, então MIN(updated_at) reflete o último rebuild COMPLETO — o que
     # garante rotação justa de todo o conjunto ativo sem coluna extra.
+    #
+    # Agrupa por (evento_grupo, ano) — não só evento_grupo — porque um grupo
+    # pode ter edições de dois anos simultaneamente ativas (carrinho do ano
+    # seguinte aberto antecipadamente); cada edição tem sua própria fila de
+    # rebuild e nunca deve ser refeita sob o `ano` da outra.
     rows = (
         db.query(
             VendasDiariaSnapshot.evento_grupo,
+            VendasDiariaSnapshot.ano,
             sa_func.min(VendasDiariaSnapshot.updated_at).label("oldest"),
         )
         .filter(
             VendasDiariaSnapshot.fonte == "CONSOLIDADO",
-            VendasDiariaSnapshot.ano == ano,
+            VendasDiariaSnapshot.ano.in_(anos),
             VendasDiariaSnapshot.evento_grupo.in_(active_grupos),
         )
-        .group_by(VendasDiariaSnapshot.evento_grupo)
+        .group_by(VendasDiariaSnapshot.evento_grupo, VendasDiariaSnapshot.ano)
         .order_by(sa_func.min(VendasDiariaSnapshot.updated_at).asc())
         .limit(_n)
         .all()
     )
-    grupos_alvo = [r.evento_grupo for r in rows]
+    grupos_alvo = [(r.evento_grupo, r.ano) for r in rows]
 
     _ok = 0
     _falha = 0
-    for grupo in grupos_alvo:
+    for grupo, grupo_ano in grupos_alvo:
         from ..core.cache import is_sync_paused
         if is_sync_paused():
             logger.warning(f"rebuild_rolling_grupos_batch: pausa ativada — interrompendo após {_ok} grupos")
@@ -1300,14 +1307,14 @@ def rebuild_rolling_grupos_batch(db: Session) -> dict:
             # antigos). data_fim=yesterday: o dia corrente fica a cargo do
             # sincronizar_hoje_batch (que usa GREATEST como piso).
             consolidar_vendas_grupo(
-                db, grupo, ano, data_fim=yesterday, incremental=False,
+                db, grupo, grupo_ano, data_fim=yesterday, incremental=False,
                 ciclo_id=_ciclo, parent_job_name="rebuild_rolling_grupos_batch",
                 delete_scope_ano=True,
             )
             _ok += 1
         except Exception as e:
             _falha += 1
-            logger.error(f"rebuild_rolling_grupos_batch: erro no rebuild de '{grupo}': {e}")
+            logger.error(f"rebuild_rolling_grupos_batch: erro no rebuild de '{grupo}' (ano={grupo_ano}): {e}")
             try:
                 log_evento(_ciclo, "rebuild_rolling_grupos_batch", "falha", grupo=grupo,
                            motivo=classify_motivo(e), detalhes=str(e)[:500])
@@ -1499,7 +1506,7 @@ def _repair_orphan_curva_historica(db: Session) -> int:
     return repaired
 
 
-def sincronizar_hoje_batch(db: Session) -> int:
+def sincronizar_hoje_batch(db: Session, ano: Optional[int] = None) -> int:
     """
     Syncs today's sales to vendas_diaria_snapshot for all active event groups
     using efficient single-batch MySQL queries (one per source).
@@ -1509,8 +1516,23 @@ def sincronizar_hoje_batch(db: Session) -> int:
     Also backfills historical data for live groups that have no snapshot rows at
     all (calls consolidar_vendas_grupo with data_fim=yesterday before syncing today).
 
-    Returns the number of groups whose today row was successfully upserted.
+    Quando `ano` não é informado (uso normal, chamado pelos jobs agendados),
+    roda para o ano corrente E o ano seguinte — um evento pode abrir o
+    carrinho antecipadamente (ex.: em dezembro para o ano que vem) e não pode
+    ficar invisível só porque ainda não é o ano-edição dele. O passe do ano
+    seguinte sai barato quando não há nada para sincronizar: as queries de
+    descoberta retornam vazio e a função encerra cedo.
+
+    Returns the number of groups whose today row was successfully upserted
+    (somado entre os anos, quando `ano` não foi informado).
     """
+    if ano is None:
+        total = 0
+        _hoje_ano_base = date.today().year
+        for _ano_pass in (_hoje_ano_base, _hoje_ano_base + 1):
+            total += sincronizar_hoje_batch(db, ano=_ano_pass)
+        return total
+
     from ..api.routes.marketing import (
         _fetch_today_sales_ativo_grouped,
         _fetch_today_sales_magento_grouped,
@@ -1523,16 +1545,19 @@ def sincronizar_hoje_batch(db: Session) -> int:
 
     _ciclo_hj = _ncid_hj()
     _t_hj_start = _t_hj.time()
-    _le_hj(_ciclo_hj, "sincronizar_hoje_batch", "iniciado", nivel="ciclo")
+    _le_hj(_ciclo_hj, "sincronizar_hoje_batch", "iniciado", nivel="ciclo", detalhes=f"ano={ano}")
 
     today = date.today()
     yesterday = today - timedelta(days=1)
-    ano = today.year
 
     # D- >= -1 (not consolidated) means data_evento >= today + 1.
     # registration_close = data_evento - 2, D- = registration_close - today.
     # D- = -1 → registration_close = today - 1 → data_evento = today + 1.
-    min_live_date = today + timedelta(days=1)
+    # A janela é sempre interseccionada com o ano-edição alvo (year_start) —
+    # sem isso, o passe do ano seguinte reabsorveria os mesmos grupos do ano
+    # corrente e os re-gravaria com o `ano` errado.
+    year_start = date(ano, 1, 1)
+    min_live_date = max(today + timedelta(days=1), year_start)
 
     # --- Build map of live/hybrid grupos ---
     # A grupo is live/hybrid if it has at least one event with
@@ -2087,6 +2112,52 @@ def get_isc_totals_from_snapshot(db: Session, ano: int) -> dict:
             "media_30d":           round(q30 / 30.0, 2),
         }
     return result
+
+
+def get_isc_totals_from_snapshot_multi_ano(db: Session, anos: List[int]) -> dict:
+    """
+    Combina get_isc_totals_from_snapshot de vários anos (tipicamente ano
+    vigente + ano seguinte) num único dict por grupo.
+
+    Necessário porque um evento pode abrir o carrinho do ano seguinte
+    antecipadamente enquanto a edição do ano vigente ainda está vendendo (ou
+    já não tem nenhuma linha no ano vigente) — sem combinar os dois anos,
+    quem só olha um ano fixo nunca vê essas vendas.
+
+    Quantidade e receita são somáveis entre os anos (contagens/valores
+    absolutos); ticket_medio é recalculado sobre o total combinado — nunca
+    somado diretamente, pois é uma razão (receita/qtd), não um total.
+    media_7d/14d/30d somam corretamente porque cada uma já é uma média sobre
+    a MESMA janela de dias em todas as chamadas (hoje é o mesmo `today` em
+    ambas), então soma das médias == média da soma nessa janela.
+
+    Quando um grupo aparece em um único ano, o resultado é idêntico ao valor
+    original desse ano (sem regressão para grupos sem edição dupla ativa).
+    """
+    combined: dict = {}
+    for ano in anos:
+        year_totals = get_isc_totals_from_snapshot(db, ano)
+        for grupo, metrics in year_totals.items():
+            acc = combined.setdefault(grupo, {
+                "qtd_site": 0, "receita_liquida_site": 0.0,
+                "inscricao_liquida": 0.0,
+                "media_7d": 0.0, "media_14d": 0.0, "media_30d": 0.0,
+            })
+            acc["qtd_site"] += metrics.get("qtd_site", 0)
+            acc["receita_liquida_site"] += metrics.get("receita_liquida_site", 0.0)
+            acc["inscricao_liquida"] += metrics.get("inscricao_liquida", 0.0)
+            acc["media_7d"] += metrics.get("media_7d", 0.0)
+            acc["media_14d"] += metrics.get("media_14d", 0.0)
+            acc["media_30d"] += metrics.get("media_30d", 0.0)
+
+    for grupo, acc in combined.items():
+        qtd = acc["qtd_site"]
+        acc["ticket_medio"] = round(acc["inscricao_liquida"] / qtd, 2) if qtd > 0 else 0.0
+        acc["media_7d"] = round(acc["media_7d"], 2)
+        acc["media_14d"] = round(acc["media_14d"], 2)
+        acc["media_30d"] = round(acc["media_30d"], 2)
+
+    return combined
 
 
 def sincronizar_margem_bundle_rev_batch(db: Session, only_bundle_ids: Optional[list] = None) -> dict:

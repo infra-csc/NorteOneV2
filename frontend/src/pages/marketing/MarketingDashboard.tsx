@@ -167,7 +167,10 @@ function saveFilters(filters: { search: string; category: string; status: string
 // reference hasn't changed. Also inlines its own useNavigate to stay self-contained.
 const EventRow = React.memo<{ event: MarketingEvent }>(({ event }) => {
   const navigate = useNavigate();
-  const year = new Date().getFullYear();
+  // Deriva o ano da própria data do evento (nunca do relógio local): a lista
+  // pode conter edições do ano seguinte (carrinho aberto antecipadamente),
+  // e usar new Date().getFullYear() navegaria para o ano errado nesses casos.
+  const year = event.date ? new Date(event.date + 'T00:00:00').getFullYear() : new Date().getFullYear();
   const critical = isInCriticalWindow(event.dMinusInscricoes);
   const cutoff = getCutoffAlert(event.dMinusInscricoes);
   const dateStr = event.date ? new Date(event.date + 'T00:00:00').toLocaleDateString('pt-BR') : '-';

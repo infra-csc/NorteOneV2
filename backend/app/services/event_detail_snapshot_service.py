@@ -776,19 +776,27 @@ def save_persisted_detail(
 
 
 def refresh_active_event_details(max_events: int | None = None) -> int:
-    """Recomputa o detalhe de todos os eventos ATIVOS (ano corrente) e persiste.
+    """Recomputa o detalhe de todos os eventos ATIVOS (ano corrente, mais o ano
+    seguinte para grupos que já têm mapeamento ativo — carrinho aberto
+    antecipadamente) e persiste.
 
     Chamado pelo scheduler em background após sincronizar_hoje_batch.
     Eventos já marcados como concluídos (is_completed=True) no banco são
     pulados: seus dados são finais e não precisam ser reprocessados a cada
     30 min — evitando consultas desnecessárias ao Magento e eliminando a
     janela em que uma queda de conexão poderia sobrescrever a margem final
-    de um evento encerrado com dados parciais.
+    de um evento encerrado com dados parciais. A checagem de "concluído" é
+    por par (evento_id, ano): um grupo pode estar com a edição corrente
+    encerrada e a edição do ano seguinte ainda ao vivo simultaneamente.
+
+    O passo do ano seguinte é restrito aos grupos com SkuMapping ativo
+    naquele ano (não varre todos os grupos em dobro) para não dobrar a carga
+    sobre o túnel Magento (concorrência limitada — ver magento-concurrency-limit).
 
     Retorna a quantidade de eventos atualizados.
     """
     from ..core.database import SessionLocal
-    from ..models.dimensoes import EventoGrupo as EventoGrupoModel
+    from ..models.dimensoes import EventoGrupo as EventoGrupoModel, SkuMapping
     from ..api.routes.marketing import get_marketing_event_by_id
 
     count = 0
@@ -796,38 +804,70 @@ def refresh_active_event_details(max_events: int | None = None) -> int:
     db = SessionLocal()
     try:
         ano = datetime.now().year
+        ano_seguinte = ano + 1
 
-        # Pré-carrega IDs de eventos já concluídos para evitar reprocessamento
-        # desnecessário e proteger a integridade da margem final.
-        completed_ids: set[str] = set()
+        # Pré-carrega pares (evento_id, ano) já concluídos para evitar
+        # reprocessamento desnecessário e proteger a integridade da margem
+        # final. Cobre os dois anos processados nesta rodada.
+        completed_pairs: set[tuple[str, int]] = set()
         try:
             completed_rows = (
-                db.query(EventoDetailSnapshot.evento_id)
+                db.query(EventoDetailSnapshot.evento_id, EventoDetailSnapshot.ano)
                 .filter(
-                    EventoDetailSnapshot.ano == ano,
+                    EventoDetailSnapshot.ano.in_([ano, ano_seguinte]),
                     EventoDetailSnapshot.is_completed == True,  # noqa: E712
                 )
                 .all()
             )
-            completed_ids = {r.evento_id for r in completed_rows}
-            if completed_ids:
+            completed_pairs = {(r.evento_id, r.ano) for r in completed_rows}
+            if completed_pairs:
                 logger.info(
-                    f"[EventDetailSnapshot] {len(completed_ids)} eventos concluídos "
-                    f"serão pulados no refresh (dados finais — sem consulta ao Magento)"
+                    f"[EventDetailSnapshot] {len(completed_pairs)} edições concluídas "
+                    f"serão puladas no refresh (dados finais — sem consulta ao Magento)"
                 )
         except Exception as _cid_e:
-            logger.warning(f"[EventDetailSnapshot] falha ao carregar completed_ids: {_cid_e}")
+            logger.warning(f"[EventDetailSnapshot] falha ao carregar completed_pairs: {_cid_e}")
+
+        # Grupos com mapeamento ativo no ano seguinte — só estes recebem o
+        # passo extra (early-bird / carrinho aberto antecipadamente).
+        grupos_ano_seguinte: set[str] = set()
+        try:
+            _gas_rows = (
+                db.query(SkuMapping.evento_grupo)
+                .filter(
+                    SkuMapping.ano == ano_seguinte,
+                    SkuMapping.ativo == True,  # noqa: E712
+                    SkuMapping.evento_grupo.isnot(None),
+                )
+                .distinct()
+                .all()
+            )
+            grupos_ano_seguinte = {r[0] for r in _gas_rows if r[0]}
+            if grupos_ano_seguinte:
+                logger.info(
+                    f"[EventDetailSnapshot] {len(grupos_ano_seguinte)} grupo(s) com mapeamento "
+                    f"ativo em {ano_seguinte} — incluindo passo extra nesta rodada"
+                )
+        except Exception as _gas_e:
+            logger.warning(f"[EventDetailSnapshot] falha ao carregar grupos_ano_seguinte: {_gas_e}")
 
         q = db.query(EventoGrupoModel)
         if max_events is not None:
             q = q.limit(max_events)
         grupos = q.all()
 
+        # (nome_grupo, ano) para cada edição a processar nesta rodada.
+        jobs: list[tuple[str, int]] = []
         for g in grupos:
-            evento_id = f"grp_{g.nome}"
+            jobs.append((g.nome, ano))
+            if g.nome in grupos_ano_seguinte:
+                jobs.append((g.nome, ano_seguinte))
 
-            # Pula eventos já concluídos — dados finais, não mudam mais.
-            if evento_id in completed_ids:
+        for nome_grupo, ano_job in jobs:
+            evento_id = f"grp_{nome_grupo}"
+
+            # Pula edições já concluídas — dados finais, não mudam mais.
+            if (evento_id, ano_job) in completed_pairs:
                 skipped_completed += 1
                 continue
 
@@ -837,7 +877,7 @@ def refresh_active_event_details(max_events: int | None = None) -> int:
                 try:
                     get_marketing_event_by_id(
                         evento_id=evento_id,
-                        ano=ano,
+                        ano=ano_job,
                         force_refresh=True,
                         db=_db_iter,
                         current_user=None,
@@ -847,7 +887,7 @@ def refresh_active_event_details(max_events: int | None = None) -> int:
                 finally:
                     _db_iter.close()
             except Exception as e:
-                logger.warning(f"[EventDetailSnapshot] refresh '{evento_id}' falhou: {e}")
+                logger.warning(f"[EventDetailSnapshot] refresh '{evento_id}'/{ano_job} falhou: {e}")
     except Exception as e:
         logger.error(f"[EventDetailSnapshot] refresh_active_event_details falhou: {e}")
     finally:

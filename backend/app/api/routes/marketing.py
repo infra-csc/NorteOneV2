@@ -5584,21 +5584,28 @@ def fetch_isc_pricing_data(db: Optional[Session] = None, force_refresh: bool = F
     consolidated_grupo_skus: dict = {}     # {grupo: [sku_norm, ...]}
     _isc_grupo_latest: dict = {}           # {grupo: latest event date}
 
+    _isc_grupos_ano_seguinte: set = set()  # grupos com mapping ativo já para current_year+1
     if db:
         try:
             from ...models.dimensoes import SkuMapping as _ISC_SM
+            # Inclui o ano seguinte: um evento pode ter o carrinho aberto
+            # antecipadamente (mapping já cadastrado para current_year+1) antes
+            # mesmo de current_year terminar — sem isso o grupo nunca entra em
+            # consolidated_grupo_skus e fica invisível no Dash ISC.
             _isc_grupo_rows = db.query(
-                _ISC_SM.evento_grupo, _ISC_SM.sku, _ISC_SM.data_evento,
+                _ISC_SM.evento_grupo, _ISC_SM.sku, _ISC_SM.data_evento, _ISC_SM.ano,
             ).filter(
                 _ISC_SM.evento_grupo != None,
                 _ISC_SM.ativo == True,
-                _ISC_SM.ano == current_year
+                _ISC_SM.ano.in_([current_year, current_year + 1]),
             ).all()
 
             for _isc_row in _isc_grupo_rows:
                 _gn = _isc_row.evento_grupo
                 if not _gn:
                     continue
+                if _isc_row.ano == current_year + 1:
+                    _isc_grupos_ano_seguinte.add(_gn)
                 if _isc_row.data_evento and (
                     _gn not in _isc_grupo_latest
                     or _isc_row.data_evento > _isc_grupo_latest[_gn]
@@ -5613,11 +5620,13 @@ def fetch_isc_pricing_data(db: Optional[Session] = None, force_refresh: bool = F
 
             # Resolve missing event dates from dim_projeto using fuzzy-match
             # so regime classification works without manual date entry in SKU mappings.
+            # Janela inclui o ano seguinte pelo mesmo motivo acima — mappings novos
+            # frequentemente ainda não têm data_evento preenchida na própria linha.
             _grupos_sem_data = set(consolidated_grupo_skus.keys()) - set(_isc_grupo_latest.keys())
             if _grupos_sem_data:
                 try:
                     _dp_all = _wq_all_dim_projetos(db)
-                    _dp_yr = [p for p in _dp_all if p.data_evento and p.data_evento.year == current_year]
+                    _dp_yr = [p for p in _dp_all if p.data_evento and p.data_evento.year in (current_year, current_year + 1)]
                     for _gn_nd in _grupos_sem_data:
                         _norm_gn = _normalize_name_for_match(_gn_nd)
                         _best_sc, _best_dt = 0.0, None
@@ -5642,7 +5651,13 @@ def fetch_isc_pricing_data(db: Optional[Session] = None, force_refresh: bool = F
                 _rc = _evt_date - timedelta(days=2)
                 _raw_dm = (_rc - today_brazil()).days
                 _regime = get_event_regime(_raw_dm)
-                if _regime == "consolidated":
+                # Grupos com mapping já ativo para o ano seguinte nunca são
+                # "consolidated": a data resolvida acima pode ser a do ano
+                # corrente (já encerrado) quando a linha do ano seguinte ainda
+                # não tem data_evento própria nem correspondência em
+                # dim_projeto — sem esta exceção o grupo ficaria congelado no
+                # regime antigo mesmo já vendendo a próxima edição.
+                if _regime == "consolidated" and _gn not in _isc_grupos_ano_seguinte:
                     consolidated_grupos.add(_gn)
                 else:
                     _live_count += 1
@@ -5672,8 +5687,11 @@ def fetch_isc_pricing_data(db: Optional[Session] = None, force_refresh: bool = F
     snapshot_totals: dict = {}
     if db:
         try:
-            from ...services.snapshot_service import get_isc_totals_from_snapshot
-            snapshot_totals = get_isc_totals_from_snapshot(db, current_year)
+            from ...services.snapshot_service import get_isc_totals_from_snapshot_multi_ano
+            # current_year + current_year+1 combinados: um grupo pode ter vendas
+            # simultâneas nos dois anos-edição (carrinho do ano seguinte aberto
+            # antes do encerramento do corrente) e ambas precisam somar aqui.
+            snapshot_totals = get_isc_totals_from_snapshot_multi_ano(db, [current_year, current_year + 1])
             # Coverage check: warn about active grupos not yet in snapshot so ops team can
             # trigger a manual sync or verify SkuMapping completeness.
             mapped_grupos = set(consolidated_grupo_skus.keys())
@@ -5682,7 +5700,7 @@ def fetch_isc_pricing_data(db: Optional[Session] = None, force_refresh: bool = F
             if uncovered:
                 logger.warning(
                     f"[ISC] {len(uncovered)}/{len(mapped_grupos)} grupos sem dados no snapshot "
-                    f"(auto-sync não rodou ou sem vendas em {current_year}): {sorted(uncovered)}"
+                    f"(auto-sync não rodou ou sem vendas em {current_year}/{current_year + 1}): {sorted(uncovered)}"
                 )
             logger.info(
                 f"[ISC] PostgreSQL snapshot: {len(snapshot_totals)} grupos com dados, "
@@ -7066,7 +7084,10 @@ def get_sales_averages(
     
     today = today_brazil()
     if ano is None:
-        ano = today.year
+        if evento_id.startswith('grp_'):
+            ano = _resolve_default_ano_for_grupo(db, evento_id.replace('grp_', ''), today.year)
+        else:
+            ano = today.year
     
     medias_cache_key = f"{ano}_{evento_id}_{periodo}_medias"
     if not force_refresh:
@@ -7260,10 +7281,13 @@ def get_curva_snapshot(
     """
     from ...services.snapshot_service import get_curva_historica_snapshot
 
-    if ano is None:
-        ano = datetime.now().year
-
     is_grouped = evento_id.startswith("grp_")
+
+    if ano is None:
+        if is_grouped:
+            ano = _resolve_default_ano_for_grupo(db, evento_id.replace("grp_", ""), datetime.now().year)
+        else:
+            ano = datetime.now().year
 
     projetos_for_meta = []
     grupo_id_resolved: Optional[int] = None
@@ -9755,6 +9779,28 @@ def _find_data_evento(
     return None
 
 
+def _resolve_default_ano_for_grupo(db: Session, grupo_nome: str, fallback: int) -> int:
+    """
+    Resolve o ano-edição default de um evento agrupado quando o caller não
+    informa `ano` explicitamente. Usa a MAIOR edição com SkuMapping ativo do
+    grupo — não o ano civil corrente — porque um grupo pode já ter o
+    carrinho do ano seguinte aberto (às vezes o ano corrente nem tem mais
+    mapping ativo). Eventos não-agrupados já resolvem isso via
+    `projeto.data_evento.year` e não precisam deste helper.
+    """
+    try:
+        latest = (
+            db.query(func.max(SkuMapping.ano))
+            .filter(SkuMapping.evento_grupo == grupo_nome, SkuMapping.ativo == True)
+            .scalar()
+        )
+        if latest:
+            return int(latest)
+    except Exception as _e:
+        logger.warning(f"_resolve_default_ano_for_grupo('{grupo_nome}') falhou, usando fallback {fallback}: {_e}")
+    return fallback
+
+
 _curva_evento_cache = {}
 _curva_evento_cache_timestamp = {}
 
@@ -10212,7 +10258,7 @@ def get_evento_insights(
     if is_grouped:
         grupo_nome = evento_id.replace("grp_", "")
         if ano is None:
-            ano = datetime.now().year
+            ano = _resolve_default_ano_for_grupo(db, grupo_nome, datetime.now().year)
         ano_anterior = ano - 1
 
         all_mappings = _wq_sku_mappings_by_grupo(db, grupo_nome, [ano, ano_anterior])
@@ -11551,7 +11597,7 @@ def get_marketing_event_by_id(
         _grupo_incluir_cortesias_attr = bool(grupo.incluir_cortesias)
 
         if ano is None:
-            ano = datetime.now().year
+            ano = _resolve_default_ano_for_grupo(db, grupo_nome, datetime.now().year)
         
         detail_cache_key = f"{ano}_{evento_id}_detail"
         if not force_refresh:
@@ -13169,7 +13215,10 @@ def get_evento_version(
     um banner "Há atualizações novas — clique para recarregar".
     """
     if ano is None:
-        ano = today_brazil().year
+        if evento_id.startswith("grp_"):
+            ano = _resolve_default_ano_for_grupo(db, evento_id.replace("grp_", ""), today_brazil().year)
+        else:
+            ano = today_brazil().year
     from ...models.evento_detail_snapshot import EventoDetailSnapshot as _EDS_v
     snap_at = None
     try:
@@ -13209,11 +13258,14 @@ def atualizar_vendas_hoje(
     para este evento, atualiza o snapshot e recalcula médias móveis.
     Não toca no ISC global nem em dados históricos.
     """
-    if ano is None:
-        ano = today_brazil().year
-
     hoje = today_brazil()
     is_grouped = evento_id.startswith("grp_")
+
+    if ano is None:
+        if is_grouped:
+            ano = _resolve_default_ano_for_grupo(db, evento_id.replace("grp_", ""), hoje.year)
+        else:
+            ano = hoje.year
 
     # --- Collect IDs ---
     if is_grouped:

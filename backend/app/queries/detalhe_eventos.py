@@ -115,7 +115,7 @@ LEFT JOIN (
 
 WHERE
     b.dt_evento BETWEEN MAKEDATE(YEAR(CURDATE()), 1)
-                    AND MAKEDATE(YEAR(CURDATE()) + 1, 1) - INTERVAL 1 DAY
+                    AND MAKEDATE(YEAR(CURDATE()) + 2, 1) - INTERVAL 1 DAY
     AND (b.id_campanha_salesforce IS NULL
          OR b.id_campanha_salesforce NOT LIKE '701d0000000%')
 {ids_clause}GROUP BY
@@ -308,9 +308,11 @@ SELECT /*+ MAX_EXECUTION_TIME(90000) */ STRAIGHT_JOIN
     END), 0)                                                                            AS ticket_medio
 
 FROM (
-    -- Âncora: bundles dos eventos solicitados, restritos ao ano-competência corrente.
-    -- O JOIN em cped (data do evento) filtra IDs cujo evento cai no ano atual,
-    -- evitando que edições de anos anteriores com os mesmos IDs Magento sejam somadas.
+    -- Âncora: bundles dos eventos solicitados, restritos ao ano-competência
+    -- corrente + o ano seguinte (eventos com carrinho aberto antecipadamente).
+    -- O JOIN em cped (data do evento) filtra IDs cujo evento cai numa dessas
+    -- duas janelas, evitando que edições mais antigas com os mesmos IDs
+    -- Magento sejam somadas. Janela seguirá deslizando ano a ano.
     -- STRAIGHT_JOIN garante que o MySQL parte daqui e desce por índice.
     SELECT cpev.entity_id AS product_id,
            cpev.value     AS id_evento
@@ -322,7 +324,7 @@ FROM (
           ON cped.entity_id    = cpev.value
          AND cped.attribute_id = 195
          AND cped.value >= MAKEDATE(YEAR(CURDATE()), 1)
-         AND cped.value <  MAKEDATE(YEAR(CURDATE()) + 1, 1)
+         AND cped.value <  MAKEDATE(YEAR(CURDATE()) + 2, 1)
     WHERE cpev.attribute_id = 321
       AND cpev.store_id     = 0
 {inner_ids_filter}) AS cpev1
@@ -538,14 +540,15 @@ LEFT JOIN (
         SUM(CASE WHEN i.product_type <> 'bundle' THEN i.discount_amount ELSE 0 END) AS desc_itens
     FROM sales_order_item i
     JOIN (
-        -- pedidos-alvo: contêm bundle de evento cujo dt_evento cai no ano corrente
+        -- pedidos-alvo: contêm bundle de evento cujo dt_evento cai no ano
+        -- corrente ou no ano seguinte (carrinho aberto antecipadamente)
         SELECT DISTINCT bo.order_id
         FROM catalog_product_entity_varchar v
         JOIN catalog_product_entity_datetime d
               ON d.entity_id    = v.value
              AND d.attribute_id = 195
              AND d.value >= MAKEDATE(YEAR(CURDATE()), 1)
-             AND d.value <  MAKEDATE(YEAR(CURDATE()) + 1, 1)
+             AND d.value <  MAKEDATE(YEAR(CURDATE()) + 2, 1)
         JOIN sales_order_item bo
                ON bo.product_id   = v.entity_id
               AND bo.product_type = 'bundle'
@@ -586,7 +589,7 @@ WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reem
   AND so.state NOT IN ('canceled')
   AND so.increment_id   NOT REGEXP '-[0-9]'
   AND cped.value        >= MAKEDATE(YEAR(CURDATE()), 1)
-  AND cped.value        <  MAKEDATE(YEAR(CURDATE()) + 1, 1)
+  AND cped.value        <  MAKEDATE(YEAR(CURDATE()) + 2, 1)
 
 GROUP BY
     cpev1.value,
