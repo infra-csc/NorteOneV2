@@ -346,6 +346,124 @@ def test_integrity_error_retry_succeeds_on_second_attempt(SessionFactory):
 
 
 # ---------------------------------------------------------------------------
+# Test 4 – same solicitacao_id targeted twice (double-call / double-click guard)
+# ---------------------------------------------------------------------------
+
+def test_same_solicitacao_double_call_second_returns_400(SessionFactory, seed_data):
+    """A duplicate gerar_cupom call for an already-generated solicitação must
+    be rejected with HTTP 400 ("já foi marcada como gerada") *before* writing
+    any codes to the DB.
+
+    Design note
+    -----------
+    SQLite's StaticPool serialises all connections through a single underlying
+    connection, so true simultaneous thread concurrency is not achievable in
+    this test environment.  The sequential double-call below is sufficient to
+    verify the guard and DB invariants:
+
+    * Call 1 (first request): must succeed and persist exactly ``quantidade``
+      unique codes.
+    * Call 2 (duplicate request, same solicitacao_id): must raise HTTP 400
+      with the "já foi marcada como gerada" message and must NOT write any
+      additional code rows.
+
+    The production race (two requests arriving before either commits) is
+    addressed by the ``SELECT … FOR UPDATE`` added to the route: only one
+    transaction can hold the row lock; the other blocks until the first
+    commits, then reads STATUS_GERADO and returns 400 immediately.
+    """
+    from fastapi import HTTPException
+
+    # Seed a fresh solicitação so this test is independent of the others.
+    db_setup = SessionFactory()
+    quantidade = 4
+    try:
+        sol = CortesiaSolicitacao(
+            id=7004, evento_id=6001, area_projecao_id=5001,
+            tipo=TIPO_CUPOM, quantidade=quantidade, status=STATUS_SOLICITADO,
+            solicitado_por=9001,
+        )
+        db_setup.add(sol)
+        db_setup.commit()
+    finally:
+        db_setup.close()
+
+    fake_user = _make_fake_admin()
+
+    # ------------------------------------------------------------------
+    # Call 1: must succeed with exactly `quantidade` codes
+    # ------------------------------------------------------------------
+    db1 = SessionFactory()
+    try:
+        with patch(
+            "app.api.routes.cortesia_solicitacao.is_user_admin",
+            return_value=True,
+        ):
+            result1 = gerar_cupom(
+                solicitacao_id=7004,
+                db=db1,
+                current_user=fake_user,
+            )
+    finally:
+        db1.close()
+
+    assert len(result1.codigos_detalhes) == quantidade, (
+        f"First call returned {len(result1.codigos_detalhes)} codes, expected {quantidade}"
+    )
+
+    # ------------------------------------------------------------------
+    # Call 2: must raise HTTP 400 before writing anything
+    # ------------------------------------------------------------------
+    db2 = SessionFactory()
+    try:
+        with patch(
+            "app.api.routes.cortesia_solicitacao.is_user_admin",
+            return_value=True,
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                gerar_cupom(
+                    solicitacao_id=7004,
+                    db=db2,
+                    current_user=fake_user,
+                )
+    finally:
+        db2.close()
+
+    assert exc_info.value.status_code == 400, (
+        f"Expected HTTP 400 on duplicate call, got {exc_info.value.status_code}"
+    )
+    assert "já foi marcada como gerada" in (exc_info.value.detail or ""), (
+        f"Unexpected rejection message: {exc_info.value.detail!r}"
+    )
+
+    # ------------------------------------------------------------------
+    # Invariant: DB has exactly `quantidade` codes, all unique, status=gerado
+    # (second call must not have written any orphan rows)
+    # ------------------------------------------------------------------
+    db_check = SessionFactory()
+    try:
+        sol = db_check.query(CortesiaSolicitacao).filter_by(id=7004).first()
+        assert sol.status == STATUS_GERADO, (
+            f"solicitacao 7004 status={sol.status!r} after double-call"
+        )
+        code_rows = (
+            db_check.query(CortesiaCupomCodigo)
+            .filter_by(solicitacao_id=7004)
+            .all()
+        )
+        assert len(code_rows) == quantidade, (
+            f"sol 7004: expected exactly {quantidade} code rows, found {len(code_rows)} "
+            "(duplicate call may have leaked orphan rows)"
+        )
+        codes = [r.codigo.upper() for r in code_rows]
+        assert len(codes) == len(set(codes)), (
+            f"Duplicate coupon codes in DB for sol 7004: {codes}"
+        )
+    finally:
+        db_check.close()
+
+
+# ---------------------------------------------------------------------------
 # Test 3 – retry budget exhaustion returns a clear 409 (unit)
 # ---------------------------------------------------------------------------
 

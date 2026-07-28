@@ -458,10 +458,15 @@ def gerar_cupom(
     unidade solicitada — no padrão SIGLA da área + SKU do evento + sufixo
     aleatório. Falha com mensagem clara se a área ainda não tem sigla
     cadastrada ou se o evento não tem SKU (nada de fallback silencioso)."""
-    sol = db.query(CortesiaSolicitacao).filter(
-        CortesiaSolicitacao.id == solicitacao_id,
-        CortesiaSolicitacao.deleted_at.is_(None),
-    ).first()
+    sol = (
+        db.query(CortesiaSolicitacao)
+        .filter(
+            CortesiaSolicitacao.id == solicitacao_id,
+            CortesiaSolicitacao.deleted_at.is_(None),
+        )
+        .with_for_update()
+        .first()
+    )
     if not sol:
         raise HTTPException(status_code=404, detail="Solicitação não encontrada")
     if sol.tipo != TIPO_CUPOM:
