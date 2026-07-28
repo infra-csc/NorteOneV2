@@ -83,6 +83,10 @@ class CortesiaCupomCodigo(Base):
         index=True,
     )
     codigo = Column(String(300), nullable=False)
+    # Prefixo fixo usado na geração (sigla+SKU, uppercased). Persisted para
+    # permitir contagem exata de ocupação do espaço de sufixos sem ambiguidade
+    # de prefixo entre bases distintas.
+    base = Column(String(50), nullable=True)
     usado = Column(Boolean, nullable=False, default=False)
     usado_em = Column(DateTime, nullable=True)
     usado_por = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True)

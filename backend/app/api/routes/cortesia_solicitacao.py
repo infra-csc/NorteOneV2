@@ -20,7 +20,7 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
-from sqlalchemy import func
+from sqlalchemy import and_, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -86,6 +86,84 @@ _CODIGO_CUPOM_INDICE_UNICO = "ux_cortesia_cupom_codigo_codigo"
 
 def _codigo_cupom_existe(db: Session, codigo: str) -> bool:
     return db.query(CortesiaCupomCodigo.id).filter(func.upper(CortesiaCupomCodigo.codigo) == codigo).first() is not None
+
+
+def _verificar_espaco_cupom(db: Session, base: str, quantidade: int) -> None:
+    """Pré-vôo: verifica se há espaço suficiente no alfabeto de sufixos para
+    gerar *quantidade* novos códigos únicos com este base (sigla+SKU).
+
+    Levanta HTTP 400 claro em dois cenários:
+    - Espaço totalmente esgotado: não há combinações restantes o suficiente.
+    - Espaço quase esgotado (>90% já utilizado): evita que a geração falhe
+      silenciosamente no loop de tentativas quando a densidade é alta.
+
+    Não bloqueia para bases com espaço amplo (caso normal); só age quando o
+    sufixo é mínimo (_CODIGO_CUPOM_SUFIXO_MIN) e a densidade está elevada.
+    """
+    sufixo_len = max(_CODIGO_CUPOM_SUFIXO_MIN, _CODIGO_CUPOM_TAMANHO_TOTAL - len(base))
+    total_combinacoes = len(_CODIGO_CUPOM_ALPHABET) ** sufixo_len
+
+    # Comprimento exato que todos os códigos gerados para este base terão.
+    comprimento_codigo = len(base) + sufixo_len
+
+    # Conta os códigos ocupados por este base em dois grupos:
+    #
+    # 1. Linhas com base preenchida (coluna adicionada + backfill): match
+    #    exato na coluna base — sem ambiguidade de prefixo entre bases distintas.
+    #
+    # 2. Linhas legadas com base IS NULL (geradas antes da coluna existir e
+    #    que a migração de backfill não conseguiu preencher — e.g. sigla ou SKU
+    #    ausentes no momento da migração): fallback via comprimento exato +
+    #    prefixo escapado.  Pode sobre-contar ligeiramente quando bases distintas
+    #    compartilham prefixo (e.g. "AB" vs "ABC"), mas erra do lado conservador
+    #    correto — impede falsos negativos na guarda de esgotamento.
+    base_escaped = base.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    ja_usados = (
+        db.query(func.count(CortesiaCupomCodigo.id))
+        .filter(
+            or_(
+                CortesiaCupomCodigo.base == base,
+                and_(
+                    CortesiaCupomCodigo.base.is_(None),
+                    func.length(CortesiaCupomCodigo.codigo) == comprimento_codigo,
+                    func.upper(CortesiaCupomCodigo.codigo).like(
+                        f"{base_escaped}%", escape="\\"
+                    ),
+                ),
+            )
+        )
+        .scalar()
+    ) or 0
+
+    espaco_restante = total_combinacoes - ja_usados
+
+    if quantidade > espaco_restante:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Não há combinações únicas suficientes para gerar {quantidade} cupons com "
+                f"a base '{base}' (sigla+SKU). "
+                f"Espaço total: {total_combinacoes:,} combinações; "
+                f"já utilizadas: {ja_usados:,}; disponíveis: {max(0, espaco_restante):,}. "
+                "Ajuste a sigla da área ou o SKU do evento para ampliar o espaço disponível."
+            ),
+        )
+
+    # Limiar de segurança: nega a geração quando mais de 90 % do espaço já foi
+    # consumido, pois a taxa de colisões sobe rapidamente e tornaria o loop de
+    # tentativas por código quase certo de falhar.
+    if total_combinacoes > 0 and (ja_usados + quantidade) > total_combinacoes * 0.9:
+        pct_usado = ja_usados / total_combinacoes * 100
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"O espaço de códigos para a base '{base}' (sigla+SKU) está quase esgotado: "
+                f"{ja_usados:,} de {total_combinacoes:,} combinações já utilizadas "
+                f"({pct_usado:.1f}%). Gerar mais {quantidade} cupom(ns) ultrapassaria "
+                "o limite de segurança de 90 % de ocupação. "
+                "Ajuste a sigla da área ou o SKU do evento para ampliar o espaço disponível."
+            ),
+        )
 
 
 def _gerar_codigo_cupom_unico(db: Session, base: str, ja_gerados: list[str]) -> str:
@@ -501,6 +579,10 @@ def gerar_cupom(
         )
     quantidade = max(1, sol.quantidade or 1)
 
+    # Pré-vôo: garante que há espaço suficiente no alfabeto de sufixos antes
+    # de iniciar qualquer tentativa de geração (HTTP 400 explícito se não há).
+    _verificar_espaco_cupom(db, base, quantidade)
+
     # Retry no nível da transação: mesmo com a checagem prévia de unicidade,
     # uma colisão real só é detectada pelo índice único no commit — nesse
     # caso descarta tudo e gera de novo (memory: delete-insert-child-race).
@@ -517,7 +599,7 @@ def gerar_cupom(
         sol.gerado_em = _now_brasilia()
 
         for codigo in codigos:
-            db.add(CortesiaCupomCodigo(solicitacao_id=sol.id, codigo=codigo))
+            db.add(CortesiaCupomCodigo(solicitacao_id=sol.id, codigo=codigo, base=base))
 
         try:
             db.commit()

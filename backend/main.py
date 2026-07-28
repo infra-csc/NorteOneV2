@@ -1787,6 +1787,20 @@ def _run_column_migrations():
             "ALTER TABLE area_projecao ADD COLUMN IF NOT EXISTS sigla VARCHAR(10)",
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_area_projecao_sigla ON area_projecao (UPPER(sigla)) WHERE sigla IS NOT NULL",
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_cortesia_cupom_codigo_codigo ON cortesia_cupom_codigo (UPPER(codigo))",
+            # base column: stores the sigla+SKU prefix used when generating each code,
+            # enabling exact per-base occupancy accounting without prefix-overlap ambiguity.
+            "ALTER TABLE cortesia_cupom_codigo ADD COLUMN IF NOT EXISTS base VARCHAR(50)",
+            # Backfill base for legacy rows that pre-date the column: derive it from the
+            # solicitacao → area (sigla) + evento (sku) join, same formula as the route.
+            """UPDATE cortesia_cupom_codigo AS ccc
+               SET base = UPPER(TRIM(a.sigla) || TRIM(e.sku))
+               FROM cortesia_solicitacao s
+               JOIN area_projecao a ON a.id = s.area_projecao_id
+               JOIN cadastro_evento e ON e.id = s.evento_id
+               WHERE ccc.solicitacao_id = s.id
+                 AND ccc.base IS NULL
+                 AND a.sigla IS NOT NULL AND TRIM(a.sigla) <> ''
+                 AND e.sku   IS NOT NULL AND TRIM(e.sku)   <> ''""",
         ]
         migrations.extend(cupom_auto_migrations)
         for sql in migrations:
