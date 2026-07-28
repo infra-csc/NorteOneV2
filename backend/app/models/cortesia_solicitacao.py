@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text
+from sqlalchemy import Boolean, Column, Integer, String, DateTime, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -66,3 +66,27 @@ class CortesiaSolicitacao(Base):
     solicitante = relationship("Usuario", foreign_keys=[solicitado_por])
     gerador = relationship("Usuario", foreign_keys=[gerado_por])
     excluidor = relationship("Usuario", foreign_keys=[deleted_by])
+    codigos = relationship("CortesiaCupomCodigo", back_populates="solicitacao", order_by="CortesiaCupomCodigo.id")
+
+
+class CortesiaCupomCodigo(Base):
+    """Uma linha por código de cupom gerado dentro de uma solicitação.
+    Substitui o texto livre codigo_cupom (mantido para compatibilidade) com
+    rastreamento individual de uso."""
+    __tablename__ = "cortesia_cupom_codigo"
+
+    id = Column(Integer, primary_key=True, index=True)
+    solicitacao_id = Column(
+        Integer,
+        ForeignKey("cortesia_solicitacao.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    codigo = Column(String(300), nullable=False)
+    usado = Column(Boolean, nullable=False, default=False)
+    usado_em = Column(DateTime, nullable=True)
+    usado_por = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True)
+    created_at = Column(DateTime, default=_now_brasilia)
+
+    solicitacao = relationship("CortesiaSolicitacao", back_populates="codigos")
+    usuario_uso = relationship("Usuario", foreign_keys=[usado_por])

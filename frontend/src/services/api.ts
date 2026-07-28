@@ -1788,6 +1788,14 @@ export interface CortesiaEventoSaldoResponse {
   areas: CortesiaSaldoAreaItem[];
 }
 
+export interface CupomCodigoItem {
+  id: number;
+  codigo: string;
+  usado: boolean;
+  usado_em?: string | null;
+  usado_por_nome?: string | null;
+}
+
 export interface CortesiaSolicitacaoResponse {
   id: number;
   evento_id: number;
@@ -1801,6 +1809,7 @@ export interface CortesiaSolicitacaoResponse {
   observacao?: string | null;
   codigo_cupom?: string | null;
   codigo_cupom_lista?: string[];
+  codigos_detalhes?: CupomCodigoItem[];
   gerado_por_nome?: string | null;
   gerado_em?: string | null;
   nome_arquivo?: string | null;
@@ -1866,6 +1875,10 @@ export const cortesiaSolicitacaoService = {
   // sem recorte por área (backend usa pode_editar, não vínculo com a área).
   filaGeracao: async (): Promise<CortesiaSolicitacaoResponse[]> => {
     const response = await api.get('/cortesia-solicitacao/fila-geracao');
+    return response.data;
+  },
+  toggleCodigoUsado: async (solicitacaoId: number, codigoId: number): Promise<CupomCodigoItem> => {
+    const response = await api.patch(`/cortesia-solicitacao/${solicitacaoId}/codigos/${codigoId}/toggle-usado`);
     return response.data;
   },
   exportarCupons: async (params?: { evento_id?: number; area_projecao_id?: number }): Promise<void> => {

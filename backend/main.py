@@ -1748,6 +1748,38 @@ def _run_column_migrations():
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_kit_basico_per_evento ON kit_config (id_evento) WHERE is_kit_basico = TRUE",
             "CREATE INDEX IF NOT EXISTS ix_snapshot_data_venda ON vendas_diaria_snapshot (data_venda)",
         ]
+        # cortesia_cupom_codigo: per-code usage tracking child table
+        cupom_codigo_migrations = [
+            """CREATE TABLE IF NOT EXISTS cortesia_cupom_codigo (
+                id SERIAL PRIMARY KEY,
+                solicitacao_id INTEGER NOT NULL REFERENCES cortesia_solicitacao(id) ON DELETE CASCADE,
+                codigo VARCHAR(300) NOT NULL,
+                usado BOOLEAN NOT NULL DEFAULT FALSE,
+                usado_em TIMESTAMP,
+                usado_por INTEGER REFERENCES dim_usuario(id),
+                created_at TIMESTAMP DEFAULT NOW()
+            )""",
+            "CREATE INDEX IF NOT EXISTS ix_cortesia_cupom_codigo_solicitacao_id ON cortesia_cupom_codigo (solicitacao_id)",
+            # Backfill: insert one row per code for requests already generated that have no child rows yet.
+            # Uses regexp_split_to_table to match _parse_codigos_cupom: splits on newline, comma, or
+            # semicolon — so legacy records stored as "A,B,C" or "A;B;C" get one child row per code.
+            """INSERT INTO cortesia_cupom_codigo (solicitacao_id, codigo, usado, created_at)
+               SELECT cs.id,
+                      trim(token),
+                      FALSE,
+                      COALESCE(cs.gerado_em, cs.created_at)
+               FROM cortesia_solicitacao cs,
+                    LATERAL regexp_split_to_table(cs.codigo_cupom, E'[\\r\\n,;]+') AS token
+               WHERE cs.tipo = 'cupom'
+                 AND cs.status = 'gerado'
+                 AND cs.codigo_cupom IS NOT NULL
+                 AND cs.deleted_at IS NULL
+                 AND trim(token) <> ''
+                 AND NOT EXISTS (
+                     SELECT 1 FROM cortesia_cupom_codigo cc WHERE cc.solicitacao_id = cs.id
+                 )""",
+        ]
+        migrations.extend(cupom_codigo_migrations)
         migrations.extend(kit_basico_idx)
         for sql in migrations:
             try:

@@ -1,12 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { cortesiaSolicitacaoService } from '../../services/api';
-import type { CortesiaEventoSaldoResponse, CortesiaSolicitacaoResponse } from '../../services/api';
+import type { CortesiaEventoSaldoResponse, CortesiaSolicitacaoResponse, CupomCodigoItem } from '../../services/api';
 import { useTheme } from '../../context/ThemeContext';
 import { usePermissions } from '../../context/PermissionContext';
 import {
   Gift, Plus, X, RefreshCw, AlertTriangle, Ticket, FileSpreadsheet,
   CheckCircle2, Clock, Download, Trash2, ChevronDown, ChevronUp,
   LayoutGrid, List as ListIcon, Upload, Copy, Check, ClipboardList, FileDown,
+  ToggleLeft, ToggleRight,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────
@@ -85,8 +86,20 @@ const colunaDe = (sol: CortesiaSolicitacaoResponse): KanbanColKey => {
 
 // Lista de códigos reutilizada na tabela, no Kanban e na aba de geração.
 // "compact": poucos chips + copiar tudo (linha/card de uma solicitação).
-// "full": lista completa rolável, com copiar por código (aba de geração).
-const CodigosList: React.FC<{ codigos: string[]; isDark: boolean; variant?: 'compact' | 'full' }> = ({ codigos, isDark, variant = 'compact' }) => {
+// "full": lista completa rolável, com copiar por código e toggle de uso (aba de geração).
+//
+// Quando codigos_detalhes está disponível, mostra badge usado/disponível por código.
+// O toggle só aparece em variant="full" quando onToggleUsado é passado.
+interface CodigosListProps {
+  codigos: string[];
+  isDark: boolean;
+  variant?: 'compact' | 'full';
+  detalhes?: CupomCodigoItem[];
+  onToggleUsado?: (item: CupomCodigoItem) => void;
+  togglingId?: number | null;
+}
+
+const CodigosList: React.FC<CodigosListProps> = ({ codigos, isDark, variant = 'compact', detalhes, onToggleUsado, togglingId }) => {
   const [copiedAll, setCopiedAll] = useState(false);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
 
@@ -112,16 +125,37 @@ const CodigosList: React.FC<{ codigos: string[]; isDark: boolean; variant?: 'com
     }
   };
 
+  // Quantos códigos já foram marcados como usados (para a variante compact)
+  const usadosCount = detalhes ? detalhes.filter(d => d.usado).length : 0;
+
   if (variant === 'compact') {
     const visiveis = codigos.slice(0, 3);
     const resto = codigos.length - visiveis.length;
     return (
       <div className="flex flex-wrap items-center gap-1 mt-1">
-        {visiveis.map((c, i) => (
-          <span key={i} className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${isDark ? 'bg-gray-900/60 text-gray-300' : 'bg-gray-100 text-gray-700'}`}>{c}</span>
-        ))}
+        {visiveis.map((c, i) => {
+          const det = detalhes?.[i];
+          return (
+            <span
+              key={i}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${
+                det?.usado
+                  ? (isDark ? 'bg-gray-700 text-gray-500 line-through' : 'bg-gray-100 text-gray-400 line-through')
+                  : (isDark ? 'bg-gray-900/60 text-gray-300' : 'bg-gray-100 text-gray-700')
+              }`}
+              title={det?.usado ? `Usado em ${det.usado_em ? new Date(det.usado_em).toLocaleString('pt-BR') : '—'}` : undefined}
+            >
+              {c}
+            </span>
+          );
+        })}
         {resto > 0 && (
           <span className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>+{resto}</span>
+        )}
+        {detalhes && usadosCount > 0 && (
+          <span className={`text-[10px] font-semibold ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
+            {usadosCount}/{detalhes.length} usados
+          </span>
         )}
         <button
           type="button"
@@ -138,7 +172,14 @@ const CodigosList: React.FC<{ codigos: string[]; isDark: boolean; variant?: 'com
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between">
-        <p className={`text-[11px] font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{codigos.length} código(s)</p>
+        <p className={`text-[11px] font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+          {codigos.length} código(s)
+          {detalhes && usadosCount > 0 && (
+            <span className={`ml-1.5 ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
+              · {usadosCount} usado{usadosCount !== 1 ? 's' : ''}
+            </span>
+          )}
+        </p>
         <button
           type="button"
           onClick={copiarTudo}
@@ -147,15 +188,59 @@ const CodigosList: React.FC<{ codigos: string[]; isDark: boolean; variant?: 'com
           {copiedAll ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />} {copiedAll ? 'Copiado' : 'Copiar todos'}
         </button>
       </div>
-      <div className={`max-h-40 overflow-y-auto rounded-lg border divide-y ${isDark ? 'border-gray-700 divide-gray-700' : 'border-gray-200 divide-gray-100'}`}>
-        {codigos.map((c, i) => (
-          <div key={i} className={`flex items-center justify-between gap-2 px-2 py-1 text-xs font-mono ${isDark ? 'text-gray-200' : 'text-gray-700'}`}>
-            <span className="truncate">{c}</span>
-            <button type="button" onClick={() => copiarUm(c, i)} className={`shrink-0 ${isDark ? 'text-gray-500 hover:text-white' : 'text-gray-400 hover:text-gray-700'}`}>
-              {copiedIdx === i ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
-            </button>
-          </div>
-        ))}
+      <div className={`max-h-48 overflow-y-auto rounded-lg border divide-y ${isDark ? 'border-gray-700 divide-gray-700' : 'border-gray-200 divide-gray-100'}`}>
+        {codigos.map((c, i) => {
+          const det = detalhes?.[i];
+          const isUsado = det?.usado ?? false;
+          const isToggling = det && togglingId === det.id;
+          return (
+            <div
+              key={det?.id ?? i}
+              className={`flex items-center gap-2 px-2 py-1.5 text-xs font-mono ${
+                isUsado
+                  ? (isDark ? 'bg-gray-900/40 text-gray-600' : 'bg-gray-50 text-gray-400')
+                  : (isDark ? 'text-gray-200' : 'text-gray-700')
+              }`}
+            >
+              {/* Used/available badge */}
+              {detalhes && (
+                <span
+                  className={`shrink-0 text-[9px] font-bold uppercase rounded px-1 py-0.5 ${
+                    isUsado
+                      ? (isDark ? 'bg-gray-700 text-gray-500' : 'bg-gray-200 text-gray-500')
+                      : (isDark ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-700')
+                  }`}
+                  title={isUsado && det?.usado_em ? `Usado em ${new Date(det.usado_em).toLocaleString('pt-BR')}${det.usado_por_nome ? ` por ${det.usado_por_nome}` : ''}` : undefined}
+                >
+                  {isUsado ? 'Usado' : 'Disponível'}
+                </span>
+              )}
+              <span className={`flex-1 truncate ${isUsado ? 'line-through' : ''}`}>{c}</span>
+              <div className="shrink-0 flex items-center gap-1">
+                {/* Copy button */}
+                <button type="button" onClick={() => copiarUm(c, i)} title="Copiar código" className={`${isDark ? 'text-gray-500 hover:text-white' : 'text-gray-400 hover:text-gray-700'}`}>
+                  {copiedIdx === i ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                </button>
+                {/* Toggle used button */}
+                {onToggleUsado && det && (
+                  <button
+                    type="button"
+                    disabled={!!isToggling}
+                    onClick={() => onToggleUsado(det)}
+                    title={isUsado ? 'Marcar como disponível' : 'Marcar como usado'}
+                    className={`transition-colors disabled:opacity-40 ${
+                      isUsado
+                        ? (isDark ? 'text-amber-400 hover:text-amber-300' : 'text-amber-500 hover:text-amber-700')
+                        : (isDark ? 'text-gray-500 hover:text-emerald-400' : 'text-gray-400 hover:text-emerald-600')
+                    }`}
+                  >
+                    {isUsado ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -170,9 +255,11 @@ interface CardActionsProps {
   onGerar: (sol: CortesiaSolicitacaoResponse) => void;
   onCancelar: (sol: CortesiaSolicitacaoResponse) => void;
   onBaixar: (sol: CortesiaSolicitacaoResponse) => void;
+  onToggleUsado?: (sol: CortesiaSolicitacaoResponse, item: CupomCodigoItem) => void;
+  togglingCodigoId?: number | null;
 }
 
-const KanbanCard: React.FC<CardActionsProps> = ({ sol, isDark, podeGerarCupom, podeCancelar, cancelandoId, onGerar, onCancelar, onBaixar }) => {
+const KanbanCard: React.FC<CardActionsProps> = ({ sol, isDark, podeGerarCupom, podeCancelar, cancelandoId, onGerar, onCancelar, onBaixar, onToggleUsado, togglingCodigoId }) => {
   const codigos = codigosDe(sol);
   return (
     <div className={`rounded-xl border p-3 space-y-2 ${isDark ? 'bg-gray-800/60 border-gray-700' : 'bg-white border-gray-200'}`}>
@@ -186,7 +273,14 @@ const KanbanCard: React.FC<CardActionsProps> = ({ sol, isDark, podeGerarCupom, p
           {sol.quantidade}
         </span>
       </div>
-      {codigos.length > 0 && <CodigosList codigos={codigos} isDark={isDark} variant="compact" />}
+      {codigos.length > 0 && (
+        <CodigosList
+          codigos={codigos}
+          isDark={isDark}
+          variant="compact"
+          detalhes={sol.codigos_detalhes}
+        />
+      )}
       {sol.observacao && (
         <p className={`text-[11px] italic line-clamp-2 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{sol.observacao}</p>
       )}
@@ -215,7 +309,7 @@ const KanbanCard: React.FC<CardActionsProps> = ({ sol, isDark, podeGerarCupom, p
   );
 };
 
-const KanbanBoard: React.FC<{ solicitacoes: CortesiaSolicitacaoResponse[] } & Omit<CardActionsProps, 'sol'>> = ({ solicitacoes, isDark, ...cardProps }) => {
+const KanbanBoard: React.FC<{ solicitacoes: CortesiaSolicitacaoResponse[] } & Omit<CardActionsProps, 'sol'>> = ({ solicitacoes, isDark, ...cardProps  }) => {
   const porColuna = useMemo(() => {
     const grupos: Record<KanbanColKey, CortesiaSolicitacaoResponse[]> = { aguardando: [], gerado: [], recebida: [] };
     for (const sol of solicitacoes) grupos[colunaDe(sol)].push(sol);
@@ -300,6 +394,7 @@ const SolicitacaoCortesias: React.FC = () => {
   const [fileInputKey, setFileInputKey] = useState(0);
 
   const [cancelandoId, setCancelandoId] = useState<number | null>(null);
+  const [togglingCodigoId, setTogglingCodigoId] = useState<number | null>(null);
 
   const codigosParsedModal = useMemo(() => parseCodigos(codigosTexto), [codigosTexto]);
 
@@ -481,6 +576,31 @@ const SolicitacaoCortesias: React.FC = () => {
       window.alert(extractError(e));
     }
   };
+
+  const toggleUsado = useCallback(async (sol: CortesiaSolicitacaoResponse, item: CupomCodigoItem) => {
+    setTogglingCodigoId(item.id);
+    try {
+      const updated = await cortesiaSolicitacaoService.toggleCodigoUsado(sol.id, item.id);
+      // Patch the item in both local lists without a full reload
+      const patch = (list: CortesiaSolicitacaoResponse[]) =>
+        list.map(s =>
+          s.id !== sol.id
+            ? s
+            : {
+                ...s,
+                codigos_detalhes: (s.codigos_detalhes || []).map(c =>
+                  c.id === item.id ? updated : c
+                ),
+              }
+        );
+      setSolicitacoes(prev => patch(prev));
+      setFilaGeracao(prev => patch(prev));
+    } catch (e) {
+      window.alert(extractError(e));
+    } finally {
+      setTogglingCodigoId(null);
+    }
+  }, []);
 
   const exportarCupons = async () => {
     setExportando(true);
@@ -729,7 +849,12 @@ const SolicitacaoCortesias: React.FC = () => {
                               </span>
                             )}
                             {sol.tipo === 'cupom' && sol.status === 'gerado' && (
-                              <CodigosList codigos={codigosDe(sol)} isDark={isDark} variant="compact" />
+                              <CodigosList
+                                codigos={codigosDe(sol)}
+                                isDark={isDark}
+                                variant="compact"
+                                detalhes={sol.codigos_detalhes}
+                              />
                             )}
                           </td>
                           <td className={`px-3 py-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{sol.solicitado_por_nome || '—'}</td>
@@ -783,6 +908,8 @@ const SolicitacaoCortesias: React.FC = () => {
                   onGerar={abrirGerar}
                   onCancelar={cancelar}
                   onBaixar={baixar}
+                  onToggleUsado={podeGerarCupom ? toggleUsado : undefined}
+                  togglingCodigoId={togglingCodigoId}
                 />
               )}
             </div>
@@ -872,7 +999,14 @@ const SolicitacaoCortesias: React.FC = () => {
                             </p>
                             <span className={`shrink-0 text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{fmtDataHora(sol.gerado_em)} · {sol.gerado_por_nome || '—'}</span>
                           </div>
-                          <CodigosList codigos={codigosDe(sol)} isDark={isDark} variant="full" />
+                          <CodigosList
+                            codigos={codigosDe(sol)}
+                            isDark={isDark}
+                            variant="full"
+                            detalhes={sol.codigos_detalhes}
+                            onToggleUsado={item => toggleUsado(sol, item)}
+                            togglingId={togglingCodigoId}
+                          />
                         </div>
                       ))}
                     </div>

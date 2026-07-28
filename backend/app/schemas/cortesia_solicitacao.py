@@ -29,6 +29,17 @@ class CortesiaSolicitacaoGerarUpdate(BaseModel):
     codigo_cupom: str
 
 
+class CupomCodigoItem(BaseModel):
+    id: int
+    codigo: str
+    usado: bool
+    usado_em: Optional[datetime] = None
+    usado_por_nome: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 class CortesiaSolicitacaoResponse(BaseModel):
     id: int
     evento_id: int
@@ -42,6 +53,7 @@ class CortesiaSolicitacaoResponse(BaseModel):
     observacao: Optional[str] = None
     codigo_cupom: Optional[str] = None
     codigo_cupom_lista: List[str] = []
+    codigos_detalhes: List[CupomCodigoItem] = []
     gerado_por_nome: Optional[str] = None
     gerado_em: Optional[datetime] = None
     nome_arquivo: Optional[str] = None

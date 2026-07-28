@@ -31,6 +31,7 @@ from ...models.cortesia_solicitacao import (
     TIPO_CUPOM,
     TIPO_PLANILHA,
     CortesiaSolicitacao,
+    CortesiaCupomCodigo,
 )
 from ...models.projecao import AreaProjecao, AreaProjecaoUsuario, ProjecaoInscritos
 from ...models.user import Usuario
@@ -38,6 +39,7 @@ from ...schemas.cortesia_solicitacao import (
     CortesiaSolicitacaoCupomCreate,
     CortesiaSolicitacaoGerarUpdate,
     CortesiaSolicitacaoResponse,
+    CupomCodigoItem,
     EventoSaldoResponse,
     SaldoAreaItem,
 )
@@ -104,6 +106,21 @@ def _calcular_saldo(db: Session, evento_id: int, area_projecao_id: int) -> tuple
 
 
 def _serialize(sol: CortesiaSolicitacao) -> CortesiaSolicitacaoResponse:
+    codigos_detalhes = [
+        CupomCodigoItem(
+            id=c.id,
+            codigo=c.codigo,
+            usado=c.usado,
+            usado_em=c.usado_em,
+            usado_por_nome=c.usuario_uso.nome if c.usuario_uso else None,
+        )
+        for c in (sol.codigos or [])
+    ]
+    # codigo_cupom_lista: prefer per-code child rows when available, else parse blob
+    if codigos_detalhes:
+        codigo_cupom_lista = [c.codigo for c in codigos_detalhes]
+    else:
+        codigo_cupom_lista = _parse_codigos_cupom(sol.codigo_cupom)
     return CortesiaSolicitacaoResponse(
         id=sol.id,
         evento_id=sol.evento_id,
@@ -116,7 +133,8 @@ def _serialize(sol: CortesiaSolicitacao) -> CortesiaSolicitacaoResponse:
         status=sol.status,
         observacao=sol.observacao,
         codigo_cupom=sol.codigo_cupom,
-        codigo_cupom_lista=_parse_codigos_cupom(sol.codigo_cupom),
+        codigo_cupom_lista=codigo_cupom_lista,
+        codigos_detalhes=codigos_detalhes,
         gerado_por_nome=sol.gerador.nome if sol.gerador else None,
         gerado_em=sol.gerado_em,
         nome_arquivo=sol.nome_arquivo,
@@ -422,9 +440,61 @@ def gerar_cupom(
     from datetime import datetime
     from zoneinfo import ZoneInfo
     sol.gerado_em = datetime.now(ZoneInfo('America/Sao_Paulo')).replace(tzinfo=None)
+
+    # Cria uma linha por código na tabela filho (rastreamento individual).
+    for codigo in codigos:
+        db.add(CortesiaCupomCodigo(solicitacao_id=sol.id, codigo=codigo))
+
     db.commit()
     db.refresh(sol)
     return _serialize(sol)
+
+
+@router.patch("/{solicitacao_id}/codigos/{codigo_id}/toggle-usado", response_model=CupomCodigoItem)
+def toggle_codigo_usado(
+    solicitacao_id: int,
+    codigo_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(CORTESIA_SOLICITACAO_PERMISSION, "pode_editar")),
+):
+    """Alterna o status de uso de um código individual (usado ↔ não usado).
+    Restrito a quem tem permissão de edição do módulo (mesmo papel que gera cupons)."""
+    sol = db.query(CortesiaSolicitacao).filter(
+        CortesiaSolicitacao.id == solicitacao_id,
+        CortesiaSolicitacao.deleted_at.is_(None),
+    ).first()
+    if not sol:
+        raise HTTPException(status_code=404, detail="Solicitação não encontrada")
+
+    codigo = db.query(CortesiaCupomCodigo).filter(
+        CortesiaCupomCodigo.id == codigo_id,
+        CortesiaCupomCodigo.solicitacao_id == solicitacao_id,
+    ).first()
+    if not codigo:
+        raise HTTPException(status_code=404, detail="Código não encontrado")
+
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    agora = datetime.now(ZoneInfo('America/Sao_Paulo')).replace(tzinfo=None)
+
+    if codigo.usado:
+        codigo.usado = False
+        codigo.usado_em = None
+        codigo.usado_por = None
+    else:
+        codigo.usado = True
+        codigo.usado_em = agora
+        codigo.usado_por = current_user.id
+
+    db.commit()
+    db.refresh(codigo)
+    return CupomCodigoItem(
+        id=codigo.id,
+        codigo=codigo.codigo,
+        usado=codigo.usado,
+        usado_em=codigo.usado_em,
+        usado_por_nome=codigo.usuario_uso.nome if codigo.usuario_uso else None,
+    )
 
 
 @router.get("/exportar-cupons")
