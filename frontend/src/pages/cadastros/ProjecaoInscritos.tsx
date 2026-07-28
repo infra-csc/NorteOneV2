@@ -256,6 +256,7 @@ interface ConsolidadoEvento {
 interface AreaDetail {
   id: number;
   nome: string;
+  sigla?: string | null;
   ativo: boolean;
   usa_cutoff_customizado?: boolean;
   usuarios: { id: number; usuario_id: number; usuario_nome: string; usuario_email: string }[];
@@ -1111,6 +1112,10 @@ const ProjecaoInscritos: React.FC = () => {
 
   const [showCreateAreaModal, setShowCreateAreaModal] = useState(false);
   const [newAreaNome, setNewAreaNome] = useState('');
+  const [newAreaSigla, setNewAreaSigla] = useState('');
+
+  const [editSiglaArea, setEditSiglaArea] = useState<AreaDetail | null>(null);
+  const [editSiglaValue, setEditSiglaValue] = useState('');
 
   const [expandedConsolidado, setExpandedConsolidado] = useState<Set<number>>(new Set());
   const [expandedAreaKits, setExpandedAreaKits] = useState<Set<string>>(new Set());
@@ -2605,20 +2610,51 @@ const ProjecaoInscritos: React.FC = () => {
   const handleCreateArea = async (e: React.FormEvent) => {
     e.preventDefault();
     const nome = newAreaNome.trim();
+    const sigla = newAreaSigla.trim();
     if (!nome) {
       showToast('Informe o nome da área.');
       return;
     }
+    if (!sigla) {
+      showToast('Informe a sigla da área.');
+      return;
+    }
     try {
-      await projecaoService.createArea(nome);
+      await projecaoService.createArea(nome, sigla);
       projClearCache('proj_projecoes_v1', 'proj_areas_v1');
       setShowCreateAreaModal(false);
       setNewAreaNome('');
+      setNewAreaSigla('');
       loadAreasDetail();
       loadData();
       showToast('Área criada com sucesso', 'success');
     } catch (error: any) {
       showToast(error.response?.data?.detail || 'Erro ao criar área');
+    }
+  };
+
+  const openEditSigla = (area: AreaDetail) => {
+    setEditSiglaArea(area);
+    setEditSiglaValue(area.sigla || '');
+  };
+
+  const submitEditSigla = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editSiglaArea) return;
+    const sigla = editSiglaValue.trim();
+    if (!sigla) {
+      showToast('Informe a sigla da área.');
+      return;
+    }
+    try {
+      await projecaoService.updateAreaSigla(editSiglaArea.id, sigla);
+      projClearCache('proj_projecoes_v1', 'proj_areas_v1');
+      setEditSiglaArea(null);
+      loadAreasDetail();
+      loadData();
+      showToast('Sigla atualizada com sucesso', 'success');
+    } catch (error: any) {
+      showToast(error.response?.data?.detail || 'Erro ao atualizar sigla');
     }
   };
 
@@ -4721,6 +4757,18 @@ const ProjecaoInscritos: React.FC = () => {
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{area.nome}</h3>
+                        <button
+                          onClick={() => openEditSigla(area)}
+                          title="Editar sigla (usada para gerar códigos de cupom)"
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${
+                            area.sigla
+                              ? isDark ? 'bg-violet-500/20 text-violet-300 border border-violet-500/30 hover:bg-violet-500/30' : 'bg-violet-100 text-violet-700 border border-violet-200 hover:bg-violet-200'
+                              : isDark ? 'bg-red-500/20 text-red-300 border border-red-500/30 hover:bg-red-500/30' : 'bg-red-100 text-red-700 border border-red-200 hover:bg-red-200'
+                          }`}
+                        >
+                          <Pencil className="w-2.5 h-2.5" />
+                          {area.sigla ? `Sigla: ${area.sigla}` : 'Sem sigla'}
+                        </button>
                         {area.usa_cutoff_customizado && (
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${isDark ? 'bg-orange-500/20 text-orange-300 border border-orange-500/30' : 'bg-orange-100 text-orange-700 border border-orange-200'}`}>
                             <Clock className="w-2.5 h-2.5" />
@@ -5971,6 +6019,22 @@ const ProjecaoInscritos: React.FC = () => {
                   autoFocus
                 />
               </div>
+              <div>
+                <label className={`block text-sm font-semibold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Sigla
+                </label>
+                <input
+                  type="text"
+                  value={newAreaSigla}
+                  onChange={e => setNewAreaSigla(e.target.value.toUpperCase())}
+                  placeholder="Ex: MKT, RH, SITE..."
+                  maxLength={10}
+                  className={`${inputClass} uppercase`}
+                />
+                <p className={`text-xs mt-1.5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                  2 a 10 letras/números, sem espaços. Usada como prefixo nos códigos de cupom gerados automaticamente para esta área.
+                </p>
+              </div>
               <div className="flex justify-end gap-3 pt-2">
                 <button
                   type="button"
@@ -5984,6 +6048,54 @@ const ProjecaoInscritos: React.FC = () => {
                   className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 text-white font-semibold shadow-lg hover:shadow-xl transition-all"
                 >
                   Criar Área
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Editar Sigla da Área Modal */}
+      {editSiglaArea && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className={`w-full max-w-md rounded-2xl shadow-2xl ${isDark ? 'bg-gray-800 border border-gray-700' : 'bg-white'}`}>
+            <div className="flex items-center justify-between p-6 border-b border-gray-700/50">
+              <h2 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Sigla da Área</h2>
+              <button onClick={() => setEditSiglaArea(null)} className="p-2 rounded-lg hover:bg-gray-700/50">
+                <X className={`w-5 h-5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+              </button>
+            </div>
+            <form onSubmit={submitEditSigla} className="p-6 space-y-4">
+              <div>
+                <label className={`block text-sm font-semibold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Sigla de "{editSiglaArea.nome}"
+                </label>
+                <input
+                  type="text"
+                  value={editSiglaValue}
+                  onChange={e => setEditSiglaValue(e.target.value.toUpperCase())}
+                  placeholder="Ex: MKT, RH, SITE..."
+                  maxLength={10}
+                  className={`${inputClass} uppercase`}
+                  autoFocus
+                />
+                <p className={`text-xs mt-1.5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                  2 a 10 letras/números, sem espaços. Usada como prefixo nos códigos de cupom gerados automaticamente para esta área.
+                </p>
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditSiglaArea(null)}
+                  className={`px-4 py-2.5 rounded-xl font-semibold ${isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 text-white font-semibold shadow-lg hover:shadow-xl transition-all"
+                >
+                  Salvar
                 </button>
               </div>
             </form>

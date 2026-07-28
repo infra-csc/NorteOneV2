@@ -38,6 +38,7 @@ from ...schemas.projecao import (
     CorteDistAreaResponse,
     CutoffRuleCreate, CutoffRuleUpdate, CutoffRuleResponse,
     PendenciaItem, PendenciasResponse, AreaPendenteItem,
+    AreaSiglaUpdate,
     AreaCutoffCustomizadoToggle, CutoffEventoAreaUpsert, CutoffEventoAreaResponse,
     AutoLockConfigUpdate, AutoLockConfigResponse,
     CorteConfigUpdate, CorteConfigResponse, AlertaConfigUpdate,
@@ -113,6 +114,22 @@ def _invalidate_areas_cache():
     with _areas_cache_lock:
         _areas_cache["data"] = None
         _areas_cache["ts"] = 0.0
+
+
+# Sigla da área: usada como prefixo dos códigos de cupom gerados automaticamente
+# (task #174). Curta, só letras/números, para o código final não ficar longo
+# demais nem ambíguo.
+_SIGLA_RE = re.compile(r"^[A-Z0-9]{2,10}$")
+
+
+def _normalizar_sigla(sigla: str) -> str:
+    valor = (sigla or "").strip().upper()
+    if not _SIGLA_RE.match(valor):
+        raise HTTPException(
+            status_code=400,
+            detail="A sigla deve ter de 2 a 10 letras/números, sem espaços, acentos ou símbolos.",
+        )
+    return valor
 
 
 def _invalidate_cutoff_rules_cache():
@@ -211,6 +228,7 @@ def list_areas_detail(
         result.append(AreaProjecaoDetailResponse(
             id=area.id,
             nome=area.nome,
+            sigla=area.sigla,
             ativo=area.ativo,
             usa_cutoff_customizado=area.usa_cutoff_customizado,
             created_at=area.created_at,
@@ -233,7 +251,11 @@ def create_area(
     existing = db.query(AreaProjecao).filter(AreaProjecao.nome == nome).first()
     if existing:
         raise HTTPException(status_code=400, detail="Já existe uma área com este nome")
-    area = AreaProjecao(nome=nome)
+    sigla = _normalizar_sigla(data.sigla)
+    sigla_existente = db.query(AreaProjecao).filter(func.upper(AreaProjecao.sigla) == sigla).first()
+    if sigla_existente:
+        raise HTTPException(status_code=400, detail=f"A sigla '{sigla}' já está em uso pela área '{sigla_existente.nome}'")
+    area = AreaProjecao(nome=nome, sigla=sigla)
     db.add(area)
     db.commit()
     db.refresh(area)
@@ -2893,6 +2915,35 @@ def toggle_area_cutoff_customizado(
     if not area:
         raise HTTPException(status_code=404, detail="Área não encontrada")
     area.usa_cutoff_customizado = bool(data.ativo)
+    db.commit()
+    db.refresh(area)
+    _invalidate_areas_cache()
+    return area
+
+
+@router.put("/areas/{area_id}/sigla", response_model=AreaProjecaoResponse)
+def update_area_sigla(
+    area_id: int,
+    data: AreaSiglaUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
+):
+    """Define/atualiza a sigla de uma área já existente (task #174). A sigla é
+    o prefixo usado na geração automática de código de cupom; mudar aqui não
+    altera códigos já gerados anteriormente (texto estático já persistido)."""
+    if not is_user_admin(current_user):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem alterar a sigla da área")
+    area = db.query(AreaProjecao).filter(AreaProjecao.id == area_id).first()
+    if not area:
+        raise HTTPException(status_code=404, detail="Área não encontrada")
+    sigla = _normalizar_sigla(data.sigla)
+    sigla_existente = db.query(AreaProjecao).filter(
+        func.upper(AreaProjecao.sigla) == sigla,
+        AreaProjecao.id != area_id,
+    ).first()
+    if sigla_existente:
+        raise HTTPException(status_code=400, detail=f"A sigla '{sigla}' já está em uso pela área '{sigla_existente.nome}'")
+    area.sigla = sigla
     db.commit()
     db.refresh(area)
     _invalidate_areas_cache()

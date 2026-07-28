@@ -1852,8 +1852,8 @@ export const cortesiaSolicitacaoService = {
     });
     return response.data;
   },
-  gerarCupom: async (id: number, codigo_cupom: string): Promise<CortesiaSolicitacaoResponse> => {
-    const response = await api.post(`/cortesia-solicitacao/${id}/gerar`, { codigo_cupom });
+  gerarCupom: async (id: number): Promise<CortesiaSolicitacaoResponse> => {
+    const response = await api.post(`/cortesia-solicitacao/${id}/gerar`);
     return response.data;
   },
   cancelar: async (id: number) => {
@@ -1903,8 +1903,12 @@ export const projecaoService = {
     const response = await api.get('/projecao/areas/detail');
     return response.data;
   },
-  createArea: async (nome: string) => {
-    const response = await api.post('/projecao/areas', { nome });
+  createArea: async (nome: string, sigla: string) => {
+    const response = await api.post('/projecao/areas', { nome, sigla });
+    return response.data;
+  },
+  updateAreaSigla: async (areaId: number, sigla: string) => {
+    const response = await api.put(`/projecao/areas/${areaId}/sigla`, { sigla });
     return response.data;
   },
   atribuirUsuarios: async (data: { area_projecao_id: number; usuario_ids: number[] }) => {

@@ -1781,6 +1781,14 @@ def _run_column_migrations():
         ]
         migrations.extend(cupom_codigo_migrations)
         migrations.extend(kit_basico_idx)
+        # sigla da área (task #174 — geração automática de código de cupom) +
+        # unicidade real no banco tanto da sigla quanto do código gerado.
+        cupom_auto_migrations = [
+            "ALTER TABLE area_projecao ADD COLUMN IF NOT EXISTS sigla VARCHAR(10)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_area_projecao_sigla ON area_projecao (UPPER(sigla)) WHERE sigla IS NOT NULL",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_cortesia_cupom_codigo_codigo ON cortesia_cupom_codigo (UPPER(codigo))",
+        ]
+        migrations.extend(cupom_auto_migrations)
         for sql in migrations:
             try:
                 db.execute(text(sql))

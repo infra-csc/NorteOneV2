@@ -6,6 +6,7 @@ from datetime import datetime
 class AreaProjecaoResponse(BaseModel):
     id: int
     nome: str
+    sigla: Optional[str] = None
     ativo: bool
     usa_cutoff_customizado: bool = False
     created_at: Optional[datetime] = None
@@ -35,6 +36,11 @@ class AreaProjecaoDetailResponse(AreaProjecaoResponse):
 
 class AreaProjecaoCreate(BaseModel):
     nome: str
+    sigla: str
+
+
+class AreaSiglaUpdate(BaseModel):
+    sigla: str
 
 
 class AreaProjecaoUsuarioCreate(BaseModel):

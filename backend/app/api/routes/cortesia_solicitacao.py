@@ -14,12 +14,14 @@ import io
 import logging
 import os
 import re
+import secrets
 import uuid
 from datetime import date
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ...core.database import get_db
@@ -32,12 +34,12 @@ from ...models.cortesia_solicitacao import (
     TIPO_PLANILHA,
     CortesiaSolicitacao,
     CortesiaCupomCodigo,
+    _now_brasilia,
 )
 from ...models.projecao import AreaProjecao, AreaProjecaoUsuario, ProjecaoInscritos
 from ...models.user import Usuario
 from ...schemas.cortesia_solicitacao import (
     CortesiaSolicitacaoCupomCreate,
-    CortesiaSolicitacaoGerarUpdate,
     CortesiaSolicitacaoResponse,
     CupomCodigoItem,
     EventoSaldoResponse,
@@ -66,6 +68,39 @@ def _parse_codigos_cupom(texto: str | None) -> list[str]:
     if not texto:
         return []
     return [c.strip() for c in _CODIGO_CUPOM_SPLIT_RE.split(texto) if c.strip()]
+
+
+# Geração automática de código de cupom (task #174): sigla da área + SKU do
+# evento + sufixo aleatório, todos os códigos com o mesmo tamanho total fixo.
+# Alfabeto sem 0/O/1/I/L para não confundir na hora de digitar/conferir.
+# Sigla vai até 10 caracteres e o SKU do evento varia hoje entre 8 e 10 —
+# o total precisa cobrir o pior caso (10+10=20) mais um sufixo com entropia
+# mínima, senão combinações longas estourariam o tamanho fixo dos demais.
+_CODIGO_CUPOM_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+_CODIGO_CUPOM_TAMANHO_TOTAL = 26
+_CODIGO_CUPOM_SUFIXO_MIN = 6
+_CODIGO_CUPOM_BASE_MAXIMA = _CODIGO_CUPOM_TAMANHO_TOTAL - _CODIGO_CUPOM_SUFIXO_MIN
+_CODIGO_CUPOM_MAX_TENTATIVAS = 30
+_CODIGO_CUPOM_INDICE_UNICO = "ux_cortesia_cupom_codigo_codigo"
+
+
+def _codigo_cupom_existe(db: Session, codigo: str) -> bool:
+    return db.query(CortesiaCupomCodigo.id).filter(func.upper(CortesiaCupomCodigo.codigo) == codigo).first() is not None
+
+
+def _gerar_codigo_cupom_unico(db: Session, base: str, ja_gerados: list[str]) -> str:
+    """Gera um código único (contra o histórico já persistido + os já
+    reservados nesta mesma chamada). Levanta HTTPException 500 clara se
+    esgotar as tentativas — nunca retorna um código sem checar unicidade."""
+    sufixo_len = max(_CODIGO_CUPOM_SUFIXO_MIN, _CODIGO_CUPOM_TAMANHO_TOTAL - len(base))
+    for _ in range(_CODIGO_CUPOM_MAX_TENTATIVAS):
+        sufixo = "".join(secrets.choice(_CODIGO_CUPOM_ALPHABET) for _ in range(sufixo_len))
+        candidato = f"{base}{sufixo}"
+        if candidato in ja_gerados:
+            continue
+        if not _codigo_cupom_existe(db, candidato):
+            return candidato
+    raise HTTPException(status_code=500, detail="Não foi possível gerar um código de cupom único. Tente novamente.")
 
 
 def _get_user_area_ids(db: Session, user_id: int) -> set:
@@ -413,10 +448,13 @@ async def criar_solicitacao_planilha(
 @router.post("/{solicitacao_id}/gerar", response_model=CortesiaSolicitacaoResponse)
 def gerar_cupom(
     solicitacao_id: int,
-    data: CortesiaSolicitacaoGerarUpdate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission(CORTESIA_SOLICITACAO_PERMISSION, "pode_editar")),
 ):
+    """Gera automaticamente os códigos de cupom desta solicitação — um por
+    unidade solicitada — no padrão SIGLA da área + SKU do evento + sufixo
+    aleatório. Falha com mensagem clara se a área ainda não tem sigla
+    cadastrada ou se o evento não tem SKU (nada de fallback silencioso)."""
     sol = db.query(CortesiaSolicitacao).filter(
         CortesiaSolicitacao.id == solicitacao_id,
         CortesiaSolicitacao.deleted_at.is_(None),
@@ -428,24 +466,66 @@ def gerar_cupom(
     if sol.status == STATUS_GERADO:
         raise HTTPException(status_code=400, detail="Esta solicitação já foi marcada como gerada")
 
-    codigos = _parse_codigos_cupom(data.codigo_cupom)
-    if not codigos:
-        raise HTTPException(status_code=400, detail="Informe o(s) código(s) do cupom gerado")
+    area = db.query(AreaProjecao).filter(AreaProjecao.id == sol.area_projecao_id).first()
+    sigla = (area.sigla or "").strip().upper() if area else ""
+    if not sigla:
+        nome_area = area.nome if area else "desta solicitação"
+        raise HTTPException(
+            status_code=400,
+            detail=f"A área '{nome_area}' ainda não tem uma sigla configurada. Configure a sigla em Configurações › Áreas e Usuários antes de gerar os cupons.",
+        )
 
-    # Normaliza para um código por linha, independente de como o texto foi
-    # colado ou importado — mantém a leitura/exportação consistentes.
-    sol.codigo_cupom = "\n".join(codigos)
-    sol.status = STATUS_GERADO
-    sol.gerado_por = current_user.id
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    sol.gerado_em = datetime.now(ZoneInfo('America/Sao_Paulo')).replace(tzinfo=None)
+    evento = db.query(CadastroEvento).filter(CadastroEvento.id == sol.evento_id).first()
+    sku = (evento.sku or "").strip().upper() if evento else ""
+    if not sku:
+        raise HTTPException(status_code=400, detail="O evento desta solicitação não tem um SKU cadastrado. Cadastre o SKU do evento antes de gerar os cupons.")
 
-    # Cria uma linha por código na tabela filho (rastreamento individual).
-    for codigo in codigos:
-        db.add(CortesiaCupomCodigo(solicitacao_id=sol.id, codigo=codigo))
+    base = f"{sigla}{sku}"
+    if len(base) > _CODIGO_CUPOM_BASE_MAXIMA:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"A sigla '{sigla}' combinada com o SKU '{sku}' do evento soma "
+                f"{len(base)} caracteres, acima do limite de {_CODIGO_CUPOM_BASE_MAXIMA} "
+                "necessário para manter todos os códigos de cupom com o mesmo tamanho. "
+                "Ajuste a sigla da área para algo mais curto e tente novamente."
+            ),
+        )
+    quantidade = max(1, sol.quantidade or 1)
 
-    db.commit()
+    # Retry no nível da transação: mesmo com a checagem prévia de unicidade,
+    # uma colisão real só é detectada pelo índice único no commit — nesse
+    # caso descarta tudo e gera de novo (memory: delete-insert-child-race).
+    for tentativa in range(3):
+        codigos: list[str] = []
+        for _ in range(quantidade):
+            codigos.append(_gerar_codigo_cupom_unico(db, base, codigos))
+
+        # Normaliza para um código por linha, mesmo formato usado pelo fluxo
+        # legado — mantém leitura/exportação consistentes.
+        sol.codigo_cupom = "\n".join(codigos)
+        sol.status = STATUS_GERADO
+        sol.gerado_por = current_user.id
+        sol.gerado_em = _now_brasilia()
+
+        for codigo in codigos:
+            db.add(CortesiaCupomCodigo(solicitacao_id=sol.id, codigo=codigo))
+
+        try:
+            db.commit()
+            break
+        except IntegrityError as exc:
+            db.rollback()
+            # Só trata como colisão de código (retry vale a pena) quando o
+            # próprio índice único de código é o que rejeitou; qualquer outra
+            # violação de integridade é um erro real e não deve ser mascarado
+            # como "conflito ao gerar código".
+            if _CODIGO_CUPOM_INDICE_UNICO not in str(getattr(exc, "orig", exc)):
+                raise HTTPException(status_code=500, detail="Erro inesperado ao salvar os códigos de cupom gerados.") from exc
+            if tentativa == 2:
+                raise HTTPException(status_code=409, detail="Conflito ao gerar códigos únicos de cupom. Tente novamente.")
+            continue
+
     db.refresh(sol)
     return _serialize(sol)
 

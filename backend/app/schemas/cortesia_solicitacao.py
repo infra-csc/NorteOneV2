@@ -25,10 +25,6 @@ class CortesiaSolicitacaoCupomCreate(BaseModel):
     observacao: Optional[str] = None
 
 
-class CortesiaSolicitacaoGerarUpdate(BaseModel):
-    codigo_cupom: str
-
-
 class CupomCodigoItem(BaseModel):
     id: int
     codigo: str

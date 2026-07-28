@@ -6,7 +6,7 @@ import { usePermissions } from '../../context/PermissionContext';
 import {
   Gift, Plus, X, RefreshCw, AlertTriangle, Ticket, FileSpreadsheet,
   CheckCircle2, Clock, Download, Trash2, ChevronDown, ChevronUp,
-  LayoutGrid, List as ListIcon, Upload, Copy, Check, ClipboardList, FileDown,
+  LayoutGrid, List as ListIcon, Copy, Check, ClipboardList, FileDown,
   ToggleLeft, ToggleRight,
 } from 'lucide-react';
 
@@ -388,15 +388,11 @@ const SolicitacaoCortesias: React.FC = () => {
   const [formError, setFormError] = useState<string | null>(null);
 
   const [gerarAlvo, setGerarAlvo] = useState<CortesiaSolicitacaoResponse | null>(null);
-  const [codigosTexto, setCodigosTexto] = useState('');
   const [gerandoSalvando, setGerandoSalvando] = useState(false);
   const [gerarError, setGerarError] = useState<string | null>(null);
-  const [fileInputKey, setFileInputKey] = useState(0);
 
   const [cancelandoId, setCancelandoId] = useState<number | null>(null);
   const [togglingCodigoId, setTogglingCodigoId] = useState<number | null>(null);
-
-  const codigosParsedModal = useMemo(() => parseCodigos(codigosTexto), [codigosTexto]);
 
   const carregarEventos = async () => {
     setLoadingEventos(true);
@@ -512,40 +508,16 @@ const SolicitacaoCortesias: React.FC = () => {
 
   const abrirGerar = (sol: CortesiaSolicitacaoResponse) => {
     setGerarAlvo(sol);
-    setCodigosTexto('');
     setGerarError(null);
-    setFileInputKey(k => k + 1);
-  };
-
-  const importarArquivoCodigos = (file: File | null) => {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const novos = parseCodigos(String(reader.result || ''));
-      if (novos.length === 0) {
-        setGerarError('Não foi possível encontrar códigos no arquivo selecionado.');
-        return;
-      }
-      setCodigosTexto(prev => [...parseCodigos(prev), ...novos].join('\n'));
-      setGerarError(null);
-    };
-    reader.onerror = () => setGerarError('Não foi possível ler o arquivo selecionado.');
-    reader.readAsText(file, 'utf-8');
-    setFileInputKey(k => k + 1);
   };
 
   const submitGerar = async () => {
     if (!gerarAlvo) return;
-    if (codigosParsedModal.length === 0) {
-      setGerarError('Informe o(s) código(s) do cupom gerado.');
-      return;
-    }
     setGerandoSalvando(true);
     setGerarError(null);
     try {
-      await cortesiaSolicitacaoService.gerarCupom(gerarAlvo.id, codigosTexto);
+      await cortesiaSolicitacaoService.gerarCupom(gerarAlvo.id);
       setGerarAlvo(null);
-      setCodigosTexto('');
       await Promise.all([carregarSolicitacoes(), carregarFila()]);
     } catch (e) {
       setGerarError(extractError(e));
@@ -1125,53 +1097,18 @@ const SolicitacaoCortesias: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className={`w-full max-w-lg rounded-2xl shadow-2xl border max-h-[90vh] flex flex-col ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
             <div className={`flex items-center justify-between p-4 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
-              <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Marcar cupom como gerado</h3>
+              <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Gerar código de cupom</h3>
               <button onClick={() => setGerarAlvo(null)} className={isDark ? 'text-gray-400 hover:text-white' : 'text-gray-400 hover:text-gray-700'}>
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="p-4 space-y-3 overflow-y-auto">
-              <p className={`text-xs ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                {gerarAlvo.evento_nome} — {gerarAlvo.area_projecao_nome} ({gerarAlvo.quantidade} cortesias)
+              <p className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
+                {gerarAlvo.evento_nome} — {gerarAlvo.area_projecao_nome}
               </p>
-              <div>
-                <label className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Código(s) do cupom</label>
-                <textarea
-                  value={codigosTexto}
-                  onChange={e => setCodigosTexto(e.target.value)}
-                  rows={4}
-                  className={`${inputCls} font-mono`}
-                  placeholder={'Um código por linha (também aceita vírgula ou ponto e vírgula)\nEx.: CORTESIA123'}
-                />
-              </div>
-              <div>
-                <label className={`inline-flex items-center gap-1.5 text-xs font-medium cursor-pointer ${isDark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'}`}>
-                  <Upload className="w-3.5 h-3.5" /> Ou importe um arquivo (.txt ou .csv)
-                  <input
-                    key={fileInputKey}
-                    type="file"
-                    accept=".txt,.csv"
-                    onChange={e => importarArquivoCodigos(e.target.files?.[0] || null)}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-              {codigosParsedModal.length > 0 && (
-                <div className={`p-2.5 rounded-lg ${isDark ? 'bg-gray-900/50' : 'bg-gray-50'}`}>
-                  <p className={`text-[11px] font-semibold mb-1.5 ${
-                    codigosParsedModal.length === gerarAlvo.quantidade
-                      ? (isDark ? 'text-emerald-400' : 'text-emerald-600')
-                      : (isDark ? 'text-amber-400' : 'text-amber-600')
-                  }`}>
-                    {codigosParsedModal.length} código(s) informado(s) de {gerarAlvo.quantidade} solicitado(s)
-                  </p>
-                  <div className="max-h-32 overflow-y-auto space-y-0.5">
-                    {codigosParsedModal.map((c, i) => (
-                      <div key={i} className={`text-xs font-mono px-2 py-0.5 rounded ${isDark ? 'text-gray-300 bg-gray-800/60' : 'text-gray-700 bg-white'}`}>{i + 1}. {c}</div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                {gerarAlvo.quantidade} código(s) serão gerados automaticamente, um por cortesia solicitada, no padrão sigla da área + SKU do evento + sufixo aleatório — todos com o mesmo tamanho.
+              </p>
               {gerarError && (
                 <div className={`flex items-center gap-2 p-2.5 rounded-lg text-sm ${isDark ? 'bg-red-500/10 text-red-400' : 'bg-red-50 text-red-600'}`}>
                   <AlertTriangle className="w-4 h-4 shrink-0" /> {gerarError}
@@ -1190,7 +1127,7 @@ const SolicitacaoCortesias: React.FC = () => {
                 disabled={gerandoSalvando}
                 className="px-4 py-2 rounded-xl text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
               >
-                {gerandoSalvando ? 'Salvando...' : 'Confirmar'}
+                {gerandoSalvando ? 'Gerando...' : 'Gerar código automaticamente'}
               </button>
             </div>
           </div>

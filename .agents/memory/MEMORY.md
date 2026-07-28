@@ -44,3 +44,5 @@
 - [Ticket promo fallback](ticket-promo-fallback.md) — nunca fabricar status "ativo" no fallback; múltiplas promos resolvem por entity_id DESC + 2 passadas de status; "inativo" nunca elegível.
 - [Margem parcial + avisos](margem-parcial-avisos.md) — refresh parcial restaura última margemPorKit íntegra do EDS (card e tabela em lockstep); avisos colapsam em 1; sem-prefixo é reservado.
 - [Area-scoped lists vs module permissions](area-scope-vs-module-permission.md) — papel "global" (permissão de módulo, sem área) some de listas area-scoped; precisa endpoint novo sem escopo, nunca remendar o existente.
+- [Coupon code auto-generation](cupom-codigo-geracao.md) — código = sigla da área + SKU do evento + sufixo aleatório (sem 0/O/1/I/L), tamanho total fixo; reusar `_gerar_codigo_cupom_unico`, não duplicar para bulk-generate.
+- [Screenshot tool blocked by app auth](screenshot-auth-wall.md) — app exige login (MS SSO ou emergência) em toda rota; Screenshot não interage com forms — verificar UI autenticada via backend/API, não via captura de tela.

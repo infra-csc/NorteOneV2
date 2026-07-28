@@ -21,6 +21,7 @@ class AreaProjecao(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     nome = Column(String(100), unique=True, nullable=False)
+    sigla = Column(String(10), nullable=True)
     ativo = Column(Boolean, default=True, index=True)
     usa_cutoff_customizado = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=_now_brasilia)
