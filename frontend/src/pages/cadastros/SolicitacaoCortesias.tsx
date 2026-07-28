@@ -64,8 +64,10 @@ const codigosDe = (sol: CortesiaSolicitacaoResponse): string[] =>
 interface FormState {
   evento_id: number;
   evento_nome: string;
+  evento_sku: string | null | undefined;
   area_projecao_id: number;
   area_projecao_nome: string;
+  area_sigla: string | null | undefined;
   saldo: number;
 }
 
@@ -717,8 +719,10 @@ const SolicitacaoCortesias: React.FC = () => {
                                           onClick={() => abrirForm({
                                             evento_id: ev.evento_id,
                                             evento_nome: ev.evento_nome,
+                                            evento_sku: ev.evento_sku,
                                             area_projecao_id: area.area_projecao_id,
                                             area_projecao_nome: area.area_projecao_nome,
+                                            area_sigla: area.area_sigla,
                                             saldo: area.saldo,
                                           })}
                                           className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
@@ -1030,6 +1034,26 @@ const SolicitacaoCortesias: React.FC = () => {
                   <FileSpreadsheet className="w-4 h-4" /> Planilha do cliente
                 </button>
               </div>
+
+              {tipo === 'cupom' && (!form.area_sigla || !form.evento_sku) && (
+                <div className={`flex items-start gap-2 p-3 rounded-xl text-xs ${isDark ? 'bg-amber-500/10 border border-amber-500/30 text-amber-300' : 'bg-amber-50 border border-amber-200 text-amber-800'}`}>
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    {!form.area_sigla && (
+                      <p>
+                        A área <strong>{form.area_projecao_nome}</strong> ainda não tem uma sigla configurada — necessária para gerar os códigos de cupom.
+                        {' '}Configure a sigla em <strong>Configurações › Áreas e Usuários</strong> antes de enviar esta solicitação.
+                      </p>
+                    )}
+                    {!form.evento_sku && (
+                      <p>
+                        O evento <strong>{form.evento_nome}</strong> não tem um SKU cadastrado — necessário para gerar os códigos de cupom.
+                        {' '}Cadastre o SKU do evento antes de enviar esta solicitação.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Quantidade</label>

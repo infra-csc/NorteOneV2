@@ -9,12 +9,14 @@ class SaldoAreaItem(BaseModel):
     projetado: int
     solicitado: int
     saldo: int
+    area_sigla: Optional[str] = None
 
 
 class EventoSaldoResponse(BaseModel):
     evento_id: int
     evento_nome: str
     evento_data: Optional[str] = None
+    evento_sku: Optional[str] = None
     areas: List[SaldoAreaItem] = []
 
 

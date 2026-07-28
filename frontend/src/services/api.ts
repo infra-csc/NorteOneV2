@@ -1779,12 +1779,14 @@ export interface CortesiaSaldoAreaItem {
   projetado: number;
   solicitado: number;
   saldo: number;
+  area_sigla?: string | null;
 }
 
 export interface CortesiaEventoSaldoResponse {
   evento_id: number;
   evento_nome: string;
   evento_data: string | null;
+  evento_sku?: string | null;
   areas: CortesiaSaldoAreaItem[];
 }
 

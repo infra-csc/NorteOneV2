@@ -230,6 +230,7 @@ def list_eventos_saldo(
                 projetado=projetado,
                 solicitado=solicitado,
                 saldo=saldo,
+                area_sigla=(area.sigla or "").strip() or None,
             ))
         if not area_items:
             continue
@@ -237,6 +238,7 @@ def list_eventos_saldo(
             evento_id=ev.id,
             evento_nome=ev.nome,
             evento_data=ev.data_evento.isoformat() if ev.data_evento else None,
+            evento_sku=(ev.sku or "").strip() or None,
             areas=area_items,
         ))
     return result
@@ -267,6 +269,7 @@ def get_saldo_evento(
             projetado=projetado,
             solicitado=solicitado,
             saldo=saldo,
+            area_sigla=(area.sigla or "").strip() or None,
         ))
     return result
 
