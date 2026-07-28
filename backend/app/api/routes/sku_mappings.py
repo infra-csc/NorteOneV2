@@ -175,6 +175,57 @@ def _invalidate_curva_cache(evento_grupo: str, ano: int, db: Session = None):
         logger.warning(f"Failed to invalidate curva cache for '{evento_grupo}': {e}")
 
 
+def _invalidate_orphan_standalone_snapshot(db: Session, sku: str, ano: int) -> int:
+    """Apaga o EventoDetailSnapshot standalone (chave numérica) do projeto
+    associado a `sku`, quando esse mapeamento acaba de tornar o projeto
+    parte de um grupo.
+
+    Sem isso, a linha antiga gravada sob a chave numérica (dim_projeto.id)
+    fica órfã para sempre: ninguém mais escreve nela (o projeto agora é
+    lido/gravado sob "grp_<nome>"), mas ela continua na tabela com dados
+    desatualizados, disponível para qualquer consulta direta por ID
+    numérico (ex.: relatórios SQL, exports).
+    """
+    if not sku:
+        return 0
+    try:
+        from ...models.dimensoes import DimProjeto as _DP_orphan
+        from ...models.evento_detail_snapshot import EventoDetailSnapshot as _EDS_orphan
+        from .inscricoes_consolidado import normalize_sku as _ns_orphan
+
+        sku_norm = _ns_orphan(str(sku))
+        projetos = (
+            db.query(_DP_orphan)
+            .filter(_DP_orphan.codigo.isnot(None))
+            .all()
+        )
+        projeto_ids = [
+            str(p.id) for p in projetos if _ns_orphan(str(p.codigo)) == sku_norm
+        ]
+        if not projeto_ids:
+            return 0
+
+        deleted = (
+            db.query(_EDS_orphan)
+            .filter(_EDS_orphan.evento_id.in_(projeto_ids))
+            .delete(synchronize_session=False)
+        )
+        if deleted:
+            db.commit()
+            logger.info(
+                f"[SkuMapping] EventoDetailSnapshot standalone órfão removido para "
+                f"sku='{sku}' (projetos={projeto_ids}, {deleted} linha(s)) após agrupamento (ano={ano})"
+            )
+        return deleted or 0
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        logger.warning(f"[SkuMapping] Falha ao apagar snapshot standalone órfão para sku='{sku}': {e}")
+        return 0
+
+
 def _invalidate_snapshot(db: Session, evento_grupo: str, ano: int):
     if not evento_grupo:
         return
@@ -454,6 +505,8 @@ def create_sku_mapping(
         _invalidate_snapshot(db, db_mapping.evento_grupo, db_mapping.ano)
     else:
         _invalidate_curva_cache(db_mapping.evento_grupo, db_mapping.ano, db)
+    if db_mapping.ativo and db_mapping.evento_grupo:
+        _invalidate_orphan_standalone_snapshot(db, db_mapping.sku, db_mapping.ano)
     return db_mapping
 
 
@@ -528,6 +581,9 @@ def update_sku_mapping(
         _invalidate_curva_cache(db_mapping.evento_grupo, db_mapping.ano, db)
         _invalidate_all_marketing_caches()
 
+    if db_mapping.ativo and db_mapping.evento_grupo:
+        _invalidate_orphan_standalone_snapshot(db, db_mapping.sku, db_mapping.ano)
+
     return db_mapping
 
 
@@ -584,6 +640,8 @@ def bulk_create_sku_mappings(
             if key not in invalidated:
                 _invalidate_snapshot(db, m.evento_grupo, m.ano)
                 invalidated.add(key)
+        if m.ativo and m.evento_grupo:
+            _invalidate_orphan_standalone_snapshot(db, m.sku, m.ano)
 
     return created
 

@@ -1934,6 +1934,76 @@ def _resync_id_sequences():
         logger.error(f"Resync de sequences de id failed: {e}")
 
 
+def _cleanup_orphan_grouped_snapshots():
+    """Idempotente: apaga EventoDetailSnapshot standalone (chave numérica de
+    dim_projeto.id) cujo projeto está hoje ativamente mapeado (sku_mappings)
+    para um Evento Grupo ativo.
+
+    Antes desta limpeza + da guarda em sku_mappings.py, quando um projeto
+    passava a integrar um grupo o snapshot antigo gravado sob a chave
+    numérica nunca era apagado — virava uma linha "fantasma" congelada
+    para sempre, servindo dados desatualizados (ex.: Ticket Atual antigo)
+    para qualquer leitura direta por ID numérico (relatórios SQL, exports).
+
+    Roda em todo startup (custo baixo: 2-3 queries + 1 DELETE indexado) para
+    corrigir produção automaticamente no próximo deploy — o acesso de escrita
+    a produção só existe via código que o próprio app executa (mesmo padrão
+    de `_resync_id_sequences`).
+    """
+    from app.core.database import SessionLocal
+    from app.models.evento_detail_snapshot import EventoDetailSnapshot
+    from app.models.dimensoes import DimProjeto, SkuMapping, EventoGrupo
+    from app.api.routes.inscricoes_consolidado import normalize_sku
+
+    try:
+        db = SessionLocal()
+        try:
+            active_grupo_names = {
+                n for (n,) in db.query(EventoGrupo.nome).filter(EventoGrupo.ativo == True).all()  # noqa: E712
+                if n
+            }
+            if not active_grupo_names:
+                return
+
+            sm_rows = (
+                db.query(SkuMapping.sku, SkuMapping.evento_grupo)
+                .filter(
+                    SkuMapping.ativo == True,  # noqa: E712
+                    SkuMapping.evento_grupo.in_(list(active_grupo_names)),
+                )
+                .all()
+            )
+            grouped_skus = {normalize_sku(str(sku)) for sku, grupo in sm_rows if sku and grupo}
+            if not grouped_skus:
+                return
+
+            proj_rows = db.query(DimProjeto.id, DimProjeto.codigo).filter(
+                DimProjeto.codigo.isnot(None)
+            ).all()
+            grouped_projeto_ids = [
+                str(pid) for pid, codigo in proj_rows
+                if normalize_sku(str(codigo)) in grouped_skus
+            ]
+            if not grouped_projeto_ids:
+                return
+
+            deleted = (
+                db.query(EventoDetailSnapshot)
+                .filter(EventoDetailSnapshot.evento_id.in_(grouped_projeto_ids))
+                .delete(synchronize_session=False)
+            )
+            if deleted:
+                db.commit()
+                logger.info(
+                    f"[Startup] {deleted} EventoDetailSnapshot(s) órfão(s) (standalone de "
+                    f"projetos já agrupados) removido(s)"
+                )
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Cleanup de snapshots órfãos agrupados failed: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Folga no threadpool que serve TODAS as rotas síncronas (o FastAPI executa
@@ -2063,6 +2133,7 @@ async def lifespan(app: FastAPI):
             _seed_areas_projecao()
             _seed_cutoff_rules()
             _resync_id_sequences()
+            _cleanup_orphan_grouped_snapshots()
         except Exception as e:
             logger.error(f"Schema/seed setup failed: {e}")
 
