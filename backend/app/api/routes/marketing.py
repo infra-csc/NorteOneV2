@@ -437,16 +437,37 @@ def _resolve_ticket_for_event(
             }
 
     # 2. Kit promo (fallback)
-    for promo_cfg in promo_configs or []:
-        bd = bundle_data.get(promo_cfg.bundle_entity_id)
-        if not bd or not (bd.get("sp_base") or 0) > 0:
-            continue
-        if require_status_active and bd.get("status_kit") != "ativo":
-            continue
-        return {
-            "value": round(bd["sp_base"] * promo_cfg.multiplicador, 2),
-            "nome_kit": bd.get("nome_kit"),
-        }
+    # Ordem determinística: bundle mais NOVO primeiro (entity_id DESC). Eventos
+    # acumulam kits promocionais de campanhas sucessivas (ex.: "R$ 50 OFF"
+    # encerrada + "R$70 OFF" vigente); sem ordenação, a ordem arbitrária da
+    # query decidia qual promo virava o Ticket Atual.
+    _promos_sorted = sorted(
+        promo_configs or [],
+        key=lambda c: (c.bundle_entity_id or 0),
+        reverse=True,
+    )
+    if require_status_active:
+        # Duas passadas: primeiro só kits com status confirmado "ativo"; se
+        # nenhum, aceita status DESCONHECIDO (leitura ao vivo indisponível e
+        # sem snapshot de mapeamento). Kit explicitamente "inativo" nunca é
+        # elegível — promoção encerrada não pode virar o Ticket Atual.
+        _status_passes = (
+            lambda st: st == "ativo",
+            lambda st: not st,  # None/"" = desconhecido
+        )
+    else:
+        _status_passes = (lambda st: True,)
+    for _status_ok in _status_passes:
+        for promo_cfg in _promos_sorted:
+            bd = bundle_data.get(promo_cfg.bundle_entity_id)
+            if not bd or not (bd.get("sp_base") or 0) > 0:
+                continue
+            if not _status_ok(bd.get("status_kit")):
+                continue
+            return {
+                "value": round(bd["sp_base"] * promo_cfg.multiplicador, 2),
+                "nome_kit": bd.get("nome_kit"),
+            }
 
     # 3. Kit básico (fallback final)
     if basico_cfg:
@@ -582,15 +603,20 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
                 "nome_kit": row_dict.get("nome_kit"),
             }
 
-        # Fallback via MargemBundleRevSnapshot para bundles com sp_base ausente/nulo.
-        # Cobre dois casos:
-        #   1. Magento completamente fora → bundle_data vazio
-        #   2. Bundle retornado pelo Magento mas com special_price=NULL e price=NULL/0
-        #      (kit inativo ou não indexado) → sp_base=None dentro de bundle_data
-        # Em ambos os casos, usa receita_liquida / qtd_inscricoes do snapshot das 4h
-        # como estimativa.  Só preenche bundles que ainda não têm sp_base válido.
+        # Fallback para bundles com sp_base ausente/nulo (Magento fora do ar ou
+        # kit sem preço/índice). Duas fontes persistidas, na ordem:
+        #   1. kit_mapping_snapshot — preço E status reais do último sync do
+        #      Mapeamento de Kits (mesma prioridade do caminho ao vivo:
+        #      pi_pai_min_price direto; senão special_price com Regra B; senão price).
+        #   2. MargemBundleRevSnapshot — estimativa receita_liquida/qtd (job 4h),
+        #      último recurso quando nem o mapeamento tem preço.
+        # IMPORTANTE: nunca fabricar status "ativo". Um kit DESATIVADO no Magento
+        # (ex.: promo antiga "R$ 50 OFF") não pode voltar a ser elegível como
+        # Ticket Atual só porque a leitura ao vivo falhou — era exatamente isso
+        # que fazia o ticket regredir para o preço médio da promoção encerrada.
         try:
             from ...models.vendas_snapshot import MargemBundleRevSnapshot as _MBRS
+            from ...models.kit_mapping_snapshot import KitMappingSnapshot as _KMS
             # Bundles que precisam de fallback: ausentes em bundle_data OU sp_base None
             all_bundle_ids = [
                 c.bundle_entity_id for c in magento_configs
@@ -603,23 +629,68 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
                 or bundle_data[bid].get("sp_base") <= 0
             ]
             if missing_ids:
+                kms_by_bid: dict = {}
+                try:
+                    _kms_rows = (
+                        db.query(_KMS)
+                        .filter(_KMS.bundle_entity_id.in_(missing_ids))
+                        .order_by(_KMS.bundle_entity_id, _KMS.atualizado_em.desc())
+                        .all()
+                    )
+                    for _kr in _kms_rows:
+                        kms_by_bid.setdefault(_kr.bundle_entity_id, _kr)
+                except Exception as _kms_e:
+                    logger.warning(f"[ticket_atual] leitura kit_mapping_snapshot falhou: {_kms_e}")
+
+                est_by_bid: dict = {}
                 snap_rows = db.query(_MBRS).filter(_MBRS.bundle_entity_id.in_(missing_ids)).all()
-                filled = 0
                 for sr in snap_rows:
                     if sr.qtd_inscricoes and sr.qtd_inscricoes > 0 and sr.receita_liquida:
-                        ticket_estimado = round(float(sr.receita_liquida) / int(sr.qtd_inscricoes), 2)
-                        existing = bundle_data.get(sr.bundle_entity_id, {})
-                        bundle_data[sr.bundle_entity_id] = {
-                            "sp_base": ticket_estimado,
-                            "status_kit": existing.get("status_kit") or "ativo",
-                            "nome_kit": existing.get("nome_kit"),
-                            "fonte": "snapshot",
-                        }
-                        filled += 1
+                        est_by_bid[sr.bundle_entity_id] = round(
+                            float(sr.receita_liquida) / int(sr.qtd_inscricoes), 2
+                        )
+
+                filled = 0
+                for bid in missing_ids:
+                    _kms = kms_by_bid.get(bid)
+                    sp_base = None
+                    if _kms is not None:
+                        _pi = float(_kms.pi_pai_min_price) if _kms.pi_pai_min_price is not None else None
+                        _sp = float(_kms.special_price) if _kms.special_price is not None else None
+                        _pr = float(_kms.price) if _kms.price is not None else None
+                        if _pi and _pi > 0:
+                            sp_base = _pi  # índice autoritativo — sem Regra B
+                        else:
+                            if _pr is not None and _pr > 0 and _sp is not None and _sp >= _pr:
+                                _sp = None  # Regra B: lote fantasma >= componente
+                            sp_base = (
+                                _sp if (_sp is not None and _sp > 0)
+                                else _pr if (_pr is not None and _pr > 0)
+                                else None
+                            )
+                    _fonte_fb = "kit_mapping_snapshot"
+                    if sp_base is None or sp_base <= 0:
+                        sp_base = est_by_bid.get(bid)
+                        _fonte_fb = "snapshot"
+                    if sp_base is None or sp_base <= 0:
+                        continue
+                    existing = bundle_data.get(bid, {})
+                    _status_fb = existing.get("status_kit") or (
+                        (_kms.status_kit or None) if _kms is not None else None
+                    )
+                    bundle_data[bid] = {
+                        "sp_base": sp_base,
+                        "status_kit": _status_fb,
+                        "nome_kit": existing.get("nome_kit") or (
+                            _kms.nome_kit if _kms is not None else None
+                        ),
+                        "fonte": _fonte_fb,
+                    }
+                    filled += 1
                 if filled:
                     logger.warning(
                         f"[ticket_atual] {filled} bundle(s) sem preço no Magento — "
-                        f"usando snapshot (receita/qtd do job 4h) como fallback"
+                        f"usando snapshots persistidos (mapeamento de kits / receita 4h) como fallback"
                     )
         except Exception as _fb_e:
             logger.warning(f"[ticket_atual] Fallback snapshot falhou: {_fb_e}")
@@ -3115,6 +3186,88 @@ def _margem_por_kit_is_degraded(rows: Optional[list]) -> bool:
         if _qtd_d > 0 and _rec_d <= 0:
             return True
     return False
+
+
+def _consolidate_margem_avisos(avisos: Optional[list]) -> list:
+    """Colapsa os avisos de margem em NO MÁXIMO uma mensagem clara.
+
+    Até 3 banners simultâneos (AVISO de instabilidade + INFO de idade do
+    snapshot + mensagem de leitura parcial sem prefixo) descreviam o MESMO
+    estado: "a leitura ao vivo não veio completa; o que está na tela é o
+    último dado confiável". Prioridade:
+
+    1. Mensagem de leitura parcial/correção bloqueada (sem prefixo) → vira UM
+       AVISO âmbar, incorporando a idade do snapshot quando conhecida.
+    2. AVISO(s) → mantém o primeiro, anexando a idade do snapshot se um INFO
+       a trazia.
+    3. Só INFO(s) → mantém o primeiro.
+
+    Preserva a semântica do frontend: AVISO → badge "Sincronizando" + botão
+    "Atualizar dados"; INFO → badge "Snapshot".
+
+    ATENÇÃO: mensagens SEM prefixo são reservadas aos dois estados canônicos
+    (leitura parcial / atualização em andamento) e são colapsadas na mensagem
+    genérica correspondente. Qualquer NOVO aviso de margem deve usar prefixo
+    "INFO:" ou "AVISO:" para não perder o texto aqui.
+    """
+    if not avisos:
+        return []
+    _clean = [a for a in avisos if isinstance(a, str) and a.strip()]
+    if not _clean:
+        return []
+    infos = [a for a in _clean if a.startswith("INFO:")]
+    ambers = [a for a in _clean if a.startswith("AVISO:")]
+    reds = [a for a in _clean if not a.startswith(("INFO:", "AVISO:"))]
+
+    idade_txt = None
+    for a in infos:
+        m = _re.search(r"até\s+([\d.,]+\s*(?:min|h|dia\(s\)))\s+atrás", a)
+        if m:
+            idade_txt = m.group(1).strip()
+            break
+
+    if reds:
+        if any("em andamento" in a for a in reds):
+            return [
+                "AVISO: Outra atualização está em andamento — exibindo os últimos "
+                "dados confiáveis. Tente novamente em instantes."
+            ]
+        _idade = f" (dados de {idade_txt} atrás)" if idade_txt else ""
+        return [
+            "AVISO: A atualização ao vivo veio incompleta — mantendo os últimos "
+            f"dados confiáveis{_idade}. Tente atualizar novamente em alguns instantes."
+        ]
+    if ambers:
+        principal = ambers[0].rstrip()
+        if idade_txt and idade_txt not in principal:
+            principal = f"{principal.rstrip('.')}. Últimos dados confiáveis: {idade_txt} atrás."
+        return [principal]
+    return [infos[0]]
+
+
+def _load_prev_margem_rows(db: Session, evento_id, ano) -> Optional[list]:
+    """Última margemPorKit ÍNTEGRA persistida no EventoDetailSnapshot.
+
+    Usada quando um force-refresh volta parcial: exibir a tabela parcial
+    (contagem ao vivo incompleta misturada com receita de snapshot) subestima
+    a Margem Realizada. Nesses casos restauramos a última tabela consistente,
+    coerente com o piso do card preservado pelo guard de currentSales.
+    """
+    try:
+        from ...models.evento_detail_snapshot import EventoDetailSnapshot as _EDS_prev
+        row = db.query(_EDS_prev).filter(
+            _EDS_prev.evento_id == evento_id,
+            _EDS_prev.ano == ano,
+        ).first()
+        if row and isinstance(row.payload, dict):
+            evt = row.payload.get("evento")
+            if isinstance(evt, dict):
+                rows = evt.get("margemPorKit")
+                if rows and not _margem_por_kit_is_degraded(rows):
+                    return rows
+    except Exception as e:
+        logger.debug(f"[Margem] prev margemPorKit '{evento_id}/{ano}': {e}")
+    return None
 
 
 def _build_consistency_warning(total_isc: Optional[int], margem_por_kit: Optional[list]) -> Optional[dict]:
@@ -12112,6 +12265,22 @@ def get_marketing_event_by_id(
                     f"< snapshot={current_sales} (provável resposta parcial Magento — preservando piso do snapshot)"
                 )
                 if force_magento_refresh:
+                    # A tabela parcial mistura contagem ao vivo incompleta com
+                    # receita de snapshot e SUBESTIMA a Margem Realizada exibida.
+                    # Restaura a última tabela íntegra persistida, coerente com o
+                    # piso do card que acabamos de preservar.
+                    _prev_rows_partial = _load_prev_margem_rows(db, evento_id, ano)
+                    if _prev_rows_partial:
+                        _prev_qtd_partial = sum(
+                            int(r.get('qtd', 0) or 0) for r in _prev_rows_partial
+                            if isinstance(r, dict) and r.get('tipoKit') != 'CONSOLIDADO'
+                        )
+                        if _prev_qtd_partial >= _kit_total_qty_aligned:
+                            logger.info(
+                                f"[Detalhe] margemPorKit parcial '{grupo_nome}' substituída pela última "
+                                f"íntegra persistida (qtd {_kit_total_qty_aligned} → {_prev_qtd_partial})"
+                            )
+                            detail_margem_por_kit = _prev_rows_partial
                     _adc_partial_aviso = (
                         "Leitura ao vivo veio incompleta — o total não foi corrigido para baixo. "
                         "Tente atualizar novamente em alguns instantes."
@@ -12127,6 +12296,11 @@ def get_marketing_event_by_id(
         else:
             detail_detalhe_ativo = get_detalhe_vendas_ativo(db, grupo_projeto_ids, ano=ano)
         
+        # Um único banner claro no painel de margem (era possível acumular
+        # AVISO de instabilidade + INFO de idade do snapshot + mensagem de
+        # leitura parcial, todos descrevendo o mesmo estado).
+        _detail_margem_avisos = _consolidate_margem_avisos(_detail_margem_avisos)
+
         evento = MarketingEvent(
             id=evento_id,
             name=_grupo_nome_attr,
@@ -12422,11 +12596,12 @@ def get_marketing_event_by_id(
                     )
                     _existing_avisos = list(getattr(_new_evt_mpk, "margemAvisos", None) or [])
                     _aviso_mpk_pres = (
-                        "Receita por kit indisponível no Magento — exibindo última "
+                        "AVISO: Receita por kit indisponível no Magento — exibindo última "
                         "margem conhecida do snapshot."
                     )
                     if _aviso_mpk_pres not in _existing_avisos:
                         _existing_avisos.append(_aviso_mpk_pres)
+                    _existing_avisos = _consolidate_margem_avisos(_existing_avisos)
                     grouped_result["evento"] = grouped_result["evento"].model_copy(
                         update={
                             "margemPorKit": _prev_mpk_rows,
@@ -12713,6 +12888,27 @@ def get_marketing_event_by_id(
             f"[Detalhe SA] Alinhamento ignorado '{projeto_nome}': kit_table={_sa_kit_total_qty_aligned} "
             f"< snapshot={current_sales} (provável resposta parcial Magento — preservando piso do snapshot)"
         )
+        if force_refresh or force_magento_refresh:
+            # Mesma proteção do caminho consolidado: tabela parcial subestima a
+            # Margem Realizada — restaura a última tabela íntegra persistida.
+            _sa_prev_rows_partial = _load_prev_margem_rows(db, evento_id, ano)
+            if _sa_prev_rows_partial:
+                _sa_prev_qtd_partial = sum(
+                    int(r.get('qtd', 0) or 0) for r in _sa_prev_rows_partial
+                    if isinstance(r, dict) and r.get('tipoKit') != 'CONSOLIDADO'
+                )
+                if _sa_prev_qtd_partial >= _sa_kit_total_qty_aligned:
+                    logger.info(
+                        f"[Detalhe SA] margemPorKit parcial '{projeto_nome}' substituída pela última "
+                        f"íntegra persistida (qtd {_sa_kit_total_qty_aligned} → {_sa_prev_qtd_partial})"
+                    )
+                    sa_margem_por_kit = _sa_prev_rows_partial
+            _sa_partial_aviso = (
+                "Leitura ao vivo veio incompleta — o total não foi corrigido para baixo. "
+                "Tente atualizar novamente em alguns instantes."
+            )
+            if _sa_partial_aviso not in _sa_margem_avisos:
+                _sa_margem_avisos.append(_sa_partial_aviso)
 
     sa_detalhe_vendas = []
     sa_kit_query_failed = False
@@ -12720,6 +12916,11 @@ def get_marketing_event_by_id(
         sa_detalhe_ativo = []
     else:
         sa_detalhe_ativo = get_detalhe_vendas_ativo(db, [projeto.id], ano=ano)
+
+    # Um único banner claro no painel de margem (era possível acumular
+    # AVISO de instabilidade + INFO de idade do snapshot + mensagem de
+    # leitura parcial, todos descrevendo o mesmo estado).
+    _sa_margem_avisos = _consolidate_margem_avisos(_sa_margem_avisos)
     
     evento = MarketingEvent(
         id=str(projeto.id),
@@ -12912,11 +13113,12 @@ def get_marketing_event_by_id(
                     getattr(_sa_new_evt_mpk, "margemAvisos", None) or []
                 )
                 _sa_aviso_mpk_pres = (
-                    "Receita por kit indisponível no Magento — exibindo última "
+                    "AVISO: Receita por kit indisponível no Magento — exibindo última "
                     "margem conhecida do snapshot."
                 )
                 if _sa_aviso_mpk_pres not in _sa_existing_avisos:
                     _sa_existing_avisos.append(_sa_aviso_mpk_pres)
+                _sa_existing_avisos = _consolidate_margem_avisos(_sa_existing_avisos)
                 standalone_result["evento"] = standalone_result["evento"].model_copy(
                     update={
                         "margemPorKit": _sa_prev_mpk_rows,
