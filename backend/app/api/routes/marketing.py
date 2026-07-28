@@ -5578,11 +5578,17 @@ def fetch_isc_pricing_data(db: Optional[Session] = None, force_refresh: bool = F
     # STEP 1: Build grupo→SKU map and classify events by regime.
     #   consolidated_grupos: set of grupo names where regime == "consolidated"
     #   _isc_grupo_latest:    {grupo: latest event date (for dias_ate_evento)}
-    #   consolidated_grupo_skus: {grupo: [normalized SKU strings]}
+    #   consolidated_grupo_skus: {grupo: [normalized SKU strings]} (todas as anos, achatado)
+    #   consolidated_grupo_skus_por_ano: {grupo: {ano: [normalized SKU strings]}}
+    #     — SKUs SEMPRE particionados por ano; nunca misturar SKUs de anos
+    #     diferentes numa mesma lista, senão o total de um ano vaza pra dentro
+    #     da linha do outro ano (ver STEP 3).
     # ---------------------------------------------------------------------------
     consolidated_grupos: set = set()
-    consolidated_grupo_skus: dict = {}     # {grupo: [sku_norm, ...]}
+    consolidated_grupo_skus: dict = {}          # {grupo: [sku_norm, ...]} (flat, compat)
+    consolidated_grupo_skus_por_ano: dict = {}  # {grupo: {ano: [sku_norm, ...]}}
     _isc_grupo_latest: dict = {}           # {grupo: latest event date}
+    _isc_grupo_ano_latest: dict = {}       # {(grupo, ano): latest event date daquele ano}
 
     _isc_grupos_ano_seguinte: set = set()  # grupos com mapping ativo já para current_year+1
     if db:
@@ -5604,19 +5610,32 @@ def fetch_isc_pricing_data(db: Optional[Session] = None, force_refresh: bool = F
                 _gn = _isc_row.evento_grupo
                 if not _gn:
                     continue
-                if _isc_row.ano == current_year + 1:
+                _row_ano = _isc_row.ano
+                if _row_ano == current_year + 1:
                     _isc_grupos_ano_seguinte.add(_gn)
-                if _isc_row.data_evento and (
-                    _gn not in _isc_grupo_latest
-                    or _isc_row.data_evento > _isc_grupo_latest[_gn]
-                ):
-                    _isc_grupo_latest[_gn] = _isc_row.data_evento
+                if _isc_row.data_evento:
+                    if (
+                        _gn not in _isc_grupo_latest
+                        or _isc_row.data_evento > _isc_grupo_latest[_gn]
+                    ):
+                        _isc_grupo_latest[_gn] = _isc_row.data_evento
+                    _ay_key = (_gn, _row_ano)
+                    if (
+                        _ay_key not in _isc_grupo_ano_latest
+                        or _isc_row.data_evento > _isc_grupo_ano_latest[_ay_key]
+                    ):
+                        _isc_grupo_ano_latest[_ay_key] = _isc_row.data_evento
                 if _gn not in consolidated_grupo_skus:
                     consolidated_grupo_skus[_gn] = []
+                _ano_map = consolidated_grupo_skus_por_ano.setdefault(_gn, {})
+                _ano_skus = _ano_map.setdefault(_row_ano, [])
                 if _isc_row.sku:
                     _sn = normalize_sku(_isc_row.sku)
-                    if _sn and _sn not in consolidated_grupo_skus[_gn]:
-                        consolidated_grupo_skus[_gn].append(_sn)
+                    if _sn:
+                        if _sn not in consolidated_grupo_skus[_gn]:
+                            consolidated_grupo_skus[_gn].append(_sn)
+                        if _sn not in _ano_skus:
+                            _ano_skus.append(_sn)
 
             # Resolve missing event dates from dim_projeto using fuzzy-match
             # so regime classification works without manual date entry in SKU mappings.
@@ -5684,18 +5703,24 @@ def fetch_isc_pricing_data(db: Optional[Session] = None, force_refresh: bool = F
     # If a grupo has no snapshot rows, it gets zeros with a warning — the
     # background auto-sync will populate it within the next 30-min cycle.
     # ---------------------------------------------------------------------------
-    snapshot_totals: dict = {}
+    # {ano: {grupo: metrics}} — SEMPRE ano a ano, nunca combinado. Um grupo com
+    # edições simultâneas em dois anos (carrinho do ano seguinte aberto antes
+    # do encerramento do corrente) precisa manter os totais de cada ano
+    # isolados; combinar aqui faz o total de um ano vazar pra dentro da linha
+    # do outro ano (era exatamente esse o bug: a edição do ano seguinte
+    # "herdava" o total do ano corrente inteiro, ou vice-versa).
+    snapshot_by_ano: dict = {current_year: {}, current_year + 1: {}}
     if db:
         try:
-            from ...services.snapshot_service import get_isc_totals_from_snapshot_multi_ano
-            # current_year + current_year+1 combinados: um grupo pode ter vendas
-            # simultâneas nos dois anos-edição (carrinho do ano seguinte aberto
-            # antes do encerramento do corrente) e ambas precisam somar aqui.
-            snapshot_totals = get_isc_totals_from_snapshot_multi_ano(db, [current_year, current_year + 1])
+            from ...services.snapshot_service import get_isc_totals_from_snapshot
+            for _ano_snap in (current_year, current_year + 1):
+                snapshot_by_ano[_ano_snap] = get_isc_totals_from_snapshot(db, _ano_snap)
             # Coverage check: warn about active grupos not yet in snapshot so ops team can
             # trigger a manual sync or verify SkuMapping completeness.
-            mapped_grupos = set(consolidated_grupo_skus.keys())
-            covered_grupos = set(snapshot_totals.keys())
+            mapped_grupos = set(consolidated_grupo_skus_por_ano.keys())
+            covered_grupos: set = set()
+            for _sy in snapshot_by_ano.values():
+                covered_grupos |= set(_sy.keys())
             uncovered = mapped_grupos - covered_grupos
             if uncovered:
                 logger.warning(
@@ -5703,7 +5728,7 @@ def fetch_isc_pricing_data(db: Optional[Session] = None, force_refresh: bool = F
                     f"(auto-sync não rodou ou sem vendas em {current_year}/{current_year + 1}): {sorted(uncovered)}"
                 )
             logger.info(
-                f"[ISC] PostgreSQL snapshot: {len(snapshot_totals)} grupos com dados, "
+                f"[ISC] PostgreSQL snapshot: {len(covered_grupos)} grupos com dados, "
                 f"{len(mapped_grupos) - len(uncovered)}/{len(mapped_grupos)} mapeados cobertos"
             )
         except Exception as e:
@@ -5723,28 +5748,29 @@ def fetch_isc_pricing_data(db: Optional[Session] = None, force_refresh: bool = F
     all_data: dict = {}
     consolidated_totals: dict = {}   # {grupo: snap_metrics} — kept in output for callers
 
-    for _gn, _skus in consolidated_grupo_skus.items():
+    def _isc_zero_snap() -> dict:
+        return {
+            "qtd_site": 0, "receita_liquida_site": 0.0, "inscricao_liquida": 0.0,
+            "ticket_medio": 0.0, "media_7d": 0.0, "media_14d": 0.0, "media_30d": 0.0,
+        }
+
+    for _gn, _skus_por_ano in consolidated_grupo_skus_por_ano.items():
         is_consolidated = _gn in consolidated_grupos
-        snap = snapshot_totals.get(_gn)
 
-        if not snap:
-            if not is_consolidated:
-                logger.warning(
-                    f"[ISC] Grupo '{_gn}' sem dados no snapshot — "
-                    f"auto-sync ainda não rodou ou grupo sem vendas no ano {current_year}"
-                )
-            snap = {
-                "qtd_site": 0, "receita_liquida_site": 0.0, "inscricao_liquida": 0.0,
-                "ticket_medio": 0.0, "media_7d": 0.0, "media_14d": 0.0, "media_30d": 0.0,
-            }
-
-        _evt_date = _isc_grupo_latest.get(_gn)
-        dias_ate_evento = (_evt_date - today_brazil()).days if _evt_date else 0
-
-        for _i, _sn in enumerate(_skus):
-            if not _sn:
-                continue
-            if is_consolidated:
+        if is_consolidated:
+            # Grupos consolidados são excluídos de _isc_grupos_ano_seguinte acima,
+            # ou seja, por construção NUNCA têm mapping ativo no ano seguinte —
+            # basta o snapshot de current_year. Achata os SKUs (raro ter mais de
+            # um) só pra manter o convênio "primeiro SKU carrega o total".
+            snap = snapshot_by_ano.get(current_year, {}).get(_gn) or _isc_zero_snap()
+            _flat_skus: list = []
+            for _ano_k in sorted(_skus_por_ano.keys()):
+                for _sn in _skus_por_ano[_ano_k]:
+                    if _sn not in _flat_skus:
+                        _flat_skus.append(_sn)
+            for _i, _sn in enumerate(_flat_skus):
+                if not _sn:
+                    continue
                 all_data[_sn] = {
                     'qtd_site':            snap['qtd_site'] if _i == 0 else 0,
                     'inscricao_liquida':   snap['inscricao_liquida'] if _i == 0 else 0.0,
@@ -5762,34 +5788,54 @@ def fetch_isc_pricing_data(db: Optional[Session] = None, force_refresh: bool = F
                 }
                 if _i == 0:
                     consolidated_totals[_gn] = snap
-            else:
-                if _i == 0:
-                    all_data[_sn] = {
-                        'qtd_site':            snap['qtd_site'],
-                        'inscricao_liquida':   snap['inscricao_liquida'],
-                        'media_30d':           snap['media_30d'],
-                        'media_14d':           snap['media_14d'],
-                        'media_7d':            snap['media_7d'],
-                        'dias_ate_evento':     dias_ate_evento,
-                        'evento_name':         _gn,
-                        'ticket_medio':        0.0,
-                        'fator_aceleracao':    0.0,
-                        'projecao_linear':     0.0,
-                        'projecao_ajustada':   0.0,
-                        'projecao_final':      0.0,
-                        'tendencia':           'Sem histórico comparativo',
-                        'receita_liquida_site': snap['receita_liquida_site'],
-                    }
-                else:
-                    all_data[_sn] = {
-                        'qtd_site': 0, 'inscricao_liquida': 0.0,
-                        'media_30d': 0.0, 'media_14d': 0.0, 'media_7d': 0.0,
-                        'dias_ate_evento': 0, 'evento_name': _gn,
-                        'ticket_medio': 0.0, 'fator_aceleracao': 0.0,
-                        'projecao_linear': 0.0, 'projecao_ajustada': 0.0,
-                        'projecao_final': 0.0, 'tendencia': 'Sem histórico comparativo',
-                        'receita_liquida_site': 0.0,
-                    }
+        else:
+            # Live/híbrido: cada ano-edição do grupo usa SOMENTE o snapshot
+            # daquele mesmo ano — nunca o de outro ano. É essa mistura que
+            # fazia a edição do ano seguinte "roubar" o total do ano corrente
+            # (ou vice-versa) quando as duas tinham mapping ativo ao mesmo tempo.
+            for _ano_k in sorted(_skus_por_ano.keys()):
+                _skus = _skus_por_ano[_ano_k]
+                snap = snapshot_by_ano.get(_ano_k, {}).get(_gn)
+                if not snap:
+                    logger.warning(
+                        f"[ISC] Grupo '{_gn}' (ano {_ano_k}) sem dados no snapshot — "
+                        f"auto-sync ainda não rodou ou grupo sem vendas nesse ano"
+                    )
+                    snap = _isc_zero_snap()
+
+                _evt_date = _isc_grupo_ano_latest.get((_gn, _ano_k)) or _isc_grupo_latest.get(_gn)
+                dias_ate_evento = (_evt_date - today_brazil()).days if _evt_date else 0
+
+                for _i, _sn in enumerate(_skus):
+                    if not _sn:
+                        continue
+                    if _i == 0:
+                        all_data[_sn] = {
+                            'qtd_site':            snap['qtd_site'],
+                            'inscricao_liquida':   snap['inscricao_liquida'],
+                            'media_30d':           snap['media_30d'],
+                            'media_14d':           snap['media_14d'],
+                            'media_7d':            snap['media_7d'],
+                            'dias_ate_evento':     dias_ate_evento,
+                            'evento_name':         _gn,
+                            'ticket_medio':        0.0,
+                            'fator_aceleracao':    0.0,
+                            'projecao_linear':     0.0,
+                            'projecao_ajustada':   0.0,
+                            'projecao_final':      0.0,
+                            'tendencia':           'Sem histórico comparativo',
+                            'receita_liquida_site': snap['receita_liquida_site'],
+                        }
+                    else:
+                        all_data[_sn] = {
+                            'qtd_site': 0, 'inscricao_liquida': 0.0,
+                            'media_30d': 0.0, 'media_14d': 0.0, 'media_7d': 0.0,
+                            'dias_ate_evento': 0, 'evento_name': _gn,
+                            'ticket_medio': 0.0, 'fator_aceleracao': 0.0,
+                            'projecao_linear': 0.0, 'projecao_ajustada': 0.0,
+                            'projecao_final': 0.0, 'tendencia': 'Sem histórico comparativo',
+                            'receita_liquida_site': 0.0,
+                        }
 
     # STEP 4: Compute projection metrics for live/hybrid events (same math as before).
     for sku, data in all_data.items():
@@ -5875,7 +5921,7 @@ def fetch_isc_pricing_data(db: Optional[Session] = None, force_refresh: bool = F
     if not warnings:
         logger.info(
             f"[ISC] PostgreSQL read OK: {len(all_data) - 1} SKUs "
-            f"({len(consolidated_grupos)} consolidated, {len(snapshot_totals)} grupos com dados)"
+            f"({len(consolidated_grupos)} consolidated, {len(consolidated_grupo_skus_por_ano)} grupos mapeados)"
         )
 
     _isc_cache = all_data
