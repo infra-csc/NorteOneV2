@@ -41,6 +41,7 @@ class CortesiaSolicitacaoResponse(BaseModel):
     status: str
     observacao: Optional[str] = None
     codigo_cupom: Optional[str] = None
+    codigo_cupom_lista: List[str] = []
     gerado_por_nome: Optional[str] = None
     gerado_em: Optional[datetime] = None
     nome_arquivo: Optional[str] = None

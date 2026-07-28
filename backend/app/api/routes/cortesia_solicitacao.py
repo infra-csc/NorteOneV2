@@ -13,11 +13,12 @@ import csv
 import io
 import logging
 import os
+import re
 import uuid
 from datetime import date
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -52,6 +53,17 @@ CORTESIA_SOLICITACAO_PERMISSION = "cortesia_solicitacao"
 _UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "uploads", "cortesia_solicitacao")
 _ALLOWED_EXTENSOES = {".xlsx", ".xls", ".csv"}
 _MAX_UPLOAD_BYTES = 15 * 1024 * 1024  # 15MB
+
+# Um código de cupom por linha é o formato canônico salvo em codigo_cupom,
+# mas aceitamos colar/importar separado por vírgula ou ponto e vírgula
+# também — tanto no salvamento quanto na leitura de dados antigos.
+_CODIGO_CUPOM_SPLIT_RE = re.compile(r"[\r\n,;]+")
+
+
+def _parse_codigos_cupom(texto: str | None) -> list[str]:
+    if not texto:
+        return []
+    return [c.strip() for c in _CODIGO_CUPOM_SPLIT_RE.split(texto) if c.strip()]
 
 
 def _get_user_area_ids(db: Session, user_id: int) -> set:
@@ -104,6 +116,7 @@ def _serialize(sol: CortesiaSolicitacao) -> CortesiaSolicitacaoResponse:
         status=sol.status,
         observacao=sol.observacao,
         codigo_cupom=sol.codigo_cupom,
+        codigo_cupom_lista=_parse_codigos_cupom(sol.codigo_cupom),
         gerado_por_nome=sol.gerador.nome if sol.gerador else None,
         gerado_em=sol.gerado_em,
         nome_arquivo=sol.nome_arquivo,
@@ -221,6 +234,27 @@ def list_solicitacoes(
         area_ids = _get_user_area_ids(db, current_user.id)
         query = query.filter(CortesiaSolicitacao.area_projecao_id.in_(area_ids))
     rows = query.order_by(CortesiaSolicitacao.created_at.desc()).all()
+    return [_serialize(r) for r in rows]
+
+
+@router.get("/fila-geracao", response_model=list[CortesiaSolicitacaoResponse])
+def fila_geracao_cupons(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(CORTESIA_SOLICITACAO_PERMISSION, "pode_editar")),
+):
+    """Fila dedicada de quem gera os cupons: todas as solicitações do tipo
+    cupom, sem recorte por área — a mesma regra de acesso que já vale hoje
+    para marcar uma solicitação como gerada (pode_editar do módulo, não
+    depende de vínculo com a área). O frontend separa pendentes x gerados."""
+    rows = (
+        db.query(CortesiaSolicitacao)
+        .filter(
+            CortesiaSolicitacao.tipo == TIPO_CUPOM,
+            CortesiaSolicitacao.deleted_at.is_(None),
+        )
+        .order_by(CortesiaSolicitacao.created_at.desc())
+        .all()
+    )
     return [_serialize(r) for r in rows]
 
 
@@ -376,11 +410,13 @@ def gerar_cupom(
     if sol.status == STATUS_GERADO:
         raise HTTPException(status_code=400, detail="Esta solicitação já foi marcada como gerada")
 
-    codigo = (data.codigo_cupom or "").strip()
-    if not codigo:
+    codigos = _parse_codigos_cupom(data.codigo_cupom)
+    if not codigos:
         raise HTTPException(status_code=400, detail="Informe o(s) código(s) do cupom gerado")
 
-    sol.codigo_cupom = codigo
+    # Normaliza para um código por linha, independente de como o texto foi
+    # colado ou importado — mantém a leitura/exportação consistentes.
+    sol.codigo_cupom = "\n".join(codigos)
     sol.status = STATUS_GERADO
     sol.gerado_por = current_user.id
     from datetime import datetime
@@ -389,6 +425,67 @@ def gerar_cupom(
     db.commit()
     db.refresh(sol)
     return _serialize(sol)
+
+
+@router.get("/exportar-cupons")
+def exportar_cupons(
+    evento_id: int = Query(None),
+    area_projecao_id: int = Query(None),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(CORTESIA_SOLICITACAO_PERMISSION, "pode_editar")),
+):
+    """CSV com um código de cupom por linha, dos lotes já gerados — mesma
+    regra de acesso e mesmo recorte (sem filtro de área) da fila de geração."""
+    query = db.query(CortesiaSolicitacao).filter(
+        CortesiaSolicitacao.tipo == TIPO_CUPOM,
+        CortesiaSolicitacao.status == STATUS_GERADO,
+        CortesiaSolicitacao.deleted_at.is_(None),
+    )
+    if evento_id:
+        query = query.filter(CortesiaSolicitacao.evento_id == evento_id)
+    if area_projecao_id:
+        query = query.filter(CortesiaSolicitacao.area_projecao_id == area_projecao_id)
+    rows = query.order_by(CortesiaSolicitacao.gerado_em.desc()).all()
+
+    def _sanitize_csv(val: str) -> str:
+        if val and val[0] in ('=', '+', '-', '@', '\t', '\r'):
+            return "'" + val
+        return val
+
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=';')
+    writer.writerow([
+        'Evento', 'Data Evento', 'Área', 'Quantidade do Lote', 'Código',
+        'Solicitado por', 'Gerado por', 'Gerado em',
+    ])
+    for sol in rows:
+        base = [
+            _sanitize_csv(sol.evento.nome if sol.evento else ''),
+            sol.evento.data_evento.strftime('%d/%m/%Y') if sol.evento and sol.evento.data_evento else '',
+            _sanitize_csv(sol.area_projecao.nome if sol.area_projecao else ''),
+            sol.quantidade,
+        ]
+        tail = [
+            _sanitize_csv(sol.solicitante.nome if sol.solicitante else ''),
+            _sanitize_csv(sol.gerador.nome if sol.gerador else ''),
+            sol.gerado_em.strftime('%d/%m/%Y %H:%M') if sol.gerado_em else '',
+        ]
+        codigos = _parse_codigos_cupom(sol.codigo_cupom)
+        if not codigos:
+            writer.writerow(base + [''] + tail)
+        else:
+            for codigo in codigos:
+                writer.writerow(base + [_sanitize_csv(codigo)] + tail)
+
+    output.seek(0)
+    bom = '\ufeff'
+    content = bom + output.getvalue()
+
+    return StreamingResponse(
+        io.BytesIO(content.encode('utf-8-sig')),
+        media_type='text/csv',
+        headers={'Content-Disposition': 'attachment; filename=cupons_gerados.csv'},
+    )
 
 
 @router.delete("/{solicitacao_id}")

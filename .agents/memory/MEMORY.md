@@ -43,3 +43,4 @@
 - [Split de módulo de permissão](perfil-permissao-module-split.md) — UI revoga DELETANDO a linha (submit filtra all-false); backfill de módulo novo exige guard global one-shot, nunca anti-join por perfil.
 - [Ticket promo fallback](ticket-promo-fallback.md) — nunca fabricar status "ativo" no fallback; múltiplas promos resolvem por entity_id DESC + 2 passadas de status; "inativo" nunca elegível.
 - [Margem parcial + avisos](margem-parcial-avisos.md) — refresh parcial restaura última margemPorKit íntegra do EDS (card e tabela em lockstep); avisos colapsam em 1; sem-prefixo é reservado.
+- [Area-scoped lists vs module permissions](area-scope-vs-module-permission.md) — papel "global" (permissão de módulo, sem área) some de listas area-scoped; precisa endpoint novo sem escopo, nunca remendar o existente.

@@ -1800,6 +1800,7 @@ export interface CortesiaSolicitacaoResponse {
   status: 'solicitado' | 'gerado';
   observacao?: string | null;
   codigo_cupom?: string | null;
+  codigo_cupom_lista?: string[];
   gerado_por_nome?: string | null;
   gerado_em?: string | null;
   nome_arquivo?: string | null;
@@ -1856,6 +1857,23 @@ export const cortesiaSolicitacaoService = {
     const link = document.createElement('a');
     link.href = url;
     link.setAttribute('download', nomeArquivo || 'planilha');
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  },
+  // Fila dedicada de quem gera os cupons: todas as solicitações tipo cupom,
+  // sem recorte por área (backend usa pode_editar, não vínculo com a área).
+  filaGeracao: async (): Promise<CortesiaSolicitacaoResponse[]> => {
+    const response = await api.get('/cortesia-solicitacao/fila-geracao');
+    return response.data;
+  },
+  exportarCupons: async (params?: { evento_id?: number; area_projecao_id?: number }): Promise<void> => {
+    const response = await api.get('/cortesia-solicitacao/exportar-cupons', { params, responseType: 'blob' });
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'cupons_gerados.csv');
     document.body.appendChild(link);
     link.click();
     link.remove();
