@@ -2037,6 +2037,19 @@ const EventDetail: React.FC = () => {
     }
   };
 
+  // getActionCutoffInfo não tem bucket para a semana do evento (Ação Final, D-7) — só é chamada
+  // hoje com forced_ponto_corte/estagio já setados pelos cards de Ação Tomada. Para a Análise
+  // Diária (registrável sem slot ativo), precisamos detectar a janela final aqui também, com a
+  // mesma regra de antecipação de sexta-feira usada para destravar o card de Ação Final.
+  const getCurrentStageInfo = (dMinus: number): { ponto_corte: string; estagio: string } => {
+    const isFriday = new Date().toLocaleDateString('en-US', { weekday: 'long', timeZone: 'America/Sao_Paulo' }).startsWith('Friday');
+    const isWeekendAnticipatedFinal = isFriday && (dMinus - 1 === 7 || dMinus - 2 === 7);
+    if (dMinus <= 7 || isWeekendAnticipatedFinal) {
+      return { ponto_corte: 'D-7', estagio: 'final' };
+    }
+    return getActionCutoffInfo(dMinus);
+  };
+
   const handleSaveAction = async () => {
     if (viewOnlyAction) return;
     if (!id || !actionForm.descricao.trim()) return;
@@ -2184,7 +2197,7 @@ const EventDetail: React.FC = () => {
       const dMinusInscricoes = event?.dMinusInscricoes ?? dMinus;
       const cutoffInfo = analiseForm.forced_ponto_corte && analiseForm.forced_estagio
         ? { ponto_corte: analiseForm.forced_ponto_corte, estagio: analiseForm.forced_estagio }
-        : getActionCutoffInfo(dMinus);
+        : getCurrentStageInfo(dMinus);
       const iscStatusMap: Record<string, string> = {
         accelerating: 'forte',
         stable: 'estavel',
@@ -2312,6 +2325,44 @@ const EventDetail: React.FC = () => {
     { value: 'VOLUME', label: 'Volume (inscrições)' },
     { value: 'TICKET', label: 'Ticket Médio (R$)' },
   ];
+
+  // Análise Diária — registro sempre disponível, independente de estar num ponto de corte ativo.
+  const todayAnalise = (event.dailyAnalyses ?? []).find(a => a.data_analise === getTodayLocalDate());
+  const openAnaliseModal = () => {
+    if (todayAnalise) {
+      setEditingAnaliseId(todayAnalise.id);
+      setViewOnlyAnalise(false);
+      setAnaliseForm(f => ({
+        ...f,
+        analise_texto: todayAnalise.analise_texto,
+        ponto_critico: todayAnalise.ponto_critico ?? '',
+        tipo_acao_sugerida: todayAnalise.tipo_acao_sugerida,
+        acao_sugerida_descricao: todayAnalise.acao_sugerida_descricao ?? '',
+        retorno_estimado_tipo: todayAnalise.retorno_estimado_tipo ?? '',
+        retorno_estimado_valor: todayAnalise.retorno_estimado_valor != null ? String(todayAnalise.retorno_estimado_valor) : '',
+        data_analise: todayAnalise.data_analise,
+        forced_ponto_corte: todayAnalise.ponto_corte ?? '',
+        forced_estagio: todayAnalise.estagio ?? '',
+      }));
+    } else {
+      setEditingAnaliseId(null);
+      setViewOnlyAnalise(false);
+      setAnaliseForm({
+        analise_texto: '',
+        ponto_critico: '',
+        tipo_acao_sugerida: '',
+        acao_sugerida_descricao: '',
+        retorno_estimado_tipo: '',
+        retorno_estimado_valor: '',
+        data_analise: getTodayLocalDate(),
+        projeto_id_selecionado: 0,
+        forced_ponto_corte: '',
+        forced_estagio: '',
+      });
+    }
+    setShowAnaliseModal(true);
+    setAnaliseError(null);
+  };
 
   const dailySalesArr = event.dailySales || [];
   const todayDailySale = dailySalesArr.find(d => d.date === todayStr);
@@ -3850,7 +3901,21 @@ const EventDetail: React.FC = () => {
               : <ChevronUp className="w-4 h-4 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
             }
           </button>
-          <span className="text-[10px] text-gray-400 dark:text-gray-500 font-mono">D-Insc atual: {event.dMinusInscricoes ?? event.dMinus ?? '—'}</span>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-gray-400 dark:text-gray-500 font-mono">D-Insc atual: {event.dMinusInscricoes ?? event.dMinus ?? '—'}</span>
+            <button
+              onClick={() => openAnaliseModal()}
+              title={todayAnalise ? 'Análise de Hoje' : 'Registrar Análise'}
+              className={`flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded-lg border transition-colors ${
+                todayAnalise
+                  ? 'border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/30 hover:bg-blue-100 dark:hover:bg-blue-900/40'
+                  : 'border-dashed border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+              }`}
+            >
+              <NotebookPen className="w-3 h-3" />
+              {todayAnalise ? 'Análise de Hoje' : 'Registrar Análise'}
+            </button>
+          </div>
         </div>
         {!acoesColapsadas && (() => {
           const dInscricoes = event.dMinusInscricoes ?? event.dMinus ?? 999;
@@ -3889,57 +3954,6 @@ const EventDetail: React.FC = () => {
             },
           };
           const legacyActions = (event.commercialActions ?? []).filter(a => !a.ponto_corte || !a.estagio);
-          const todayAnalise = (event.dailyAnalyses ?? []).find(a => a.data_analise === getTodayLocalDate());
-          const openAnaliseModal = (pontoCorte: string, estagio: string) => {
-            if (todayAnalise) {
-              setEditingAnaliseId(todayAnalise.id);
-              setViewOnlyAnalise(false);
-              setAnaliseForm(f => ({
-                ...f,
-                analise_texto: todayAnalise.analise_texto,
-                ponto_critico: todayAnalise.ponto_critico ?? '',
-                tipo_acao_sugerida: todayAnalise.tipo_acao_sugerida,
-                acao_sugerida_descricao: todayAnalise.acao_sugerida_descricao ?? '',
-                retorno_estimado_tipo: todayAnalise.retorno_estimado_tipo ?? '',
-                retorno_estimado_valor: todayAnalise.retorno_estimado_valor != null ? String(todayAnalise.retorno_estimado_valor) : '',
-                data_analise: todayAnalise.data_analise,
-                forced_ponto_corte: todayAnalise.ponto_corte ?? pontoCorte,
-                forced_estagio: todayAnalise.estagio ?? estagio,
-              }));
-            } else {
-              setEditingAnaliseId(null);
-              setViewOnlyAnalise(false);
-              setAnaliseForm({
-                analise_texto: '',
-                ponto_critico: '',
-                tipo_acao_sugerida: '',
-                acao_sugerida_descricao: '',
-                retorno_estimado_tipo: '',
-                retorno_estimado_valor: '',
-                data_analise: getTodayLocalDate(),
-                projeto_id_selecionado: 0,
-                forced_ponto_corte: pontoCorte,
-                forced_estagio: estagio,
-              });
-            }
-            setShowAnaliseModal(true);
-            setAnaliseError(null);
-          };
-          const AnaliseButton = ({ pontoCorte, estagio, variant = 'default' }: { pontoCorte: string; estagio: string; variant?: 'default' | 'emerald' }) => (
-            <button
-              onClick={() => openAnaliseModal(pontoCorte, estagio)}
-              className={`w-full flex items-center justify-center gap-1 px-2 py-1.5 text-[11px] font-medium rounded-lg border transition-colors ${
-                todayAnalise
-                  ? (variant === 'emerald'
-                      ? 'border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-100 dark:hover:bg-emerald-900/40'
-                      : 'border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/30 hover:bg-blue-100 dark:hover:bg-blue-900/40')
-                  : 'border-dashed border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50'
-              }`}
-            >
-              <NotebookPen className="w-3 h-3" />
-              {todayAnalise ? 'Análise de Hoje' : 'Registrar Análise'}
-            </button>
-          );
           return (
             <div className="space-y-3">
               <div className="grid grid-cols-3 gap-2">
@@ -3987,13 +4001,6 @@ const EventDetail: React.FC = () => {
                             )}
                           </div>
                           <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => openAnaliseModal(slot.ponto_corte, slot.estagio)}
-                              className={`p-0.5 transition-colors ${todayAnalise ? 'text-blue-500 hover:text-blue-600' : 'text-gray-300 hover:text-blue-400'}`}
-                              title={todayAnalise ? 'Análise de Hoje' : 'Registrar Análise'}
-                            >
-                              <NotebookPen className="w-3 h-3" />
-                            </button>
                             {canEdit ? (
                               <button
                                 onClick={() => {
@@ -4082,7 +4089,6 @@ const EventDetail: React.FC = () => {
                         <span className="text-[9px] text-yellow-500">●</span>
                       </div>
                       <span className={`text-lg font-black font-mono leading-none ${meta.text}`}>{slot.ponto_corte}</span>
-                      <AnaliseButton pontoCorte={slot.ponto_corte} estagio={slot.estagio} />
                       <button
                         onClick={() => {
                           setEditingActionId(null);
@@ -4144,13 +4150,6 @@ const EventDetail: React.FC = () => {
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-[11px] font-black font-mono text-emerald-700 dark:text-emerald-300">D-7</span>
-                          <button
-                            onClick={() => openAnaliseModal('D-7', 'final')}
-                            className={`p-0.5 transition-colors ${todayAnalise ? 'text-blue-500 hover:text-blue-600' : 'text-gray-300 hover:text-blue-400'}`}
-                            title={todayAnalise ? 'Análise de Hoje' : 'Registrar Análise'}
-                          >
-                            <NotebookPen className="w-3 h-3" />
-                          </button>
                           {canEditFinal ? (
                             <button
                               onClick={() => {
@@ -4234,7 +4233,6 @@ const EventDetail: React.FC = () => {
                       <span className="text-[10px] text-emerald-600 dark:text-emerald-400">semana do evento — registre a ação final</span>
                     </div>
                     <div className="flex flex-col gap-1.5 items-stretch min-w-[160px]">
-                      <AnaliseButton pontoCorte="D-7" estagio="final" variant="emerald" />
                       <button
                         onClick={() => {
                           setEditingActionId(null);
@@ -5711,7 +5709,7 @@ const EventDetail: React.FC = () => {
         const dMinusInscricoes = event?.dMinusInscricoes ?? dMinus;
         const cutoffInfo = analiseForm.forced_ponto_corte && analiseForm.forced_estagio
           ? { ponto_corte: analiseForm.forced_ponto_corte, estagio: analiseForm.forced_estagio }
-          : getActionCutoffInfo(dMinus);
+          : getCurrentStageInfo(dMinus);
         const stageLabel: Record<string, string> = { analitico: 'Analítico', estrategico: 'Estratégico', operacional: 'Operacional', final: 'Ação Final' };
         const stageColor: Record<string, string> = {
           analitico: 'bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800',
