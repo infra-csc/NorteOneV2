@@ -5778,7 +5778,7 @@ const EventDetail: React.FC = () => {
                   <div className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 p-3 text-xs text-gray-500 dark:text-gray-400 flex flex-col justify-center">
                     <p><span className="font-semibold text-gray-700 dark:text-gray-300">Data:</span> {new Date(analiseForm.data_analise + 'T00:00:00').toLocaleDateString('pt-BR')}</p>
                     {savedAnalise?.autor_nome && <p className="mt-0.5"><span className="font-semibold text-gray-700 dark:text-gray-300">Registrado por:</span> {savedAnalise.autor_nome}</p>}
-                    {savedAnalise?.created_at && <p className="mt-0.5"><span className="font-semibold text-gray-700 dark:text-gray-300">Hora:</span> {new Date(savedAnalise.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>}
+                    {savedAnalise?.created_at && <p className="mt-0.5"><span className="font-semibold text-gray-700 dark:text-gray-300">Hora:</span> {new Date(savedAnalise.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })}</p>}
                   </div>
                 </div>
 

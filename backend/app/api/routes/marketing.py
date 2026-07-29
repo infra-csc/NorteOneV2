@@ -14874,6 +14874,21 @@ class AnaliseDiariaUpdate(BaseModel):
 
 
 def _analise_diaria_to_dict(a) -> dict:
+    from datetime import timezone as _tz_analise
+
+    def _naive_utc_iso(dt):
+        # created_at/updated_at são gravados via func.now() numa coluna sem
+        # timezone; a sessão do Postgres roda em UTC (mesmo TZ do container),
+        # então o valor naive representa um instante UTC. Sem marcar o tzinfo
+        # explicitamente, new Date(...) no frontend interpreta a string como
+        # horário LOCAL do navegador (ex.: Brasília), exibindo a hora errada
+        # (3h adiantada). Marcar como UTC aqui permite a conversão correta.
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=_tz_analise.utc)
+        return dt.isoformat()
+
     return {
         "id": a.id,
         "projeto_id": a.projeto_id,
@@ -14898,8 +14913,8 @@ def _analise_diaria_to_dict(a) -> dict:
         "snapshot_playbook_letter": a.snapshot_playbook_letter,
         "snapshot_media_semana_atual": float(a.snapshot_media_semana_atual) if a.snapshot_media_semana_atual is not None else None,
         "snapshot_ticket_medio_realizado": float(a.snapshot_ticket_medio_realizado) if a.snapshot_ticket_medio_realizado is not None else None,
-        "created_at": a.created_at.isoformat() if a.created_at else None,
-        "updated_at": a.updated_at.isoformat() if a.updated_at else None,
+        "created_at": _naive_utc_iso(a.created_at),
+        "updated_at": _naive_utc_iso(a.updated_at),
     }
 
 
