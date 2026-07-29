@@ -4,6 +4,7 @@ import time as _time
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import text, bindparam, func
+from sqlalchemy.exc import IntegrityError
 from typing import Optional, List
 from pydantic import BaseModel
 from datetime import datetime, date, timedelta
@@ -14837,6 +14838,252 @@ def delete_acao_comercial(
     return {
         "status": "success",
         "message": "Ação comercial removida com sucesso"
+    }
+
+
+class AnaliseDiariaCreate(BaseModel):
+    projeto_id: int
+    data_analise: date
+    ponto_corte: Optional[str] = None
+    estagio: Optional[str] = None
+    analise_texto: str
+    ponto_critico: Optional[str] = None
+    tipo_acao_sugerida: str
+    acao_sugerida_descricao: Optional[str] = None
+    retorno_estimado_tipo: Optional[str] = None
+    retorno_estimado_valor: Optional[float] = None
+    snapshot_isc: Optional[float] = None
+    snapshot_isc_state: Optional[str] = None
+    snapshot_d_minus: Optional[int] = None
+    snapshot_ia730: Optional[float] = None
+    snapshot_rolling14d: Optional[float] = None
+    snapshot_curva_percent: Optional[float] = None
+    snapshot_vendas_acumuladas: Optional[int] = None
+    snapshot_playbook_letter: Optional[str] = None
+    snapshot_media_semana_atual: Optional[float] = None
+    snapshot_ticket_medio_realizado: Optional[float] = None
+
+
+class AnaliseDiariaUpdate(BaseModel):
+    analise_texto: Optional[str] = None
+    ponto_critico: Optional[str] = None
+    tipo_acao_sugerida: Optional[str] = None
+    acao_sugerida_descricao: Optional[str] = None
+    retorno_estimado_tipo: Optional[str] = None
+    retorno_estimado_valor: Optional[float] = None
+
+
+def _analise_diaria_to_dict(a) -> dict:
+    return {
+        "id": a.id,
+        "projeto_id": a.projeto_id,
+        "autor_id": a.autor_id,
+        "autor_nome": a.autor_nome,
+        "data_analise": a.data_analise.isoformat() if a.data_analise else None,
+        "ponto_corte": a.ponto_corte,
+        "estagio": a.estagio,
+        "analise_texto": a.analise_texto,
+        "ponto_critico": a.ponto_critico,
+        "tipo_acao_sugerida": a.tipo_acao_sugerida,
+        "acao_sugerida_descricao": a.acao_sugerida_descricao,
+        "retorno_estimado_tipo": a.retorno_estimado_tipo,
+        "retorno_estimado_valor": float(a.retorno_estimado_valor) if a.retorno_estimado_valor is not None else None,
+        "snapshot_isc": float(a.snapshot_isc) if a.snapshot_isc is not None else None,
+        "snapshot_isc_state": a.snapshot_isc_state,
+        "snapshot_d_minus": a.snapshot_d_minus,
+        "snapshot_ia730": float(a.snapshot_ia730) if a.snapshot_ia730 is not None else None,
+        "snapshot_rolling14d": float(a.snapshot_rolling14d) if a.snapshot_rolling14d is not None else None,
+        "snapshot_curva_percent": float(a.snapshot_curva_percent) if a.snapshot_curva_percent is not None else None,
+        "snapshot_vendas_acumuladas": a.snapshot_vendas_acumuladas,
+        "snapshot_playbook_letter": a.snapshot_playbook_letter,
+        "snapshot_media_semana_atual": float(a.snapshot_media_semana_atual) if a.snapshot_media_semana_atual is not None else None,
+        "snapshot_ticket_medio_realizado": float(a.snapshot_ticket_medio_realizado) if a.snapshot_ticket_medio_realizado is not None else None,
+        "created_at": a.created_at.isoformat() if a.created_at else None,
+        "updated_at": a.updated_at.isoformat() if a.updated_at else None,
+    }
+
+
+@router.get("/analises-diarias/{projeto_id}")
+def get_analises_diarias(
+    projeto_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("marketing_dashboard", "pode_visualizar"))
+):
+    """Lista todas as análises diárias de um projeto/evento, mais recentes primeiro"""
+    from ...models.dimensoes import AnaliseDiaria
+
+    analises = db.query(AnaliseDiaria).filter(
+        AnaliseDiaria.projeto_id == projeto_id
+    ).order_by(AnaliseDiaria.data_analise.desc()).all()
+
+    return {
+        "status": "success",
+        "analises": [_analise_diaria_to_dict(a) for a in analises]
+    }
+
+
+@router.post("/analises-diarias")
+def create_or_update_analise_diaria(
+    analise: AnaliseDiariaCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("marketing_dashboard", "pode_editar"))
+):
+    """Cria a análise diária do evento com snapshot ISC congelado. Se já existir uma
+    análise para o mesmo projeto no mesmo dia, atualiza o registro existente em vez
+    de criar um duplicado (regra: 1 análise por evento por dia, editável no mesmo dia)."""
+    from ...models.dimensoes import AnaliseDiaria
+
+    projeto = db.query(DimProjeto).filter(DimProjeto.id == analise.projeto_id).first()
+    if not projeto:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
+
+    if not analise.analise_texto.strip():
+        raise HTTPException(status_code=422, detail="Análise Simplificada é obrigatória")
+    if not analise.tipo_acao_sugerida:
+        raise HTTPException(status_code=422, detail="Tipo de Ação Sugerida é obrigatório")
+
+    existente = db.query(AnaliseDiaria).filter(
+        AnaliseDiaria.projeto_id == analise.projeto_id,
+        AnaliseDiaria.data_analise == analise.data_analise
+    ).first()
+
+    dados_conteudo = dict(
+        ponto_corte=analise.ponto_corte,
+        estagio=analise.estagio,
+        analise_texto=analise.analise_texto,
+        ponto_critico=analise.ponto_critico,
+        tipo_acao_sugerida=analise.tipo_acao_sugerida,
+        acao_sugerida_descricao=analise.acao_sugerida_descricao,
+        retorno_estimado_tipo=analise.retorno_estimado_tipo,
+        retorno_estimado_valor=analise.retorno_estimado_valor,
+        snapshot_isc=analise.snapshot_isc,
+        snapshot_isc_state=analise.snapshot_isc_state,
+        snapshot_d_minus=analise.snapshot_d_minus,
+        snapshot_ia730=analise.snapshot_ia730,
+        snapshot_rolling14d=analise.snapshot_rolling14d,
+        snapshot_curva_percent=analise.snapshot_curva_percent,
+        snapshot_vendas_acumuladas=analise.snapshot_vendas_acumuladas,
+        snapshot_playbook_letter=analise.snapshot_playbook_letter,
+        snapshot_media_semana_atual=analise.snapshot_media_semana_atual,
+        snapshot_ticket_medio_realizado=analise.snapshot_ticket_medio_realizado,
+    )
+
+    if existente:
+        for campo, valor in dados_conteudo.items():
+            setattr(existente, campo, valor)
+        existente.autor_id = current_user.id
+        existente.autor_nome = current_user.nome
+        db.commit()
+        db.refresh(existente)
+        return {
+            "status": "success",
+            "message": "Análise diária atualizada com sucesso",
+            "analise": _analise_diaria_to_dict(existente)
+        }
+
+    nova_analise = AnaliseDiaria(
+        projeto_id=analise.projeto_id,
+        data_analise=analise.data_analise,
+        autor_id=current_user.id,
+        autor_nome=current_user.nome,
+        **dados_conteudo,
+    )
+    db.add(nova_analise)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        # Corrida rara: outra requisição criou a análise do dia entre o SELECT e o INSERT.
+        existente = db.query(AnaliseDiaria).filter(
+            AnaliseDiaria.projeto_id == analise.projeto_id,
+            AnaliseDiaria.data_analise == analise.data_analise
+        ).first()
+        if not existente:
+            raise
+        for campo, valor in dados_conteudo.items():
+            setattr(existente, campo, valor)
+        existente.autor_id = current_user.id
+        existente.autor_nome = current_user.nome
+        db.commit()
+        db.refresh(existente)
+        return {
+            "status": "success",
+            "message": "Análise diária atualizada com sucesso",
+            "analise": _analise_diaria_to_dict(existente)
+        }
+
+    db.refresh(nova_analise)
+    return {
+        "status": "success",
+        "message": "Análise diária registrada com sucesso",
+        "analise": _analise_diaria_to_dict(nova_analise)
+    }
+
+
+@router.put("/analises-diarias/{analise_id}")
+def update_analise_diaria(
+    analise_id: int,
+    analise_update: AnaliseDiariaUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("marketing_dashboard", "pode_editar"))
+):
+    """Atualiza uma análise diária existente — permitido apenas no mesmo dia do registro."""
+    from ...models.dimensoes import AnaliseDiaria
+
+    analise = db.query(AnaliseDiaria).filter(AnaliseDiaria.id == analise_id).first()
+    if not analise:
+        raise HTTPException(status_code=404, detail="Análise diária não encontrada")
+
+    if analise.data_analise != date.today():
+        raise HTTPException(status_code=409, detail="Só é possível editar a análise no mesmo dia do registro")
+
+    if analise_update.analise_texto is not None:
+        if not analise_update.analise_texto.strip():
+            raise HTTPException(status_code=422, detail="Análise Simplificada é obrigatória")
+        analise.analise_texto = analise_update.analise_texto
+    if analise_update.tipo_acao_sugerida is not None:
+        analise.tipo_acao_sugerida = analise_update.tipo_acao_sugerida
+    if analise_update.ponto_critico is not None:
+        analise.ponto_critico = analise_update.ponto_critico or None
+    if analise_update.acao_sugerida_descricao is not None:
+        analise.acao_sugerida_descricao = analise_update.acao_sugerida_descricao
+    if analise_update.retorno_estimado_tipo is not None:
+        analise.retorno_estimado_tipo = analise_update.retorno_estimado_tipo or None
+    if analise_update.retorno_estimado_valor is not None:
+        analise.retorno_estimado_valor = analise_update.retorno_estimado_valor
+
+    analise.autor_id = current_user.id
+    analise.autor_nome = current_user.nome
+
+    db.commit()
+    db.refresh(analise)
+
+    return {
+        "status": "success",
+        "message": "Análise diária atualizada com sucesso",
+        "analise": _analise_diaria_to_dict(analise)
+    }
+
+
+@router.delete("/analises-diarias/{analise_id}")
+def delete_analise_diaria(
+    analise_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("marketing_dashboard", "pode_deletar"))
+):
+    """Remove uma análise diária"""
+    from ...models.dimensoes import AnaliseDiaria
+
+    analise = db.query(AnaliseDiaria).filter(AnaliseDiaria.id == analise_id).first()
+    if not analise:
+        raise HTTPException(status_code=404, detail="Análise diária não encontrada")
+
+    db.delete(analise)
+    db.commit()
+
+    return {
+        "status": "success",
+        "message": "Análise diária removida com sucesso"
     }
 
 

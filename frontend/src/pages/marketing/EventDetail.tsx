@@ -31,7 +31,8 @@ import {
   Archive,
   DatabaseZap,
   CheckCheck,
-  BarChart3
+  BarChart3,
+  NotebookPen
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -137,10 +138,67 @@ interface CommercialAction {
   snapshot_playbook_letter?: string;
 }
 
+interface DailyAnalysis {
+  id: string;
+  projeto_id: number;
+  autor_id?: number | null;
+  autor_nome?: string | null;
+  data_analise: string;
+  ponto_corte?: string;
+  estagio?: string;
+  analise_texto: string;
+  ponto_critico?: string | null;
+  tipo_acao_sugerida: string;
+  acao_sugerida_descricao?: string | null;
+  retorno_estimado_tipo?: string | null;
+  retorno_estimado_valor?: number | null;
+  snapshot_isc?: number;
+  snapshot_isc_state?: string;
+  snapshot_d_minus?: number;
+  snapshot_ia730?: number;
+  snapshot_rolling14d?: number;
+  snapshot_curva_percent?: number;
+  snapshot_vendas_acumuladas?: number;
+  snapshot_playbook_letter?: string;
+  snapshot_media_semana_atual?: number;
+  snapshot_ticket_medio_realizado?: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
 interface ExtendedEvent extends MarketingEvent {
   dailySales?: { date: string; sales: number; expected: number; cumulativeSales?: number; cumulativeExpected?: number; dMinus?: number; curvaAnoAnterior?: number; dif?: number; atingimentoAcumulado?: number; atingimentoDiario?: number; normalizedSales?: number; cumulativeNormalized?: number; localMedian?: number | null; outlierLimit?: number | null; isOutlier?: boolean; excessRemoved?: number; excessReceived?: number }[];
   commercialActions?: CommercialAction[];
+  dailyAnalyses?: DailyAnalysis[];
 }
+
+const mapAnaliseResponseToDailyAnalysis = (a: any): DailyAnalysis => ({
+  id: String(a.id),
+  projeto_id: a.projeto_id,
+  autor_id: a.autor_id ?? null,
+  autor_nome: a.autor_nome ?? null,
+  data_analise: a.data_analise,
+  ponto_corte: a.ponto_corte,
+  estagio: a.estagio,
+  analise_texto: a.analise_texto,
+  ponto_critico: a.ponto_critico ?? null,
+  tipo_acao_sugerida: a.tipo_acao_sugerida,
+  acao_sugerida_descricao: a.acao_sugerida_descricao ?? null,
+  retorno_estimado_tipo: a.retorno_estimado_tipo ?? null,
+  retorno_estimado_valor: a.retorno_estimado_valor ?? null,
+  snapshot_isc: a.snapshot_isc,
+  snapshot_isc_state: a.snapshot_isc_state,
+  snapshot_d_minus: a.snapshot_d_minus,
+  snapshot_ia730: a.snapshot_ia730,
+  snapshot_rolling14d: a.snapshot_rolling14d,
+  snapshot_curva_percent: a.snapshot_curva_percent,
+  snapshot_vendas_acumuladas: a.snapshot_vendas_acumuladas,
+  snapshot_playbook_letter: a.snapshot_playbook_letter,
+  snapshot_media_semana_atual: a.snapshot_media_semana_atual,
+  snapshot_ticket_medio_realizado: a.snapshot_ticket_medio_realizado,
+  created_at: a.created_at,
+  updated_at: a.updated_at,
+});
 
 const mapEventResponseToActions = (actions: any[]): CommercialAction[] =>
   actions.map((a: any) => ({
@@ -362,6 +420,8 @@ const EventDetail: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [showActionModal, setShowActionModal] = useState(false);
   const [viewOnlyAction, setViewOnlyAction] = useState(false);
+  const [showAnaliseModal, setShowAnaliseModal] = useState(false);
+  const [viewOnlyAnalise, setViewOnlyAnalise] = useState(false);
   const [acoesColapsadas, setAcoesColapsadas] = useState(false);
   const [showMargemInfo, setShowMargemInfo] = useState(false);
   const [showReceitaOrcada, setShowReceitaOrcada] = useState(false);
@@ -383,6 +443,22 @@ const EventDetail: React.FC = () => {
   const [editingActionId, setEditingActionId] = useState<string | null>(null);
   const [savingAction, setSavingAction] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  const [analiseForm, setAnaliseForm] = useState({
+    analise_texto: '',
+    ponto_critico: '',
+    tipo_acao_sugerida: '',
+    acao_sugerida_descricao: '',
+    retorno_estimado_tipo: '',
+    retorno_estimado_valor: '',
+    data_analise: getTodayLocalDate(),
+    projeto_id_selecionado: 0,
+    forced_ponto_corte: '',
+    forced_estagio: '',
+  });
+  const [editingAnaliseId, setEditingAnaliseId] = useState<string | null>(null);
+  const [savingAnalise, setSavingAnalise] = useState(false);
+  const [analiseError, setAnaliseError] = useState<string | null>(null);
   const [projetosVinculados, setProjetosVinculados] = useState<{id: number; nome: string; sku: string}[]>(_detailCacheFresh ? _detailCached!.projetosVinculados : []);
   const [comparacaoAnual, setComparacaoAnual] = useState<any>(_detailCacheFresh ? _detailCached!.comparacaoAnual : null);
   const [anosDisponiveis, setAnosDisponiveis] = useState<number[]>(_detailCacheFresh ? _detailCached!.anosDisponiveis : []);
@@ -864,6 +940,31 @@ const EventDetail: React.FC = () => {
       setDetailsLoading(false);
     };
   }, [id, anoParam]);
+
+  // Análises diárias são registros próprios (não embutidos no snapshot pesado
+  // do evento) — buscadas à parte para cada projeto vinculado ao evento/grupo.
+  useEffect(() => {
+    if (!id) return;
+    const projetoIds = isConsolidated
+      ? projetosVinculados.map(p => p.id)
+      : [parseInt(id)].filter(n => !isNaN(n));
+    if (projetoIds.length === 0) return;
+    const controller = new AbortController();
+    const fetchAnalises = async () => {
+      try {
+        const results = await Promise.all(
+          projetoIds.map(pid => marketingService.getAnalisesDiarias(String(pid)).catch(() => ({ status: 'error', analises: [] as any[] })))
+        );
+        if (controller.signal.aborted) return;
+        const merged = results.flatMap(r => (r.analises ?? []).map(mapAnaliseResponseToDailyAnalysis));
+        setEvent(prev => prev ? { ...prev, dailyAnalyses: merged } : prev);
+      } catch (err) {
+        console.error('Erro ao carregar análises diárias:', err);
+      }
+    };
+    fetchAnalises();
+    return () => controller.abort();
+  }, [id, isConsolidated, projetosVinculados]);
 
   useEffect(() => {
     if (!id) return;
@@ -2062,6 +2163,125 @@ const EventDetail: React.FC = () => {
     }
   };
 
+  const handleSaveAnalise = async () => {
+    if (viewOnlyAnalise) return;
+    if (!id || !analiseForm.analise_texto.trim() || !analiseForm.tipo_acao_sugerida) return;
+
+    let projetoIdParaAnalise: number | null;
+    if (isConsolidated) {
+      projetoIdParaAnalise = analiseForm.projeto_id_selecionado > 0
+        ? analiseForm.projeto_id_selecionado
+        : (projetosVinculados.length > 0 ? projetosVinculados[0].id : null);
+    } else {
+      projetoIdParaAnalise = parseInt(id);
+    }
+
+    if (!projetoIdParaAnalise) return;
+
+    setSavingAnalise(true);
+    try {
+      const dMinus = event?.dMinus ?? 0;
+      const dMinusInscricoes = event?.dMinusInscricoes ?? dMinus;
+      const cutoffInfo = analiseForm.forced_ponto_corte && analiseForm.forced_estagio
+        ? { ponto_corte: analiseForm.forced_ponto_corte, estagio: analiseForm.forced_estagio }
+        : getActionCutoffInfo(dMinus);
+      const iscStatusMap: Record<string, string> = {
+        accelerating: 'forte',
+        stable: 'estavel',
+        decelerating: 'fraco'
+      };
+
+      const snapshotData = {
+        snapshot_isc: event?.isc,
+        snapshot_isc_state: event?.iscStatus ? iscStatusMap[event.iscStatus] : undefined,
+        snapshot_d_minus: dMinusInscricoes,
+        snapshot_ia730: event?.iscComponents?.ia730,
+        snapshot_rolling14d: event?.iscComponents?.rolling14d,
+        snapshot_curva_percent: event?.iscComponents?.curvaDPercent,
+        snapshot_vendas_acumuladas: event?.currentSales,
+        snapshot_playbook_letter: event?.suggestedAction?.letter,
+        snapshot_media_semana_atual: mediaSemanaAtual,
+        snapshot_ticket_medio_realizado: ticketMedioRealizado > 0 ? ticketMedioRealizado : undefined,
+      };
+
+      const retornoValorNum = analiseForm.retorno_estimado_valor.trim()
+        ? parseFloat(analiseForm.retorno_estimado_valor.replace(',', '.'))
+        : undefined;
+
+      if (editingAnaliseId) {
+        const result = await marketingService.updateAnaliseDiaria(parseInt(editingAnaliseId), {
+          analise_texto: analiseForm.analise_texto,
+          ponto_critico: analiseForm.ponto_critico || null,
+          tipo_acao_sugerida: analiseForm.tipo_acao_sugerida,
+          acao_sugerida_descricao: analiseForm.acao_sugerida_descricao,
+          retorno_estimado_tipo: analiseForm.retorno_estimado_tipo || null,
+          retorno_estimado_valor: retornoValorNum,
+        });
+        const saved = mapAnaliseResponseToDailyAnalysis(result.analise);
+        setEvent(prev => prev ? {
+          ...prev,
+          dailyAnalyses: (prev.dailyAnalyses ?? []).map(a => a.id === editingAnaliseId ? saved : a)
+        } : prev);
+      } else {
+        const result = await marketingService.createOrUpdateAnaliseDiaria({
+          projeto_id: projetoIdParaAnalise,
+          data_analise: analiseForm.data_analise,
+          ponto_corte: cutoffInfo.ponto_corte,
+          estagio: cutoffInfo.estagio,
+          analise_texto: analiseForm.analise_texto,
+          ponto_critico: analiseForm.ponto_critico || undefined,
+          tipo_acao_sugerida: analiseForm.tipo_acao_sugerida,
+          acao_sugerida_descricao: analiseForm.acao_sugerida_descricao || undefined,
+          retorno_estimado_tipo: analiseForm.retorno_estimado_tipo || undefined,
+          retorno_estimado_valor: retornoValorNum,
+          ...snapshotData,
+        });
+        const saved = mapAnaliseResponseToDailyAnalysis(result.analise);
+        setEvent(prev => prev ? {
+          ...prev,
+          dailyAnalyses: [...(prev.dailyAnalyses ?? []).filter(a => a.id !== saved.id), saved]
+        } : prev);
+      }
+
+      setShowAnaliseModal(false);
+      setAnaliseError(null);
+      setEditingAnaliseId(null);
+      setAnaliseForm({
+        analise_texto: '',
+        ponto_critico: '',
+        tipo_acao_sugerida: '',
+        acao_sugerida_descricao: '',
+        retorno_estimado_tipo: '',
+        retorno_estimado_valor: '',
+        data_analise: getTodayLocalDate(),
+        projeto_id_selecionado: 0,
+        forced_ponto_corte: '',
+        forced_estagio: '',
+      });
+    } catch (err: any) {
+      if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
+      console.error('Erro ao salvar análise:', err);
+      setAnaliseError('Erro ao salvar análise. Tente novamente.');
+    } finally {
+      setSavingAnalise(false);
+    }
+  };
+
+  const handleDeleteAnalise = async (analiseId: string) => {
+    if (!id) return;
+    const previousAnalyses = event?.dailyAnalyses;
+    setEvent(prev => prev ? {
+      ...prev,
+      dailyAnalyses: prev.dailyAnalyses?.filter(a => a.id !== analiseId)
+    } : prev);
+    try {
+      await marketingService.deleteAnaliseDiaria(parseInt(analiseId));
+    } catch (err) {
+      console.error('Erro ao excluir análise:', err);
+      setEvent(prev => prev ? { ...prev, dailyAnalyses: previousAnalyses } : prev);
+    }
+  };
+
   const tipoOptions = [
     { value: '', label: '' },
     { value: 'AUMENTO_PRECO', label: 'Aumento de Preço' },
@@ -2081,6 +2301,17 @@ const EventDetail: React.FC = () => {
     NENHUMA_ACAO: 'Nenhuma Ação Tomada',
     OUTROS: 'Outros',
   };
+
+  const pontoCriticoOptions = [
+    { value: '', label: 'Nenhum' },
+    { value: 'ALTO', label: 'Ponto Alto' },
+    { value: 'CRITICO', label: 'Ponto Crítico' },
+  ];
+  const retornoTipoOptions = [
+    { value: '', label: 'Nenhum' },
+    { value: 'VOLUME', label: 'Volume (inscrições)' },
+    { value: 'TICKET', label: 'Ticket Médio (R$)' },
+  ];
 
   const dailySalesArr = event.dailySales || [];
   const todayDailySale = dailySalesArr.find(d => d.date === todayStr);
@@ -3658,6 +3889,57 @@ const EventDetail: React.FC = () => {
             },
           };
           const legacyActions = (event.commercialActions ?? []).filter(a => !a.ponto_corte || !a.estagio);
+          const todayAnalise = (event.dailyAnalyses ?? []).find(a => a.data_analise === getTodayLocalDate());
+          const openAnaliseModal = (pontoCorte: string, estagio: string) => {
+            if (todayAnalise) {
+              setEditingAnaliseId(todayAnalise.id);
+              setViewOnlyAnalise(false);
+              setAnaliseForm(f => ({
+                ...f,
+                analise_texto: todayAnalise.analise_texto,
+                ponto_critico: todayAnalise.ponto_critico ?? '',
+                tipo_acao_sugerida: todayAnalise.tipo_acao_sugerida,
+                acao_sugerida_descricao: todayAnalise.acao_sugerida_descricao ?? '',
+                retorno_estimado_tipo: todayAnalise.retorno_estimado_tipo ?? '',
+                retorno_estimado_valor: todayAnalise.retorno_estimado_valor != null ? String(todayAnalise.retorno_estimado_valor) : '',
+                data_analise: todayAnalise.data_analise,
+                forced_ponto_corte: todayAnalise.ponto_corte ?? pontoCorte,
+                forced_estagio: todayAnalise.estagio ?? estagio,
+              }));
+            } else {
+              setEditingAnaliseId(null);
+              setViewOnlyAnalise(false);
+              setAnaliseForm({
+                analise_texto: '',
+                ponto_critico: '',
+                tipo_acao_sugerida: '',
+                acao_sugerida_descricao: '',
+                retorno_estimado_tipo: '',
+                retorno_estimado_valor: '',
+                data_analise: getTodayLocalDate(),
+                projeto_id_selecionado: 0,
+                forced_ponto_corte: pontoCorte,
+                forced_estagio: estagio,
+              });
+            }
+            setShowAnaliseModal(true);
+            setAnaliseError(null);
+          };
+          const AnaliseButton = ({ pontoCorte, estagio, variant = 'default' }: { pontoCorte: string; estagio: string; variant?: 'default' | 'emerald' }) => (
+            <button
+              onClick={() => openAnaliseModal(pontoCorte, estagio)}
+              className={`w-full flex items-center justify-center gap-1 px-2 py-1.5 text-[11px] font-medium rounded-lg border transition-colors ${
+                todayAnalise
+                  ? (variant === 'emerald'
+                      ? 'border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-100 dark:hover:bg-emerald-900/40'
+                      : 'border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/30 hover:bg-blue-100 dark:hover:bg-blue-900/40')
+                  : 'border-dashed border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+              }`}
+            >
+              <NotebookPen className="w-3 h-3" />
+              {todayAnalise ? 'Análise de Hoje' : 'Registrar Análise'}
+            </button>
+          );
           return (
             <div className="space-y-3">
               <div className="grid grid-cols-3 gap-2">
@@ -3705,6 +3987,13 @@ const EventDetail: React.FC = () => {
                             )}
                           </div>
                           <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => openAnaliseModal(slot.ponto_corte, slot.estagio)}
+                              className={`p-0.5 transition-colors ${todayAnalise ? 'text-blue-500 hover:text-blue-600' : 'text-gray-300 hover:text-blue-400'}`}
+                              title={todayAnalise ? 'Análise de Hoje' : 'Registrar Análise'}
+                            >
+                              <NotebookPen className="w-3 h-3" />
+                            </button>
                             {canEdit ? (
                               <button
                                 onClick={() => {
@@ -3793,6 +4082,7 @@ const EventDetail: React.FC = () => {
                         <span className="text-[9px] text-yellow-500">●</span>
                       </div>
                       <span className={`text-lg font-black font-mono leading-none ${meta.text}`}>{slot.ponto_corte}</span>
+                      <AnaliseButton pontoCorte={slot.ponto_corte} estagio={slot.estagio} />
                       <button
                         onClick={() => {
                           setEditingActionId(null);
@@ -3811,7 +4101,7 @@ const EventDetail: React.FC = () => {
                         className={`mt-auto w-full flex items-center justify-center gap-1 px-2 py-1.5 text-[11px] font-medium rounded-lg transition-colors ${meta.btn}`}
                       >
                         <Plus className="w-3 h-3" />
-                        Registrar
+                        Registrar Ação Tomada
                       </button>
                     </div>
                   );
@@ -3854,6 +4144,13 @@ const EventDetail: React.FC = () => {
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-[11px] font-black font-mono text-emerald-700 dark:text-emerald-300">D-7</span>
+                          <button
+                            onClick={() => openAnaliseModal('D-7', 'final')}
+                            className={`p-0.5 transition-colors ${todayAnalise ? 'text-blue-500 hover:text-blue-600' : 'text-gray-300 hover:text-blue-400'}`}
+                            title={todayAnalise ? 'Análise de Hoje' : 'Registrar Análise'}
+                          >
+                            <NotebookPen className="w-3 h-3" />
+                          </button>
                           {canEditFinal ? (
                             <button
                               onClick={() => {
@@ -3936,26 +4233,29 @@ const EventDetail: React.FC = () => {
                       <span className="text-lg font-black font-mono text-emerald-700 dark:text-emerald-300 leading-none">D-7</span>
                       <span className="text-[10px] text-emerald-600 dark:text-emerald-400">semana do evento — registre a ação final</span>
                     </div>
-                    <button
-                      onClick={() => {
-                        setEditingActionId(null);
-                        setViewOnlyAction(false);
-                        setActionForm({
-                          tipo: '',
-                          descricao: '',
-                          data_acao: getTodayLocalDate(),
-                          projeto_id_selecionado: 0,
-                          forced_ponto_corte: 'D-7',
-                          forced_estagio: 'final',
-                        });
-                        setShowActionModal(true);
-                        setActionError(null);
-                      }}
-                      className="flex items-center gap-1.5 px-3 py-2 text-[11px] font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
-                    >
-                      <Plus className="w-3 h-3" />
-                      Registrar
-                    </button>
+                    <div className="flex flex-col gap-1.5 items-stretch min-w-[160px]">
+                      <AnaliseButton pontoCorte="D-7" estagio="final" variant="emerald" />
+                      <button
+                        onClick={() => {
+                          setEditingActionId(null);
+                          setViewOnlyAction(false);
+                          setActionForm({
+                            tipo: '',
+                            descricao: '',
+                            data_acao: getTodayLocalDate(),
+                            projeto_id_selecionado: 0,
+                            forced_ponto_corte: 'D-7',
+                            forced_estagio: 'final',
+                          });
+                          setShowActionModal(true);
+                          setActionError(null);
+                        }}
+                        className="flex items-center justify-center gap-1.5 px-3 py-2 text-[11px] font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
+                      >
+                        <Plus className="w-3 h-3" />
+                        Registrar Ação Tomada
+                      </button>
+                    </div>
                   </div>
                 );
               })()}
@@ -3982,6 +4282,69 @@ const EventDetail: React.FC = () => {
           );
         })()}
       </div>
+
+      {(event.dailyAnalyses ?? []).length > 0 && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700 mt-4">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+            <NotebookPen className="w-4 h-4 text-blue-500" />
+            Análises Diárias
+          </h3>
+          <div className="space-y-1.5">
+            {[...(event.dailyAnalyses ?? [])]
+              .sort((a, b) => b.data_analise.localeCompare(a.data_analise))
+              .map(analise => {
+                const isToday = analise.data_analise === getTodayLocalDate();
+                return (
+                  <button
+                    key={analise.id}
+                    onClick={() => {
+                      setEditingAnaliseId(analise.id);
+                      setViewOnlyAnalise(!isToday);
+                      setAnaliseForm(f => ({
+                        ...f,
+                        analise_texto: analise.analise_texto,
+                        ponto_critico: analise.ponto_critico ?? '',
+                        tipo_acao_sugerida: analise.tipo_acao_sugerida,
+                        acao_sugerida_descricao: analise.acao_sugerida_descricao ?? '',
+                        retorno_estimado_tipo: analise.retorno_estimado_tipo ?? '',
+                        retorno_estimado_valor: analise.retorno_estimado_valor != null ? String(analise.retorno_estimado_valor) : '',
+                        data_analise: analise.data_analise,
+                        forced_ponto_corte: analise.ponto_corte ?? '',
+                        forced_estagio: analise.estagio ?? '',
+                      }));
+                      setShowAnaliseModal(true);
+                      setAnaliseError(null);
+                    }}
+                    className="w-full flex items-center justify-between gap-2 py-1.5 px-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors text-left"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-[10px] font-mono text-gray-400 dark:text-gray-500 flex-shrink-0">
+                        {new Date(analise.data_analise + 'T00:00:00').toLocaleDateString('pt-BR')}
+                      </span>
+                      {analise.autor_nome && (
+                        <span className="text-[10px] text-gray-500 dark:text-gray-400 flex-shrink-0 truncate max-w-[100px]">{analise.autor_nome}</span>
+                      )}
+                      <p className="text-xs text-gray-700 dark:text-gray-300 truncate">{analise.analise_texto}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      {analise.snapshot_isc != null && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300">ISC {analise.snapshot_isc.toFixed(2)}</span>
+                      )}
+                      {analise.tipo_acao_sugerida && tipoLabelMap[analise.tipo_acao_sugerida] && (
+                        <span className="text-[10px] text-gray-500 dark:text-gray-400">{tipoLabelMap[analise.tipo_acao_sugerida]}</span>
+                      )}
+                      {isToday ? (
+                        <Pencil className="w-3 h-3 text-gray-300" />
+                      ) : (
+                        <Eye className="w-3 h-3 text-gray-300" />
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+          </div>
+        </div>
+      )}
 
       <div>
         {isConsolidated && cumulativeData.length > 0 ? (
@@ -5342,6 +5705,264 @@ const EventDetail: React.FC = () => {
       })()}
       </>
       )}
+
+      {showAnaliseModal && (() => {
+        const dMinus = event?.dMinus ?? 0;
+        const dMinusInscricoes = event?.dMinusInscricoes ?? dMinus;
+        const cutoffInfo = analiseForm.forced_ponto_corte && analiseForm.forced_estagio
+          ? { ponto_corte: analiseForm.forced_ponto_corte, estagio: analiseForm.forced_estagio }
+          : getActionCutoffInfo(dMinus);
+        const stageLabel: Record<string, string> = { analitico: 'Analítico', estrategico: 'Estratégico', operacional: 'Operacional', final: 'Ação Final' };
+        const stageColor: Record<string, string> = {
+          analitico: 'bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800',
+          estrategico: 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800',
+          operacional: 'bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800',
+          final: 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800',
+        };
+        const iscStatusMap: Record<string, string> = { accelerating: 'Forte', stable: 'Estável', decelerating: 'Fraco' };
+        const iscColorMap: Record<string, string> = { accelerating: 'text-green-600 dark:text-green-400', stable: 'text-yellow-600 dark:text-yellow-400', decelerating: 'text-red-500 dark:text-red-400' };
+        const savedAnalise = editingAnaliseId ? (event?.dailyAnalyses ?? []).find(a => a.id === editingAnaliseId) : null;
+        const closeModal = () => {
+          setShowAnaliseModal(false);
+          setAnaliseError(null);
+          setEditingAnaliseId(null);
+          setViewOnlyAnalise(false);
+          setAnaliseForm(f => ({ ...f, forced_ponto_corte: '', forced_estagio: '' }));
+        };
+
+        // Snapshot exibido: se já existe registro salvo, mostra o snapshot CONGELADO.
+        // Caso contrário (novo registro), mostra os dados AO VIVO que serão congelados ao salvar.
+        const snap = savedAnalise ? {
+          isc: savedAnalise.snapshot_isc,
+          iscStatus: savedAnalise.snapshot_isc_state === 'forte' ? 'accelerating' : savedAnalise.snapshot_isc_state === 'fraco' ? 'decelerating' : 'stable',
+          dMinus: savedAnalise.snapshot_d_minus,
+          ia730: savedAnalise.snapshot_ia730,
+          rolling14d: savedAnalise.snapshot_rolling14d,
+          curvaDPercent: savedAnalise.snapshot_curva_percent,
+          vendasAcumuladas: savedAnalise.snapshot_vendas_acumuladas,
+          playbookLetter: savedAnalise.snapshot_playbook_letter,
+          mediaSemanaAtual: savedAnalise.snapshot_media_semana_atual,
+          ticketMedioRealizado: savedAnalise.snapshot_ticket_medio_realizado,
+        } : {
+          isc: event?.isc,
+          iscStatus: event?.iscStatus,
+          dMinus: dMinusInscricoes,
+          ia730: event?.iscComponents?.ia730,
+          rolling14d: event?.iscComponents?.rolling14d,
+          curvaDPercent: event?.iscComponents?.curvaDPercent,
+          vendasAcumuladas: event?.currentSales,
+          playbookLetter: event?.suggestedAction?.letter,
+          mediaSemanaAtual: mediaSemanaAtual,
+          ticketMedioRealizado: ticketMedioRealizado > 0 ? ticketMedioRealizado : undefined,
+        };
+
+        return (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="relative bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 w-full max-w-lg md:max-w-3xl max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between p-5 pb-0 sticky top-0 bg-white dark:bg-gray-800 z-10">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  {viewOnlyAnalise ? 'Visualizar Análise' : editingAnaliseId ? 'Editar Análise' : 'Registrar Análise'}
+                </h3>
+                <button onClick={closeModal} className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4">
+                {analiseError && (
+                  <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-300">
+                    <span className="shrink-0 mt-0.5">⚠️</span>
+                    <span>{analiseError}</span>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className={`rounded-lg border p-3 ${stageColor[cutoffInfo.estagio] || 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-600'}`}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-wider opacity-70">Ponto de Corte</p>
+                        <p className="text-xl font-bold font-mono mt-0.5">{cutoffInfo.ponto_corte}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs font-bold uppercase tracking-wider opacity-70">Estágio</p>
+                        <p className="text-sm font-semibold mt-0.5">{stageLabel[cutoffInfo.estagio] || cutoffInfo.estagio}</p>
+                      </div>
+                    </div>
+                    {!savedAnalise && <p className="text-xs opacity-60 mt-1">Snapshot dos dados será congelado ao salvar</p>}
+                  </div>
+
+                  <div className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 p-3 text-xs text-gray-500 dark:text-gray-400 flex flex-col justify-center">
+                    <p><span className="font-semibold text-gray-700 dark:text-gray-300">Data:</span> {new Date(analiseForm.data_analise + 'T00:00:00').toLocaleDateString('pt-BR')}</p>
+                    {savedAnalise?.autor_nome && <p className="mt-0.5"><span className="font-semibold text-gray-700 dark:text-gray-300">Registrado por:</span> {savedAnalise.autor_nome}</p>}
+                    {savedAnalise?.created_at && <p className="mt-0.5"><span className="font-semibold text-gray-700 dark:text-gray-300">Hora:</span> {new Date(savedAnalise.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 p-3">
+                  <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                    {savedAnalise ? 'Snapshot congelado no registro' : 'Snapshot atual (será congelado)'}
+                  </p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    <div className="flex flex-col">
+                      <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide">ISC</span>
+                      <span className={`text-base font-bold ${iscColorMap[snap.iscStatus as string] || 'text-gray-700 dark:text-gray-300'}`}>
+                        {snap.isc != null ? snap.isc.toFixed(2) : '—'}
+                      </span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide">IA 7/30</span>
+                      <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{snap.ia730 != null ? snap.ia730.toFixed(2) : '—'}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide">Curva D%</span>
+                      <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{snap.curvaDPercent != null ? snap.curvaDPercent.toFixed(2) : '—'}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide">Rolling 14d</span>
+                      <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{snap.rolling14d != null ? snap.rolling14d.toFixed(2) : '—'}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide">Estágio D-</span>
+                      <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">D-{snap.dMinus ?? '—'}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide">Vendas Acum.</span>
+                      <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{snap.vendasAcumuladas != null ? snap.vendasAcumuladas.toLocaleString('pt-BR') : '—'}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide">Média Sem. Atual</span>
+                      <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{snap.mediaSemanaAtual != null ? snap.mediaSemanaAtual.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) : '—'}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide">Ticket Médio Realizado</span>
+                      <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{snap.ticketMedioRealizado != null ? `R$ ${snap.ticketMedioRealizado.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</span>
+                    </div>
+                    {snap.playbookLetter && (
+                      <div className="col-span-2 md:col-span-4 flex flex-col">
+                        <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide">Playbook</span>
+                        <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{snap.playbookLetter}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Análise Simplificada <span className="text-red-500">*</span></label>
+                  <textarea
+                    value={analiseForm.analise_texto}
+                    onChange={(e) => { setAnaliseForm({ ...analiseForm, analise_texto: e.target.value }); setAnaliseError(null); }}
+                    placeholder="Resuma o que os dados de hoje indicam..."
+                    rows={3}
+                    readOnly={viewOnlyAnalise}
+                    className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 resize-none text-sm ${viewOnlyAnalise ? 'opacity-70 cursor-not-allowed' : ''}`}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Ponto Crítico/Alto</label>
+                    <select
+                      value={analiseForm.ponto_critico}
+                      onChange={(e) => setAnaliseForm({ ...analiseForm, ponto_critico: e.target.value })}
+                      disabled={viewOnlyAnalise}
+                      className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm ${viewOnlyAnalise ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    >
+                      {pontoCriticoOptions.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tipo de Ação Sugerida <span className="text-red-500">*</span></label>
+                    <select
+                      value={analiseForm.tipo_acao_sugerida}
+                      onChange={(e) => { setAnaliseForm({ ...analiseForm, tipo_acao_sugerida: e.target.value }); setAnaliseError(null); }}
+                      disabled={viewOnlyAnalise}
+                      className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm ${viewOnlyAnalise ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    >
+                      {tipoOptions.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Ação Sugerida — Descrição</label>
+                  <textarea
+                    value={analiseForm.acao_sugerida_descricao}
+                    onChange={(e) => setAnaliseForm({ ...analiseForm, acao_sugerida_descricao: e.target.value })}
+                    placeholder="Descreva a ação sugerida..."
+                    rows={2}
+                    readOnly={viewOnlyAnalise}
+                    className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 resize-none text-sm ${viewOnlyAnalise ? 'opacity-70 cursor-not-allowed' : ''}`}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Retorno Estimado — Tipo</label>
+                    <select
+                      value={analiseForm.retorno_estimado_tipo}
+                      onChange={(e) => setAnaliseForm({ ...analiseForm, retorno_estimado_tipo: e.target.value })}
+                      disabled={viewOnlyAnalise}
+                      className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm ${viewOnlyAnalise ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    >
+                      {retornoTipoOptions.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Retorno Estimado — Valor</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={analiseForm.retorno_estimado_valor}
+                      onChange={(e) => setAnaliseForm({ ...analiseForm, retorno_estimado_valor: e.target.value })}
+                      placeholder={analiseForm.retorno_estimado_tipo === 'TICKET' ? 'Ex: 25,00' : 'Ex: 40'}
+                      readOnly={viewOnlyAnalise}
+                      disabled={!analiseForm.retorno_estimado_tipo}
+                      className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm ${(viewOnlyAnalise || !analiseForm.retorno_estimado_tipo) ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-3 p-5 pt-0 sticky bottom-0 bg-white dark:bg-gray-800">
+                {viewOnlyAnalise ? (
+                  <button
+                    onClick={closeModal}
+                    className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm"
+                  >
+                    Fechar
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={closeModal}
+                      className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={handleSaveAnalise}
+                      disabled={savingAnalise || !analiseForm.analise_texto.trim() || !analiseForm.tipo_acao_sugerida}
+                      className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm font-medium"
+                    >
+                      {savingAnalise ? (
+                        <><Loader2 className="w-4 h-4 animate-spin" />Salvando...</>
+                      ) : editingAnaliseId ? 'Salvar Edição' : 'Salvar Análise'}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {showCurveInfoModal && (() => {
         const tipo = event?.iscComponents?.tipoCurva || 'linear';

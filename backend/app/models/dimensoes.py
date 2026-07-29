@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, ForeignKey, Numeric, Float, Text, CheckConstraint, JSON
+from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, ForeignKey, Numeric, Float, Text, CheckConstraint, UniqueConstraint, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..core.database import Base
@@ -97,6 +97,54 @@ class AcaoComercial(Base):
         CheckConstraint(
             "tipo IN ('AUMENTO_PRECO', 'REDUCAO_PRECO', 'PROMOCAO', 'CAMPANHA', 'COMUNICACAO', 'NENHUMA_ACAO', 'OUTROS')",
             name="check_tipo_acao"
+        ),
+    )
+
+
+class AnaliseDiaria(Base):
+    __tablename__ = "analises_diarias"
+
+    id = Column(Integer, primary_key=True, index=True)
+    projeto_id = Column(Integer, ForeignKey("dim_projeto.id"), nullable=False)
+    autor_id = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True)
+    autor_nome = Column(String(100))
+    data_analise = Column(Date, nullable=False)
+    ponto_corte = Column(String(10))
+    estagio = Column(String(20))
+    analise_texto = Column(Text, nullable=False)
+    ponto_critico = Column(String(10))
+    tipo_acao_sugerida = Column(String(50), nullable=False)
+    acao_sugerida_descricao = Column(Text)
+    retorno_estimado_tipo = Column(String(10))
+    retorno_estimado_valor = Column(Numeric(12, 2))
+    snapshot_isc = Column(Numeric(6, 4))
+    snapshot_isc_state = Column(String(10))
+    snapshot_d_minus = Column(Integer)
+    snapshot_ia730 = Column(Float)
+    snapshot_rolling14d = Column(Float)
+    snapshot_curva_percent = Column(Float)
+    snapshot_vendas_acumuladas = Column(Integer)
+    snapshot_playbook_letter = Column(String(5))
+    snapshot_media_semana_atual = Column(Float)
+    snapshot_ticket_medio_realizado = Column(Numeric(10, 2))
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+
+    projeto = relationship("DimProjeto", backref="analises_diarias")
+
+    __table_args__ = (
+        UniqueConstraint("projeto_id", "data_analise", name="uq_analise_diaria_projeto_data"),
+        CheckConstraint(
+            "tipo_acao_sugerida IN ('AUMENTO_PRECO', 'REDUCAO_PRECO', 'PROMOCAO', 'CAMPANHA', 'COMUNICACAO', 'NENHUMA_ACAO', 'OUTROS')",
+            name="check_tipo_acao_sugerida"
+        ),
+        CheckConstraint(
+            "ponto_critico IS NULL OR ponto_critico IN ('CRITICO', 'ALTO')",
+            name="check_ponto_critico"
+        ),
+        CheckConstraint(
+            "retorno_estimado_tipo IS NULL OR retorno_estimado_tipo IN ('VOLUME', 'TICKET')",
+            name="check_retorno_estimado_tipo"
         ),
     )
 

@@ -1483,6 +1483,50 @@ export const marketingService = {
     const response = await api.delete(`/marketing/acoes-comerciais/${id}`);
     return response.data;
   },
+  getAnalisesDiarias: async (projetoId: string): Promise<{ status: string; analises: any[] }> => {
+    const response = await api.get(`/marketing/analises-diarias/${projetoId}`);
+    return response.data;
+  },
+  createOrUpdateAnaliseDiaria: async (data: {
+    projeto_id: number;
+    data_analise: string;
+    ponto_corte?: string;
+    estagio?: string;
+    analise_texto: string;
+    ponto_critico?: string;
+    tipo_acao_sugerida: string;
+    acao_sugerida_descricao?: string;
+    retorno_estimado_tipo?: string;
+    retorno_estimado_valor?: number;
+    snapshot_isc?: number;
+    snapshot_isc_state?: string;
+    snapshot_d_minus?: number;
+    snapshot_ia730?: number;
+    snapshot_rolling14d?: number;
+    snapshot_curva_percent?: number;
+    snapshot_vendas_acumuladas?: number;
+    snapshot_playbook_letter?: string;
+    snapshot_media_semana_atual?: number;
+    snapshot_ticket_medio_realizado?: number;
+  }): Promise<any> => {
+    const response = await api.post('/marketing/analises-diarias', data);
+    return response.data;
+  },
+  updateAnaliseDiaria: async (id: number, data: {
+    analise_texto?: string;
+    ponto_critico?: string | null;
+    tipo_acao_sugerida?: string;
+    acao_sugerida_descricao?: string;
+    retorno_estimado_tipo?: string | null;
+    retorno_estimado_valor?: number;
+  }): Promise<any> => {
+    const response = await api.put(`/marketing/analises-diarias/${id}`, data);
+    return response.data;
+  },
+  deleteAnaliseDiaria: async (id: number): Promise<any> => {
+    const response = await api.delete(`/marketing/analises-diarias/${id}`);
+    return response.data;
+  },
   getCurvaComparativa: async (signal?: AbortSignal): Promise<{
     status: string;
     ano_atual: number;
