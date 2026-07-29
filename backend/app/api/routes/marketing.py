@@ -11801,7 +11801,13 @@ def get_marketing_event_by_id(
             pass
         
         current_year = datetime.now().year
-        if force_refresh and ano == current_year and detail_regime != "consolidated":
+        # NÃO restringe a "ano == current_year": edições futuras vendidas com
+        # antecedência (ex.: evento de 2027 com inscrições abertas em 2026)
+        # também são "live" (detail_regime já cobre isso via a data real do
+        # evento) e precisam do rebuild do snapshot no clique de Reconsolidar —
+        # sem isso o botão fica sem efeito prático para qualquer edição cujo
+        # ano difira do ano corrente do servidor.
+        if force_refresh and detail_regime != "consolidated":
             _should_rebuild = True
             try:
                 from ...models.vendas_snapshot import VendasDiariaSnapshot as _VDS
@@ -11831,7 +11837,7 @@ def get_marketing_event_by_id(
                     logger.info(f"Snapshot atualizado incremental+lookback={_lb} (force_refresh) para '{grupo_nome}' ano={ano}")
                 except Exception as _e:
                     logger.warning(f"Falha ao reconstruir snapshot para '{grupo_nome}': {_e}")
-        elif detail_regime == "consolidated" and ano == current_year:
+        elif detail_regime == "consolidated":
             _existing_snap = _get_snapshot_metrics_for_grupo(db, grupo_nome, ano=ano)
             if not _existing_snap:
                 logger.info(f"[Hybrid] Evento '{grupo_nome}' é consolidated sem snapshot — construindo")
@@ -12120,7 +12126,7 @@ def get_marketing_event_by_id(
         # NÃO se aplica a eventos consolidados (concluídos): esses usam a correção
         # autoritativa PARA BAIXO (force_magento_refresh + leitura verificada) e não
         # podem ser re-inflados pelo snapshot — cf. Eco Run - Pederneiras.
-        if ano == current_year and detail_regime != "consolidated" and grupo_nome:
+        if detail_regime != "consolidated" and grupo_nome:
             try:
                 _snap_base = _get_snapshot_metrics_for_grupo(db, grupo_nome, ano=ano)
             except Exception as _sb_e:
@@ -12838,7 +12844,7 @@ def get_marketing_event_by_id(
     # Evento standalone do ano corrente ainda NÃO concluído usa apenas o ISC-cache
     # (pode vir parcial/defasado). Ancora o total no snapshot consolidado quando
     # este é maior — só SOBE, nunca rebaixa. Não afeta eventos consolidados.
-    if standalone_detail_regime != "consolidated" and ano == datetime.now().year:
+    if standalone_detail_regime != "consolidated":
         _sa_snap_key = standalone_evento_grupo or (normalize_sku(sku) if sku else None)
         if _sa_snap_key:
             try:
@@ -12864,7 +12870,7 @@ def get_marketing_event_by_id(
 
     data_fim_inscricoes_standalone = projeto_data_evento - timedelta(days=dias_enc) if projeto_data_evento else None
 
-    if force_refresh and standalone_evento_grupo and ano == datetime.now().year and standalone_detail_regime != "consolidated":
+    if force_refresh and standalone_evento_grupo and standalone_detail_regime != "consolidated":
         _should_rebuild_standalone = True
         try:
             from ...models.vendas_snapshot import VendasDiariaSnapshot as _VDS
