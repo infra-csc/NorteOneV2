@@ -3,7 +3,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func as sa_func
 from typing import Optional
 from datetime import date, timedelta, datetime as _datetime
-_CURRENT_YEAR = _datetime.now().year
 import threading
 import time as _time
 from ...core.database import get_db
@@ -243,7 +242,7 @@ NOME_MES = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
 
 @router.get("/resumo-geral")
 def get_resumo_geral(
-    ano: int = _CURRENT_YEAR,
+    ano: Optional[int] = None,
     mes: Optional[int] = Query(None),
     produto: Optional[str] = Query(None),
     tipo_evento: Optional[str] = Query(None),
@@ -253,6 +252,9 @@ def get_resumo_geral(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission("dashboard", "pode_visualizar"))
 ):
+    from zoneinfo import ZoneInfo as _ZoneInfo
+    if ano is None:
+        ano = _datetime.now(_ZoneInfo("America/Sao_Paulo")).year
     return {
         "ano": ano,
         "financeiro": {
@@ -267,7 +269,7 @@ def get_resumo_geral(
 
 @router.get("/operacional")
 def get_dashboard_operacional(
-    ano: int = _CURRENT_YEAR,
+    ano: Optional[int] = None,
     mes: Optional[int] = Query(None),
     produto: Optional[str] = Query(None),
     modalidade: Optional[str] = Query(None),
@@ -275,6 +277,9 @@ def get_dashboard_operacional(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission("dashboard", "pode_visualizar"))
 ):
+    from zoneinfo import ZoneInfo as _ZoneInfo
+    if ano is None:
+        ano = _datetime.now(_ZoneInfo("America/Sao_Paulo")).year
     from .marketing import (
         fetch_isc_pricing_data, _build_sku_to_grupo_map, _get_isc_settings,
         calculate_isc_components, calculate_isc, get_isc_status,
@@ -596,7 +601,7 @@ def get_dashboard_operacional(
 
 @router.get("/financeiro")
 def get_dashboard_financeiro(
-    ano: int = _CURRENT_YEAR,
+    ano: Optional[int] = None,
     mes: Optional[int] = Query(None),
     produto: Optional[str] = Query(None),
     modalidade: Optional[str] = Query(None),
@@ -610,6 +615,9 @@ def get_dashboard_financeiro(
             detail="Permissão insuficiente para visualizar dados financeiros do dashboard"
         )
 
+    from zoneinfo import ZoneInfo as _ZoneInfo
+    if ano is None:
+        ano = _datetime.now(_ZoneInfo("America/Sao_Paulo")).year
     from .marketing import (
         fetch_isc_pricing_data, _build_sku_to_grupo_map, _get_isc_settings,
         calculate_isc_components, calculate_isc, get_isc_status,
@@ -810,7 +818,7 @@ NOME_MES_FULL = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
 
 @router.get("/relatorio-financeiro")
 def get_relatorio_financeiro(
-    ano: int = _CURRENT_YEAR,
+    ano: Optional[int] = None,
     mes: Optional[int] = Query(None),
     produto: Optional[str] = Query(None),
     modalidade: Optional[str] = Query(None),
@@ -824,6 +832,9 @@ def get_relatorio_financeiro(
             detail="Permissão insuficiente para visualizar dados financeiros do dashboard"
         )
 
+    from zoneinfo import ZoneInfo as _ZoneInfo
+    if ano is None:
+        ano = _datetime.now(_ZoneInfo("America/Sao_Paulo")).year
     from .marketing import (
         get_marketing_events as _isc_get_marketing_events,
         _build_sku_to_grupo_map as _isc_build_sku_to_grupo_map,
@@ -1123,7 +1134,7 @@ def get_relatorio_financeiro(
 
 @router.get("/consolidado")
 def get_dashboard_consolidado(
-    ano: int = _CURRENT_YEAR,
+    ano: Optional[int] = None,
     mes: Optional[int] = Query(None),
     produto: Optional[str] = Query(None),
     tipo_evento: Optional[str] = Query(None),
@@ -1133,6 +1144,9 @@ def get_dashboard_consolidado(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission("dashboard", "pode_visualizar"))
 ):
+    from zoneinfo import ZoneInfo as _ZoneInfo
+    if ano is None:
+        ano = _datetime.now(_ZoneInfo("America/Sao_Paulo")).year
     projetos = build_project_filter(db, ano, mes, produto, tipo_evento, projeto_id, modalidade, cidade)
     projeto_ids = [p.id for p in projetos]
     cadastros_map = get_all_cadastros_map(db, projeto_ids) if projeto_ids else {}
