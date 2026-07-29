@@ -50,3 +50,4 @@
 - [Ativo lot-JOIN fallback](ativo-lot-join-fallback.md) — INNER JOIN de lote no Ativo derruba o evento/kit inteiro sem lote atual; LEFT JOIN+COALESCE só na JOIN de lote, nunca na de categoria (mck) — non-determinism em nomes quase-duplicados.
 - [Scripts standalone vs DB engines](standalone-script-db-engines.md) — script avulso precisa ensure_ssh_engine_ready()+ensure_magento_engine_ready(); rebuild em processo separado pode deadlock contra o backend ao vivo.
 - [Ano seguinte em eventos agrupados](ano-seguinte-eventos-agrupados.md) — bug tem 2 camadas (batch job + defaults de leitura); somar ISC entre anos; "concluído" nunca só por evento_id; data_evento NULL trava classificação.
+- [Prod/dev schema drift diagnosis](prod-dev-schema-drift.md) — "feature não funciona" após ficar mais visível pode ser tabela dev-only nunca publicada em prod; diff information_schema antes de suspeitar de bug de código.

@@ -5852,7 +5852,7 @@ const EventDetail: React.FC = () => {
                     placeholder="Resuma o que os dados de hoje indicam..."
                     rows={3}
                     readOnly={viewOnlyAnalise}
-                    className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 resize-none text-sm ${viewOnlyAnalise ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 resize-y min-h-[4.5rem] text-sm ${viewOnlyAnalise ? 'opacity-70 cursor-not-allowed' : ''}`}
                   />
                 </div>
 
@@ -5894,7 +5894,7 @@ const EventDetail: React.FC = () => {
                     placeholder="Descreva a ação sugerida..."
                     rows={2}
                     readOnly={viewOnlyAnalise}
-                    className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 resize-none text-sm ${viewOnlyAnalise ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 resize-y min-h-[3.25rem] text-sm ${viewOnlyAnalise ? 'opacity-70 cursor-not-allowed' : ''}`}
                   />
                 </div>
 
