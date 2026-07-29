@@ -68,7 +68,8 @@ def get_filtros(
             return cached
 
     from datetime import datetime as _dt
-    _cur_year = _dt.now().year
+    from zoneinfo import ZoneInfo as _ZoneInfo
+    _cur_year = _dt.now(_ZoneInfo("America/Sao_Paulo")).year
     rows = (
         db.query(
             DimProjeto.id,
@@ -82,7 +83,13 @@ def get_filtros(
         .order_by(DimProjeto.evento)
         .all()
     )
-    anos = sorted({r.data_evento.year for r in rows if r.data_evento}, reverse=True) or [_cur_year]
+    anos_set = {r.data_evento.year for r in rows if r.data_evento}
+    anos = sorted(anos_set, reverse=True) or [_cur_year]
+    # Ano padrão pro frontend usar: o ano vigente (Brasília), não o ano mais
+    # recente disponível na base. Sem isso, incluir eventos do ano seguinte
+    # (ex.: 2027) empurrava o padrão do Dashboard pra frente. Só cai pro ano
+    # mais recente com dados se o ano vigente ainda não tiver nenhum evento.
+    ano_atual = _cur_year if _cur_year in anos_set else anos[0]
     produtos = sorted({r.produto for r in rows if r.produto})
     tipos_evento = sorted({r.tipo_evento for r in rows if r.tipo_evento})
     modalidades = sorted({r.modalidade for r in rows if r.modalidade})
@@ -104,6 +111,7 @@ def get_filtros(
 
     result = {
         "anos": [{"value": int(ano), "label": str(int(ano))} for ano in anos],
+        "ano_atual": int(ano_atual),
         "meses": meses,
         "produtos": [{"value": produto, "label": produto} for produto in produtos],
         "tipos_evento": [{"value": tipo, "label": tipo} for tipo in tipos_evento],

@@ -30,6 +30,7 @@ interface FilterOptions {
   produtos: FilterOption[];
   modalidades: FilterOption[];
   cidades: FilterOption[];
+  anoAtual?: number;
 }
 
 const SearchableDropdown: React.FC<{
@@ -371,7 +372,9 @@ const Dashboard: React.FC = () => {
   const CACHE_KEY_OP = `dash_op_${uid}`;
   const CACHE_KEY_FIN = `dash_fin_${uid}`;
   const CACHE_KEY_REL = `dash_rel_v2_${uid}`;
-  const CACHE_KEY_FILTROS = `dash_filtros_v2_${uid}`;
+  // v3: payload passou a incluir anoAtual; bump invalida cache antigo (sem
+  // esse campo) em vez de deixar o front interpretar um payload incompleto.
+  const CACHE_KEY_FILTROS = `dash_filtros_v3_${uid}`;
 
   const CACHE_TTL_MS = 30 * 60 * 1000;
   const getNextRefreshMs = (): number => Date.now() + CACHE_TTL_MS;
@@ -407,27 +410,41 @@ const Dashboard: React.FC = () => {
   const [inscrData, setInscrData] = useState<any>(() => readCache(CACHE_KEY_INSCR));
   const [inscrLoading, setInscrLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [defaultAno, setDefaultAno] = useState<number>(new Date().getFullYear());
 
   const cachedFiltros = readCache(CACHE_KEY_FILTROS);
+  // Ano padrão vem do ano vigente calculado no backend (cacheado junto dos
+  // filtros), nunca do primeiro item da lista de anos — a lista é ordenada
+  // do mais recente pro mais antigo, então "o primeiro" virou o ano seguinte
+  // assim que passou a ter eventos cadastrados nele.
+  const [defaultAno, setDefaultAno] = useState<number>(cachedFiltros?.anoAtual || new Date().getFullYear());
   const [filterOptions, setFilterOptions] = useState<FilterOptions>(
     cachedFiltros || { anos: [], meses: [], produtos: [], modalidades: [], cidades: [] }
   );
   const [filters, setFilters] = useState<Filters>(() => {
-    const ano = cachedFiltros?.anos?.[0]?.value || new Date().getFullYear();
+    const ano = cachedFiltros?.anoAtual || new Date().getFullYear();
     return { ano: ano as number, mes: null, produto: null, modalidade: null, cidade: null };
   });
 
   const activeFiltersCount = useMemo(() => {
     let c = 0;
+    if (filters.ano && filters.ano !== defaultAno) c++;
     if (filters.mes) c++;
     if (filters.produto) c++;
     if (filters.modalidade) c++;
     if (filters.cidade) c++;
     return c;
-  }, [filters]);
+  }, [filters, defaultAno]);
 
-  const clearFilters = () => setFilters({ ano: defaultAno, mes: null, produto: null, modalidade: null, cidade: null });
+  // Rastreia se o usuário já escolheu um ano manualmente nesta sessão. Sem
+  // isso, o palpite inicial (cache antigo ou "new Date().getFullYear()" no
+  // cliente) nunca era corrigido pelo ano_atual vindo do backend quando já
+  // existia cache de dados operacionais — o ano ficava "preso" desatualizado.
+  const userChangedAnoRef = React.useRef(false);
+
+  const clearFilters = () => {
+    userChangedAnoRef.current = false;
+    setFilters({ ano: defaultAno, mes: null, produto: null, modalidade: null, cidade: null });
+  };
 
   const hasDataRef = React.useRef(!!readCache(CACHE_KEY_OP));
   const mountHandlingRef = React.useRef(false);
@@ -479,42 +496,55 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     const hasCachedData = !!readCache(CACHE_KEY_OP);
 
-    const init = async () => {
+    // Ano que os dados operacionais em cache presumivelmente representam
+    // (o único "ano" ativo antes desta reconciliação rodar).
+    const anoAntesDoInit = filters.ano || defaultAno;
+
+    const init = async (): Promise<number> => {
+      let effectiveAno = anoAntesDoInit;
       try {
         const data = await dashboardService.getFiltros();
-        const firstAno = data.anos?.[0]?.value || new Date().getFullYear();
-        setDefaultAno(firstAno as number);
+        const anoAtual = data.ano_atual || new Date().getFullYear();
+        setDefaultAno(anoAtual as number);
         const newFiltros = {
           anos: data.anos || [],
           meses: data.meses || [],
           produtos: data.produtos || [],
           modalidades: data.modalidades || [],
           cidades: data.cidades || [],
+          anoAtual: anoAtual as number,
         };
         setFilterOptions(newFiltros);
         writeCache(CACHE_KEY_FILTROS, newFiltros);
-        if (!hasCachedData) {
-          setFilters(prev => ({ ...prev, ano: firstAno as number }));
-        } else {
-          setFilters(prev => {
-            const ano = prev.ano || firstAno as number;
-            return { ...prev, ano };
-          });
+        // Sempre reconcilia com o ano autoritativo do backend, a menos que o
+        // usuário já tenha escolhido um ano manualmente nesta sessão — assim
+        // um palpite inicial (cache antigo ou "hoje" do cliente) não fica
+        // preso depois que o fetch traz o valor correto.
+        if (!userChangedAnoRef.current) {
+          effectiveAno = anoAtual as number;
+          setFilters(prev => ({ ...prev, ano: anoAtual as number }));
         }
       } catch {
-        if (!hasCachedData) setFilters(prev => ({ ...prev, ano: new Date().getFullYear() }));
+        if (!hasCachedData && !userChangedAnoRef.current) {
+          effectiveAno = new Date().getFullYear();
+          setFilters(prev => ({ ...prev, ano: effectiveAno }));
+        }
       } finally {
         setLoading(false);
       }
+      return effectiveAno;
     };
 
     if (hasCachedData) {
       setLoading(false);
       mountHandlingRef.current = true;
-      init().then(() => {
-        if (isCacheStale(CACHE_KEY_OP)) {
-          const currentAno = filters.ano || defaultAno;
-          loadData({ ...filters, ano: currentAno }, true);
+      init().then((anoEfetivo) => {
+        // Se a reconciliação mudou o ano, os dados operacionais/financeiros
+        // em cache foram carregados para o ano antigo — força um reload
+        // silencioso para o ano corrigido em vez de deixar a tela mostrar
+        // um ano no filtro e dados de outro ano nos cards/tabelas.
+        if (isCacheStale(CACHE_KEY_OP) || anoEfetivo !== anoAntesDoInit) {
+          loadData({ ...filters, ano: anoEfetivo }, true);
         }
         mountHandlingRef.current = false;
       });
@@ -595,7 +625,7 @@ const Dashboard: React.FC = () => {
           <div className={`relative z-[100] p-5 rounded-2xl ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
               <SearchableDropdown label="Ano" options={filterOptions.anos} value={filters.ano}
-                onChange={v => setFilters(p => ({ ...p, ano: v as number }))} placeholder="Selecione o ano" isDark={isDark} />
+                onChange={v => { userChangedAnoRef.current = true; setFilters(p => ({ ...p, ano: v as number })); }} placeholder="Selecione o ano" isDark={isDark} />
               <SearchableDropdown label="Mês" options={filterOptions.meses} value={filters.mes}
                 onChange={v => setFilters(p => ({ ...p, mes: v as number | null }))} placeholder="Todos" isDark={isDark} />
               <SearchableDropdown label="Produto" options={filterOptions.produtos} value={filters.produto}
