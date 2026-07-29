@@ -427,34 +427,22 @@ def aggregate_eventos_list_from_snapshots(
         )
         active_grupo_names = {n for (n,) in active_grupo_names_q if n}
 
-        grupo_names_q = (
-            db.query(SkuMapping.evento_grupo)
-            .filter(
-                SkuMapping.ano == ano,
-                SkuMapping.ativo == True,  # noqa: E712
-                SkuMapping.evento_grupo.isnot(None),
-            )
-            .distinct()
-            .all()
-        )
-        # Só consideramos grupos que estão mapeados E estão ativos em evento_grupos.
-        grupo_names = {g[0] for g in grupo_names_q if g[0] and g[0] in active_grupo_names}
-        expected_grouped = len(grupo_names)
+        # Usa a mesma resolução de grupo do endpoint de lista, incluindo a
+        # regra de ano-seguinte (grupo cuja edição do `ano` já concluiu e já
+        # tem mapping ativo para `ano + 1` usa os SKUs do ano seguinte).
+        # Sem isso, o snapshot da edição nova era considerado "standalone"
+        # por este cálculo de cobertura mesmo depois do endpoint de lista já
+        # ter migrado o grupo para o ano seguinte -- o snapshot standalone
+        # órfão nunca era limpo e a edição aparecia duas vezes na lista.
+        from ..api.routes.marketing import _build_sku_to_grupo_map_com_ano_seguinte as _build_sku_grupo
 
-        sku_to_grupo: dict[str, str] = {}
-        if grupo_names:
-            sm_rows = (
-                db.query(SkuMapping.sku, SkuMapping.evento_grupo)
-                .filter(
-                    SkuMapping.ano == ano,
-                    SkuMapping.ativo == True,  # noqa: E712
-                    SkuMapping.evento_grupo.in_(list(grupo_names)),
-                )
-                .all()
-            )
-            for s, g in sm_rows:
-                if s and g:
-                    sku_to_grupo[_ns(str(s))] = g
+        sku_to_grupo_raw = _build_sku_grupo(db, ano)
+        # Só consideramos grupos que estão mapeados E estão ativos em evento_grupos.
+        sku_to_grupo: dict[str, str] = {
+            s: g for s, g in sku_to_grupo_raw.items() if g in active_grupo_names
+        }
+        grupo_names = set(sku_to_grupo.values())
+        expected_grouped = len(grupo_names)
 
         cad_rows = (
             db.query(DimProjeto.id, DimProjeto.codigo)

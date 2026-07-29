@@ -6076,6 +6076,96 @@ def _build_sku_to_grupo_map(db: Session, ano: int) -> dict:
     return sku_to_grupo
 
 
+def _build_sku_to_grupo_map_com_ano_seguinte(db: Session, ano: int) -> dict:
+    """
+    Variante de _build_sku_to_grupo_map para o endpoint de LISTA (dashboard
+    de marketing): quando a edição do `ano` solicitado para um grupo já
+    concluiu (regime consolidated) e já existe mapping ativo para `ano + 1`,
+    usa os SKUs do ano seguinte no lugar dos do ano pedido.
+
+    Sem isso, o card do grupo mostra os dados velhos da edição encerrada e a
+    edição nova (já vendendo) cai como evento "standalone" órfão -- some da
+    lista até um bootstrap assíncrono persistir seu snapshot pela primeira
+    vez, o que pode levar até um ciclo de TTL do cache para acontecer.
+
+    Mesma regra de ano-seguinte já usada em fetch_isc_pricing_data. NÃO usar
+    esta variante fora do endpoint de lista: os demais chamadores de
+    _build_sku_to_grupo_map (curvas históricas, diagnósticos, snapshots de
+    anos específicos) esperam exatamente o mapping do ano pedido, sem avançar
+    para o ano seguinte.
+    """
+    base_map = _build_sku_to_grupo_map(db, ano)
+    try:
+        next_mappings = db.query(SkuMapping).filter(
+            SkuMapping.ano == ano + 1,
+            SkuMapping.ativo == True,
+            SkuMapping.evento_grupo.isnot(None),
+            SkuMapping.evento_grupo != ''
+        ).all()
+    except Exception as e:
+        logger.warning(f"[EventosList] falha ao buscar mapping do ano seguinte: {e}")
+        return base_map
+
+    if not next_mappings:
+        return base_map
+
+    next_by_grupo: dict = {}
+    for m in next_mappings:
+        sn = normalize_sku(m.sku)
+        if sn:
+            next_by_grupo.setdefault(m.evento_grupo, []).append(sn)
+
+    if not next_by_grupo:
+        return base_map
+
+    cur_skus_by_grupo: dict = {}
+    for sku_norm, grupo_nome in base_map.items():
+        cur_skus_by_grupo.setdefault(grupo_nome, []).append(sku_norm)
+
+    grupos_candidatos = set(next_by_grupo.keys())
+
+    # Resolve a data mais recente de cada SKU envolvido (via DimProjeto) para
+    # decidir se a edição do ano pedido já concluiu.
+    todos_skus = set()
+    for g in grupos_candidatos:
+        todos_skus.update(cur_skus_by_grupo.get(g, []))
+        todos_skus.update(next_by_grupo.get(g, []))
+
+    data_por_sku: dict = {}
+    if todos_skus:
+        try:
+            for proj in db.query(DimProjeto.codigo, DimProjeto.data_evento).filter(
+                DimProjeto.codigo.isnot(None)
+            ).all():
+                sn = normalize_sku(proj.codigo)
+                if sn in todos_skus and proj.data_evento:
+                    if sn not in data_por_sku or proj.data_evento > data_por_sku[sn]:
+                        data_por_sku[sn] = proj.data_evento
+        except Exception as e:
+            logger.warning(f"[EventosList] falha ao resolver datas p/ ano-seguinte: {e}")
+            return base_map
+
+    result = dict(base_map)
+    for grupo_nome in grupos_candidatos:
+        cur_skus = cur_skus_by_grupo.get(grupo_nome, [])
+        avanca = False
+        if not cur_skus:
+            # Grupo sem mapping ativo no ano pedido: já rolou inteiramente
+            # para o ano seguinte.
+            avanca = True
+        else:
+            cur_dates = [data_por_sku[s] for s in cur_skus if s in data_por_sku]
+            if cur_dates and get_data_regime(max(cur_dates), 2) == "consolidated":
+                avanca = True
+        if avanca:
+            for s in cur_skus:
+                result.pop(s, None)
+            for s in next_by_grupo[grupo_nome]:
+                result[s] = grupo_nome
+
+    return result
+
+
 def _aggregate_grupo_sales(sales_data: dict, sku_to_grupo: dict) -> dict:
     """
     Agrega vendas de múltiplos SKUs que pertencem ao mesmo evento_grupo.
@@ -6624,7 +6714,7 @@ def get_marketing_events(
     isc_force = force_refresh and not _is_refreshing()
     isc_data = fetch_isc_pricing_data(db=db, force_refresh=isc_force)
     
-    sku_to_grupo = _build_sku_to_grupo_map(db, ano)
+    sku_to_grupo = _build_sku_to_grupo_map_com_ano_seguinte(db, ano)
     
     grupo_names_set = set(sku_to_grupo.values())
     grupo_details = {}
