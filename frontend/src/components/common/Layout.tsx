@@ -46,7 +46,6 @@ const menuItems = [
 ];
 
 const projecaoInscritosItem = { path: '/projecao-inscritos', icon: BarChart3, label: 'Projeção Inscritos', modulo: 'projecao_inscritos' };
-const cortesiasItem = { path: '/cortesias', icon: Gift, label: 'Cortesias', modulo: 'projecao_inscritos' };
 const solicitacaoCortesiasItem = { path: '/cadastros/solicitacao-cortesias', icon: Gift, label: 'Solicitação de Cortesias', modulo: 'cortesia_solicitacao' };
 
 const cotacaoItems = [
@@ -228,11 +227,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   if (showProjecaoInscritos) {
     const eventosIdx = cadastroItems.findIndex(item => item.path === '/cadastros/eventos');
     const insertAt = eventosIdx >= 0 ? eventosIdx + 1 : cadastroItems.length;
-    cadastroItems.splice(insertAt, 0, projecaoInscritosItem, cortesiasItem);
+    cadastroItems.splice(insertAt, 0, projecaoInscritosItem);
   }
   if (showSolicitacaoCortesias) {
-    const cortesiasIdx = cadastroItems.findIndex(item => item.path === '/cortesias');
-    const insertAt = cortesiasIdx >= 0 ? cortesiasIdx + 1 : cadastroItems.length;
+    const projecaoIdx = cadastroItems.findIndex(item => item.path === '/projecao-inscritos');
+    const insertAt = projecaoIdx >= 0 ? projecaoIdx + 1 : cadastroItems.length;
     cadastroItems.splice(insertAt, 0, solicitacaoCortesiasItem);
   }
   const filteredAdminItems = adminItems.filter(item => canView(item.modulo));

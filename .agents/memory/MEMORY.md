@@ -51,4 +51,4 @@
 - [Scripts standalone vs DB engines](standalone-script-db-engines.md) — script avulso precisa ensure_ssh_engine_ready()+ensure_magento_engine_ready(); rebuild em processo separado pode deadlock contra o backend ao vivo.
 - [Ano seguinte em eventos agrupados](ano-seguinte-eventos-agrupados.md) — 4 camadas (batch/defaults/classificação/fast-path); nunca usar ano==calendário como proxy de regime.
 - [Prod/dev schema drift diagnosis](prod-dev-schema-drift.md) — "feature não funciona" após ficar mais visível pode ser tabela dev-only nunca publicada em prod; diff information_schema antes de suspeitar de bug de código.
-- [Cortesias panel removed from Projeção](cortesia-panel-projecao-removal.md) — widget de Cortesias (API externa) era montado sempre na aba principal da Projeção, causando lentidão; removido, dado ainda vive em CortesiasEventos.tsx.
+- [External Cortesias integration removed](cortesia-panel-projecao-removal.md) — app externo app-cortesia.vercel.app deletado por completo (tela, rotas, service); não confundir com cortesia_solicitacao (interno, preservado).

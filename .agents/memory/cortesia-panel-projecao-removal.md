@@ -1,26 +1,34 @@
 ---
-name: Cortesias panel removed from Projeção screen
-description: Why an external Cortesias API panel was removed from ProjecaoInscritos.tsx and where courtesy metrics live now
+name: External Cortesias app integration fully removed
+description: The external "Cortesias" 3rd-party API integration (screen, routes, service) was deleted app-wide; do not re-add it and do not confuse it with the internal cortesia_solicitacao feature
 ---
 
-Do not embed the external "Cortesias" app integration (`cortesiaService.getMetrics`/`getUsers`,
-which hits a 3rd-party API via an authenticated backend proxy, historically seen with up to ~10s
-timeouts and occasional 502/504) as an eagerly-mounted panel on the Projeção screen's main view.
-A component named `CortesiasPanel` used to live inside `ProjecaoInscritos.tsx` and render
-unconditionally on the default "projeções" tab — it was removed.
+The external "Cortesias" integration — a 3rd-party app at `https://app-cortesia.vercel.app`
+(courtesy solicitados/aprovados/utilizados/disponiveis metrics + user list, auth via
+`CORTESIA_API_TOKEN`) — was removed from this codebase entirely, both frontend and backend.
+Deleted: `CortesiasPanel` (an embedded widget, first removed from `ProjecaoInscritos.tsx`), then
+the whole standalone `CortesiasEventos.tsx` screen + its `/cortesias` route, its Layout.tsx menu
+entry, the frontend `cortesiaService`/`CortesiaMetrics`/`CortesiaUser`/`CortesiaEventoRow`/
+`CortesiaEventosResponse` symbols in `services/api.ts`, the backend `/api/cortesia/*` router,
+`cortesia_service.py`, and the `CORTESIA_API_BASE_URL`/`CORTESIA_API_TOKEN` config settings.
 
-**Why:** User reported the Projeção screen felt slow and asked to find/remove "an API connection"
-made on it. Investigation confirmed the only genuine external (non-DB, 3rd-party) network
-dependency on that screen was this always-mounted courtesy-metrics widget: it fired 2 external
-HTTP calls (getUsers on mount, getMetrics once an area auto-selects) every single time the screen
-opened, with a visible blocking spinner ("Consultando o app de Cortesias...") — independent of
-this app's own (fast, cached) Postgres-backed data. The other polling loops on this screen
-(pendências every 3min, consolidado SWR retry after cache invalidation) are unrelated, intentional,
-already-documented caching patterns — not the cause.
+**Why:** The screen (and the panel before it) fired unconditional external HTTP calls on every
+visit — `getUsers` + `getMetrics` on mount for the embedded panel, and a per-SKU fan-out loop
+(one external request per event SKU, dozens of sequential calls with a single-flight/45s cache
+band-aid already layered on top) for the standalone `/cortesias` screen's `/api/cortesia/eventos`
+endpoint. This was a real, user-visible source of slowness and the primary source of the app's only
+non-DB, 3rd-party network dependency. User explicitly asked to remove the screen "to end this API
+query once and for all" — full removal, not a further mitigation.
 
-**How to apply:** Courtesy/cortesia metrics are still fully available via the dedicated
-`CortesiasEventos.tsx` page (own route) — the shared `cortesiaService`, its types, and the backend
-`/api/cortesia/*` routes / `cortesia_service.py` were NOT touched, only the duplicate widget
-embedded in `ProjecaoInscritos.tsx` was deleted. If courtesy data is wanted back on the Projeção
-screen, make it opt-in/lazy (load only when a user expands a section), never eager-mounted on the
-main tab that every visitor hits.
+**How to apply:** Do not re-add any `cortesiaService`-style client, `/api/cortesia/*` route, or
+`app-cortesia.vercel.app` call — the feature was deliberately deleted, not just hidden. If courtesy
+metrics from that external app are wanted again, treat it as a new feature request (ask the user)
+rather than restoring old code. The `CORTESIA_API_TOKEN` secret itself was left in place (unused);
+only the code reading it was removed. Do NOT confuse this with the still-active, fully internal
+`cortesia_solicitacao` feature (`SolicitacaoCortesias.tsx`, `/api/cortesia-solicitacao/*`,
+`cortesiaSolicitacaoService` in api.ts) — a same-ish-named but functionally unrelated
+request/coupon-approval workflow with its own DB tables (`cortesia_solicitacao`,
+`cortesia_cupom_codigo`, `cadastro_cortesia`) that never calls any external API; it and the
+internal "incluir cortesias"/`cortesia_total` order-labeling analytics (marketing.py,
+DadosConsolidados.tsx, EventDetail.tsx) are legitimate, separate, and must not be touched when
+someone says "remove Cortesias" — always check which of the two they mean.
