@@ -147,7 +147,6 @@ interface DailyAnalysis {
   ponto_corte?: string;
   estagio?: string;
   analise_texto: string;
-  ponto_critico?: string | null;
   tipo_acao_sugerida: string;
   acao_sugerida_descricao?: string | null;
   retorno_estimado_tipo?: string | null;
@@ -181,7 +180,6 @@ const mapAnaliseResponseToDailyAnalysis = (a: any): DailyAnalysis => ({
   ponto_corte: a.ponto_corte,
   estagio: a.estagio,
   analise_texto: a.analise_texto,
-  ponto_critico: a.ponto_critico ?? null,
   tipo_acao_sugerida: a.tipo_acao_sugerida,
   acao_sugerida_descricao: a.acao_sugerida_descricao ?? null,
   retorno_estimado_tipo: a.retorno_estimado_tipo ?? null,
@@ -446,7 +444,6 @@ const EventDetail: React.FC = () => {
 
   const [analiseForm, setAnaliseForm] = useState({
     analise_texto: '',
-    ponto_critico: '',
     tipo_acao_sugerida: '',
     acao_sugerida_descricao: '',
     retorno_estimado_tipo: '',
@@ -2224,7 +2221,6 @@ const EventDetail: React.FC = () => {
       if (editingAnaliseId) {
         const result = await marketingService.updateAnaliseDiaria(parseInt(editingAnaliseId), {
           analise_texto: analiseForm.analise_texto,
-          ponto_critico: analiseForm.ponto_critico || null,
           tipo_acao_sugerida: analiseForm.tipo_acao_sugerida,
           acao_sugerida_descricao: analiseForm.acao_sugerida_descricao,
           retorno_estimado_tipo: analiseForm.retorno_estimado_tipo || null,
@@ -2242,7 +2238,6 @@ const EventDetail: React.FC = () => {
           ponto_corte: cutoffInfo.ponto_corte,
           estagio: cutoffInfo.estagio,
           analise_texto: analiseForm.analise_texto,
-          ponto_critico: analiseForm.ponto_critico || undefined,
           tipo_acao_sugerida: analiseForm.tipo_acao_sugerida,
           acao_sugerida_descricao: analiseForm.acao_sugerida_descricao || undefined,
           retorno_estimado_tipo: analiseForm.retorno_estimado_tipo || undefined,
@@ -2261,7 +2256,6 @@ const EventDetail: React.FC = () => {
       setEditingAnaliseId(null);
       setAnaliseForm({
         analise_texto: '',
-        ponto_critico: '',
         tipo_acao_sugerida: '',
         acao_sugerida_descricao: '',
         retorno_estimado_tipo: '',
@@ -2315,11 +2309,6 @@ const EventDetail: React.FC = () => {
     OUTROS: 'Outros',
   };
 
-  const pontoCriticoOptions = [
-    { value: '', label: 'Nenhum' },
-    { value: 'ALTO', label: 'Ponto Alto' },
-    { value: 'CRITICO', label: 'Ponto Crítico' },
-  ];
   const retornoTipoOptions = [
     { value: '', label: 'Nenhum' },
     { value: 'VOLUME', label: 'Volume (inscrições)' },
@@ -2335,7 +2324,6 @@ const EventDetail: React.FC = () => {
       setAnaliseForm(f => ({
         ...f,
         analise_texto: todayAnalise.analise_texto,
-        ponto_critico: todayAnalise.ponto_critico ?? '',
         tipo_acao_sugerida: todayAnalise.tipo_acao_sugerida,
         acao_sugerida_descricao: todayAnalise.acao_sugerida_descricao ?? '',
         retorno_estimado_tipo: todayAnalise.retorno_estimado_tipo ?? '',
@@ -2349,7 +2337,6 @@ const EventDetail: React.FC = () => {
       setViewOnlyAnalise(false);
       setAnaliseForm({
         analise_texto: '',
-        ponto_critico: '',
         tipo_acao_sugerida: '',
         acao_sugerida_descricao: '',
         retorno_estimado_tipo: '',
@@ -4301,7 +4288,6 @@ const EventDetail: React.FC = () => {
                       setAnaliseForm(f => ({
                         ...f,
                         analise_texto: analise.analise_texto,
-                        ponto_critico: analise.ponto_critico ?? '',
                         tipo_acao_sugerida: analise.tipo_acao_sugerida,
                         acao_sugerida_descricao: analise.acao_sugerida_descricao ?? '',
                         retorno_estimado_tipo: analise.retorno_estimado_tipo ?? '',
@@ -5856,34 +5842,18 @@ const EventDetail: React.FC = () => {
                   />
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Ponto Crítico/Alto</label>
-                    <select
-                      value={analiseForm.ponto_critico}
-                      onChange={(e) => setAnaliseForm({ ...analiseForm, ponto_critico: e.target.value })}
-                      disabled={viewOnlyAnalise}
-                      className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm ${viewOnlyAnalise ? 'opacity-70 cursor-not-allowed' : ''}`}
-                    >
-                      {pontoCriticoOptions.map(opt => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tipo de Ação Sugerida <span className="text-red-500">*</span></label>
-                    <select
-                      value={analiseForm.tipo_acao_sugerida}
-                      onChange={(e) => { setAnaliseForm({ ...analiseForm, tipo_acao_sugerida: e.target.value }); setAnaliseError(null); }}
-                      disabled={viewOnlyAnalise}
-                      className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm ${viewOnlyAnalise ? 'opacity-70 cursor-not-allowed' : ''}`}
-                    >
-                      {tipoOptions.map(opt => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
-                  </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tipo de Ação Sugerida <span className="text-red-500">*</span></label>
+                  <select
+                    value={analiseForm.tipo_acao_sugerida}
+                    onChange={(e) => { setAnaliseForm({ ...analiseForm, tipo_acao_sugerida: e.target.value }); setAnaliseError(null); }}
+                    disabled={viewOnlyAnalise}
+                    className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm ${viewOnlyAnalise ? 'opacity-70 cursor-not-allowed' : ''}`}
+                  >
+                    {tipoOptions.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>

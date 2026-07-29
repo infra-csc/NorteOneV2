@@ -1493,7 +1493,6 @@ export const marketingService = {
     ponto_corte?: string;
     estagio?: string;
     analise_texto: string;
-    ponto_critico?: string;
     tipo_acao_sugerida: string;
     acao_sugerida_descricao?: string;
     retorno_estimado_tipo?: string;
@@ -1514,7 +1513,6 @@ export const marketingService = {
   },
   updateAnaliseDiaria: async (id: number, data: {
     analise_texto?: string;
-    ponto_critico?: string | null;
     tipo_acao_sugerida?: string;
     acao_sugerida_descricao?: string;
     retorno_estimado_tipo?: string | null;
