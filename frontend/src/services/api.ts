@@ -1368,7 +1368,7 @@ export const marketingService = {
     const response = await api.post(`/marketing/eventos/${encodeURIComponent(id)}/atualizar-hoje${queryString}`);
     return response.data;
   },
-  recalcularSnapshot: async (eventoId: string): Promise<{
+  recalcularSnapshot: async (eventoId: string, ano?: number): Promise<{
     status: string;
     evento_id: string;
     ano: number;
@@ -1385,30 +1385,39 @@ export const marketingService = {
     // Antes o endpoint era síncrono (timeout de 10 min) e o proxy na frente
     // do backend cortava a conexão com 502 quando o Magento estava lento,
     // mesmo com a reconsolidação terminando OK no servidor.
+    // `ano` deve ser o mesmo ano que a tela está exibindo — sem ele, eventos
+    // agrupados cuja edição vista difere do ano corrente do servidor (ex.:
+    // próxima edição já com carrinho aberto) nunca reconsolidam a certa.
+    const queryString = ano ? `?ano=${ano}` : '';
     const response = await api.post(
-      `/marketing/eventos/${encodeURIComponent(eventoId)}/recalcular-snapshot`,
+      `/marketing/eventos/${encodeURIComponent(eventoId)}/recalcular-snapshot${queryString}`,
       null,
       { timeout: 60000 }
     );
     return response.data;
   },
-  getRecalcularSnapshotStatus: async (eventoId: string): Promise<RecalcSnapshotStatus> => {
+  getRecalcularSnapshotStatus: async (eventoId: string, ano?: number): Promise<RecalcSnapshotStatus> => {
+    const queryString = ano ? `?ano=${ano}` : '';
     const response = await api.get(
-      `/marketing/eventos/${encodeURIComponent(eventoId)}/recalcular-snapshot/status`,
+      `/marketing/eventos/${encodeURIComponent(eventoId)}/recalcular-snapshot/status${queryString}`,
       { timeout: 15000 }
     );
     return response.data;
   },
   aguardarRecalcularSnapshot: async (
     eventoId: string,
-    opts?: { intervalMs?: number; timeoutMs?: number; isCancelled?: () => boolean }
+    opts?: { intervalMs?: number; timeoutMs?: number; isCancelled?: () => boolean },
+    ano?: number
   ): Promise<RecalcSnapshotStatus> => {
     // Polling do job assíncrono até estado terminal ('done' | 'error' | 'idle').
     // Sintéticos: 'cancelled' (isCancelled), 'timeout' (excedeu timeoutMs) e
     // 'unreachable' (5 falhas de rede consecutivas). Em todos os casos o job
     // continua rodando no servidor — o slot global evita duplicidade.
+    // `ano` deve ser o mesmo enviado ao disparar (recalcularSnapshot), senão
+    // o polling procura o job sob a chave errada e nunca encontra o job.
     const intervalMs = opts?.intervalMs ?? 4000;
     const timeoutMs = opts?.timeoutMs ?? 20 * 60 * 1000;
+    const queryString = ano ? `?ano=${ano}` : '';
     const t0 = Date.now();
     let falhasRede = 0;
     while (true) {
@@ -1417,7 +1426,7 @@ export const marketingService = {
       await new Promise(r => setTimeout(r, intervalMs));
       try {
         const st: RecalcSnapshotStatus = (await api.get(
-          `/marketing/eventos/${encodeURIComponent(eventoId)}/recalcular-snapshot/status`,
+          `/marketing/eventos/${encodeURIComponent(eventoId)}/recalcular-snapshot/status${queryString}`,
           { timeout: 15000 }
         )).data;
         falhasRede = 0;
@@ -1432,7 +1441,7 @@ export const marketingService = {
       }
     }
   },
-  getReconsolidarCooldown: async (eventoId: string): Promise<{
+  getReconsolidarCooldown: async (eventoId: string, ano?: number): Promise<{
     evento_id: string;
     can_reconsolidar: boolean;
     is_diretoria: boolean;
@@ -1442,8 +1451,9 @@ export const marketingService = {
     evento_em_andamento: string | null;
     outro_em_andamento: boolean;
   }> => {
+    const queryString = ano ? `?ano=${ano}` : '';
     const response = await api.get(
-      `/marketing/eventos/${encodeURIComponent(eventoId)}/reconsolidar-cooldown`,
+      `/marketing/eventos/${encodeURIComponent(eventoId)}/reconsolidar-cooldown${queryString}`,
       { timeout: 10000 }
     );
     return response.data;

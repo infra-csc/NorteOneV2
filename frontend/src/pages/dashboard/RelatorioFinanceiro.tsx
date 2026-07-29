@@ -105,7 +105,10 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading, onRefresh }) => {
       let final: { margem_recalculada?: number | null } = res;
       if (res.status === 'started') {
         // Backend roda a reconsolidação em background — aguarda por polling.
-        const st = await marketingService.aguardarRecalcularSnapshot(key);
+        // O job é registrado sob a chave "evento_id::ano" resolvida pelo
+        // backend (res.ano); sem repassar esse ano o polling procura a
+        // chave errada e nunca encontra o job (fica preso em "idle").
+        const st = await marketingService.aguardarRecalcularSnapshot(key, undefined, res.ano);
         if (st.state === 'error') throw { response: { data: { detail: st.error || 'Erro ao recalcular' } } };
         if (st.state !== 'done') throw { response: { data: { detail: 'Reconsolidação ainda em andamento no servidor — atualize a página em alguns minutos.' } } };
         final = st.result || {};

@@ -1124,7 +1124,7 @@ const EventDetail: React.FC = () => {
   const fetchReconsolidarCooldown = async () => {
     if (!id || !canReconsolidar) return;
     try {
-      const r = await marketingService.getReconsolidarCooldown(id);
+      const r = await marketingService.getReconsolidarCooldown(id, anoParam);
       setReconsolidarCooldown({
         locked: r.locked,
         remainingSec: r.remaining_sec,
@@ -1187,7 +1187,10 @@ const EventDetail: React.FC = () => {
     setShowConsolidarModal(true);
     try {
       const runToken = ++reconsolidarRunTokenRef.current;
-      const resp = await marketingService.recalcularSnapshot(id);
+      // Envia o ano que a tela está exibindo — sem isso a reconsolidação de
+      // uma edição futura/agrupada recalcula o ano corrente do servidor e a
+      // tela nunca sai do estado "não consolidado".
+      const resp = await marketingService.recalcularSnapshot(id, anoParam);
       // Backend atual responde {status:'started'} e roda em background —
       // acompanhamos por polling (o request síncrono antigo estourava 502 no
       // proxy). Se vier 'ok', é resposta síncrona de backend legado.
@@ -1195,7 +1198,7 @@ const EventDetail: React.FC = () => {
       if (resp.status === 'started') {
         const st = await marketingService.aguardarRecalcularSnapshot(id, {
           isCancelled: () => reconsolidarRunTokenRef.current !== runToken,
-        });
+        }, resp.ano ?? anoParam);
         if (st.state === 'cancelled') return; // trocou de tela — job segue no servidor
         if (st.state === 'error') throw new Error(st.error || 'Falha ao reconsolidar. Tente novamente em alguns minutos.');
         if (st.state === 'timeout') throw new Error('A reconsolidação está demorando mais que o esperado e continua rodando no servidor. Os dados aparecerão atualizados quando concluir.');

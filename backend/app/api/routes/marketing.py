@@ -11166,6 +11166,31 @@ def toggle_cortesias(
     return {"incluirCortesias": result_flag}
 
 
+def _resolve_evento_ano_efetivo(db: Session, evento_id: str, ano: Optional[int]) -> int:
+    """Resolve o ano efetivo de um evento para leitura/reconsolidação.
+
+    Mesma lógica usada pelo fast-path de `get_marketing_event_by_id`: usa o
+    `ano` explícito quando informado; para eventos agrupados (`grp_`) sem ano
+    explícito cai no ano corrente do servidor (ambíguo — grupo cobre vários
+    anos); para eventos individuais resolve pela data cadastrada em
+    `dim_projeto`. Compartilhada com o endpoint de reconsolidação manual para
+    que ambos os fluxos (leitura e escrita) usem sempre a mesma chave de ano,
+    evitando que a reconsolidação recalcule/persista um ano diferente do que
+    a tela está exibindo.
+    """
+    if ano is not None:
+        return ano
+    if evento_id.startswith("grp_"):
+        return datetime.now().year
+    try:
+        _proj = _wq_dim_projeto_by_id(db, int(evento_id))
+        return (_proj.data_evento.year
+                if _proj and _proj.data_evento
+                else datetime.now().year)
+    except Exception:
+        return datetime.now().year
+
+
 @router.get("/eventos/{evento_id}")
 def get_marketing_event_by_id(
     evento_id: str,
@@ -11188,18 +11213,7 @@ def get_marketing_event_by_id(
     # O scheduler atualiza este snapshot a cada 30 min em background.
     # Resolve o `ano` efetivo aqui (mesma lógica usada nos branches abaixo)
     # para garantir que a chave de leitura/escrita seja consistente.
-    if ano is not None:
-        _ano_for_persist = ano
-    elif is_grouped:
-        _ano_for_persist = datetime.now().year
-    else:
-        try:
-            _proj_for_year = _wq_dim_projeto_by_id(db, int(evento_id))
-            _ano_for_persist = (_proj_for_year.data_evento.year
-                                if _proj_for_year and _proj_for_year.data_evento
-                                else datetime.now().year)
-        except Exception:
-            _ano_for_persist = datetime.now().year
+    _ano_for_persist = _resolve_evento_ano_efetivo(db, evento_id, ano)
 
     # ── Cooldown early-demote do force_magento_refresh ───────────────────────
     # Helpers internos (fetch_real_daily_sales_for_projetos, get_margem_por_kit)
@@ -14119,6 +14133,17 @@ def _atualizar_hoje_inner(
 @router.post("/eventos/{evento_id}/recalcular-snapshot")
 def recalcular_snapshot_evento(
     evento_id: str,
+    ano: Optional[int] = Query(
+        default=None,
+        description=(
+            "Ano do evento a reconsolidar. Se omitido, resolve automaticamente "
+            "pela mesma lógica da leitura (data cadastrada em dim_projeto para "
+            "eventos individuais; ano corrente para eventos agrupados sem ano "
+            "explícito). Sem isso, eventos agrupados cuja edição sendo exibida "
+            "difere do ano corrente do servidor (ex.: próxima edição já com "
+            "carrinho aberto) nunca conseguem reconsolidar a edição certa."
+        ),
+    ),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
@@ -14143,15 +14168,23 @@ def recalcular_snapshot_evento(
             detail="Permissão insuficiente — requer perfil Admin ou Diretoria.",
         )
 
+    # Resolve o ano ANTES do gate/job: mesma lógica usada na leitura, para que
+    # a reconsolidação sempre recalcule/persista a edição que a tela está
+    # exibindo (não o ano corrente do servidor). Chave de job/cooldown inclui
+    # o ano para que reconsolidar uma edição não gere cooldown/estado cruzado
+    # com outra edição do mesmo evento agrupado.
+    ano_efetivo = _resolve_evento_ano_efetivo(db, evento_id, ano)
+    _recalc_key = f"{evento_id}::{ano_efetivo}"
+
     # ── Gate ATÔMICO GLOBAL: só permite UMA reconsolidação por vez ─────────
-    # Compartilha o mesmo _evento_inflight do admin.py (chave = evento_id).
-    # Cooldown da Diretoria só se aplica ao mesmo evento_id.
+    # Compartilha o mesmo _evento_inflight do admin.py (chave = evento_id::ano).
+    # Cooldown da Diretoria só se aplica à mesma chave evento+ano.
     acquired, remaining, busy_evento = _try_acquire_evento_slot(
-        evento_id, check_cooldown=is_diretoria
+        _recalc_key, check_cooldown=is_diretoria
     )
     if not acquired:
         if busy_evento is not None:
-            if busy_evento == evento_id:
+            if busy_evento == _recalc_key:
                 msg = (
                     "Já existe uma reconsolidação em andamento para este "
                     "evento. Aguarde a conclusão."
@@ -14197,9 +14230,9 @@ def recalcular_snapshot_evento(
     # imediatamente e o front acompanha via
     # GET /eventos/{evento_id}/recalcular-snapshot/status. O slot global é
     # liberado pela própria thread ao final.
-    ano = datetime.now().year
+    ano = ano_efetivo
     try:
-        _recalc_job_start(evento_id, "recalcular-snapshot")
+        _recalc_job_start(_recalc_key, "recalcular-snapshot")
 
         def _run_recalc_job():
             from app.core.database import SessionLocal
@@ -14230,9 +14263,9 @@ def recalcular_snapshot_evento(
                 if is_diretoria:
                     cooldown_sec_used = _diretoria_cooldown_sec()
                     if cooldown_sec_used > 0:
-                        cooldown_until = _set_evento_cooldown(evento_id, cooldown_sec_used)
+                        cooldown_until = _set_evento_cooldown(_recalc_key, cooldown_sec_used)
 
-                _recalc_job_finish(evento_id, result={
+                _recalc_job_finish(_recalc_key, result={
                     "status": "ok",
                     "evento_id": evento_id,
                     "ano": ano,
@@ -14243,11 +14276,11 @@ def recalcular_snapshot_evento(
                     "cooldown_total_sec": cooldown_sec_used,
                 })
             except Exception as e:
-                logger.error(f"[recalcular-snapshot] falhou para '{evento_id}': {e}")
-                _recalc_job_finish(evento_id, error=f"Erro ao recalcular snapshot: {str(e)[:400]}")
+                logger.error(f"[recalcular-snapshot] falhou para '{evento_id}' ano={ano}: {e}")
+                _recalc_job_finish(_recalc_key, error=f"Erro ao recalcular snapshot: {str(e)[:400]}")
             finally:
                 # Slot global liberado pela thread (não mais pelo request).
-                _release_evento_slot(evento_id)
+                _release_evento_slot(_recalc_key)
                 if local_db is not None:
                     try:
                         local_db.close()
@@ -14261,9 +14294,9 @@ def recalcular_snapshot_evento(
     except Exception as e:
         # Falha ANTES da thread assumir (ex.: Thread.start): libera o slot
         # aqui, senão ficaria preso para sempre.
-        _release_evento_slot(evento_id)
-        _recalc_job_finish(evento_id, error=f"Falha ao iniciar reconsolidação: {e}")
-        logger.error(f"[recalcular-snapshot] falha ao iniciar thread p/ '{evento_id}': {e}")
+        _release_evento_slot(_recalc_key)
+        _recalc_job_finish(_recalc_key, error=f"Falha ao iniciar reconsolidação: {e}")
+        logger.error(f"[recalcular-snapshot] falha ao iniciar thread p/ '{evento_id}' ano={ano}: {e}")
         raise HTTPException(status_code=500, detail=f"Falha ao iniciar reconsolidação: {e}")
 
     return {"status": "started", "evento_id": evento_id, "ano": ano}
@@ -14272,6 +14305,11 @@ def recalcular_snapshot_evento(
 @router.get("/eventos/{evento_id}/recalcular-snapshot/status")
 def get_recalcular_snapshot_status(
     evento_id: str,
+    ano: Optional[int] = Query(
+        default=None,
+        description="Ano usado ao disparar o POST /recalcular-snapshot. Deve ser o mesmo valor para localizar o job correto.",
+    ),
+    db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
     """Status do job assíncrono de reconsolidação disparado pelo POST acima
@@ -14282,7 +14320,21 @@ def get_recalcular_snapshot_status(
     'running', 'done' (com `result`) ou 'error' (com `error`). Apenas
     leitura de metadados — exige somente usuário autenticado."""
     from .admin import _recalc_job_get
-    rec = _recalc_job_get(evento_id)
+    # O POST /recalcular-snapshot registra o job sob a chave "evento_id::ano"
+    # (evita misturar status entre edições diferentes do mesmo evento
+    # agrupado). Tenta, nesta ordem: (1) ano explícito informado, (2) ano
+    # resolvido pela mesma lógica do POST (rede de segurança para clientes
+    # que ainda não repassam `ano` no polling), (3) chave legada sem ano —
+    # usada pelo fluxo do admin /consolidar-evento.
+    rec = _recalc_job_get(f"{evento_id}::{ano}") if ano is not None else None
+    if rec is None and ano is None:
+        try:
+            ano_fallback = _resolve_evento_ano_efetivo(db, evento_id, None)
+            rec = _recalc_job_get(f"{evento_id}::{ano_fallback}")
+        except Exception:
+            rec = None
+    if rec is None:
+        rec = _recalc_job_get(evento_id)
     if rec is None:
         return {"evento_id": evento_id, "state": "idle"}
     return {
@@ -14299,6 +14351,11 @@ def get_recalcular_snapshot_status(
 @router.get("/eventos/{evento_id}/reconsolidar-cooldown")
 def get_reconsolidar_cooldown(
     evento_id: str,
+    ano: Optional[int] = Query(
+        default=None,
+        description="Ano da edição sendo exibida. Quando informado, cooldown/gate são verificados por evento+ano, não por evento sozinho.",
+    ),
+    db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
     """Retorna o status do cooldown/gate de reconsolidação para a UI.
@@ -14308,7 +14365,7 @@ def get_reconsolidar_cooldown(
     para operadores comuns).
     - `can_reconsolidar`: sempre true neste endpoint (gate de 403 já filtrou).
     - `is_diretoria`: usuário é Diretoria (sujeito a cooldown).
-    - `locked`/`remaining_sec`: cooldown ativo no próprio evento.
+    - `locked`/`remaining_sec`: cooldown ativo na mesma edição (evento+ano).
     - `evento_em_andamento`/`outro_em_andamento`: se há reconsolidação rodando.
     """
     from ...core.security import is_user_admin
@@ -14324,7 +14381,13 @@ def get_reconsolidar_cooldown(
             detail="Permissão insuficiente — requer perfil Admin ou Diretoria.",
         )
 
-    remaining = _evento_cooldown_remaining(evento_id) if is_diretoria else 0
+    # Mesma chave evento_id::ano usada pelo POST /recalcular-snapshot. Sem
+    # `ano` explícito, resolve pela mesma lógica da leitura para não checar
+    # cooldown de um ano diferente do que a tela está exibindo.
+    ano_efetivo = _resolve_evento_ano_efetivo(db, evento_id, ano)
+    _cooldown_key = f"{evento_id}::{ano_efetivo}"
+
+    remaining = _evento_cooldown_remaining(_cooldown_key) if is_diretoria else 0
     busy_evento = _current_evento_inflight()
     return {
         "evento_id": evento_id,
@@ -14334,7 +14397,7 @@ def get_reconsolidar_cooldown(
         "remaining_sec": remaining,
         "cooldown_total_sec": _diretoria_cooldown_sec(),
         "evento_em_andamento": busy_evento,
-        "outro_em_andamento": (busy_evento is not None and busy_evento != evento_id),
+        "outro_em_andamento": (busy_evento is not None and busy_evento != _cooldown_key),
     }
 
 
