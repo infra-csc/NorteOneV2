@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { projecaoService, usersService, cortesiaService } from '../../services/api';
-import type { CortesiaMetrics, CortesiaUser } from '../../services/api';
+import { projecaoService, usersService } from '../../services/api';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { usePermissions } from '../../context/PermissionContext';
@@ -11,7 +10,7 @@ import {
   Layers, Download, RotateCcw,
   AlertTriangle, Trash, Check, Lock, LockOpen, Clock, Bell, Zap,
   Package, Info, Truck, Mail, MessageSquare,
-  HelpCircle, ArrowLeft, ArrowRight, Sparkles, RefreshCw, Gift,
+  HelpCircle, ArrowLeft, ArrowRight, Sparkles, RefreshCw,
 } from 'lucide-react';
 
 interface MultiSelectOption {
@@ -569,238 +568,6 @@ const projWriteCache = (key: string, data: any) => {
 };
 const projClearCache = (...keys: string[]) => {
   keys.forEach(k => { try { localStorage.removeItem(k); } catch {} });
-};
-
-// ─────────────────────────────────────────────────────────────
-// Painel de Cortesias — integração somente-leitura com o app externo
-// de Cortesias (via proxy autenticado do backend; o token nunca chega
-// ao navegador). Exibe solicitados/aprovados/utilizados/disponíveis
-// filtrados por Área, Usuário ou SKU.
-// ─────────────────────────────────────────────────────────────
-type CortesiaFiltroTipo = 'area' | 'userId' | 'sku';
-
-const CortesiasPanel: React.FC<{ isDark: boolean }> = ({ isDark }) => {
-  const [users, setUsers] = useState<CortesiaUser[]>([]);
-  const [usersLoading, setUsersLoading] = useState(true);
-  const [usersError, setUsersError] = useState<string | null>(null);
-  const [filtroTipo, setFiltroTipo] = useState<CortesiaFiltroTipo>('area');
-  const [filtroArea, setFiltroArea] = useState('');
-  const [filtroUserId, setFiltroUserId] = useState('');
-  const [skuInput, setSkuInput] = useState('');
-  const [metrics, setMetrics] = useState<CortesiaMetrics | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // Sequenciamento: respostas de consultas antigas não podem sobrescrever
-  // a consulta mais recente (troca rápida de filtros).
-  const reqIdRef = useRef(0);
-
-  const areas = useMemo(
-    () => Array.from(new Set(users.map(u => (u.area || '').trim()).filter(Boolean)))
-      .sort((a, b) => a.localeCompare(b, 'pt-BR')),
-    [users]
-  );
-
-  const fmtNum = (n: number) => n.toLocaleString('pt-BR');
-
-  const extractCortesiaError = (e: any): string => {
-    const detail = e?.response?.data?.detail;
-    if (typeof detail === 'string' && detail.trim()) return detail;
-    return 'Não foi possível consultar o app de Cortesias. Tente novamente em instantes.';
-  };
-
-  const fetchMetrics = async (filtro: { sku?: string; userId?: string; area?: string }) => {
-    const reqId = ++reqIdRef.current;
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await cortesiaService.getMetrics(filtro);
-      if (reqId !== reqIdRef.current) return;
-      setMetrics(data);
-    } catch (e: any) {
-      if (reqId !== reqIdRef.current) return;
-      setMetrics(null);
-      setError(extractCortesiaError(e));
-    } finally {
-      if (reqId === reqIdRef.current) setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const resp = await cortesiaService.getUsers();
-        if (!cancelled) setUsers(resp.users || []);
-      } catch (e: any) {
-        if (!cancelled) setUsersError(extractCortesiaError(e));
-      } finally {
-        if (!cancelled) setUsersLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
-  // Ao carregar os usuários, pré-seleciona a primeira área para o painel já
-  // abrir com dados (o filtro por área é o padrão).
-  useEffect(() => {
-    if (filtroTipo === 'area' && !filtroArea && areas.length > 0) {
-      setFiltroArea(areas[0]);
-    }
-  }, [areas, filtroTipo, filtroArea]);
-
-  useEffect(() => {
-    if (filtroTipo === 'area' && filtroArea) fetchMetrics({ area: filtroArea });
-    else if (filtroTipo === 'userId' && filtroUserId) fetchMetrics({ userId: filtroUserId });
-  }, [filtroTipo, filtroArea, filtroUserId]);
-
-  const consultarSku = () => {
-    const s = skuInput.trim();
-    if (s) fetchMetrics({ sku: s });
-  };
-
-  const selClass = `h-9 pl-3 pr-8 rounded-xl border text-sm appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-    isDark ? 'bg-gray-900/50 border-gray-600 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'
-  }`;
-
-  const kpis: { label: string; value: number | null; color: string }[] = [
-    { label: 'Solicitados', value: metrics ? metrics.solicitados : null, color: isDark ? 'text-blue-400' : 'text-blue-600' },
-    { label: 'Aprovados', value: metrics ? metrics.aprovados : null, color: isDark ? 'text-emerald-400' : 'text-emerald-600' },
-    { label: 'Utilizados', value: metrics ? metrics.utilizados : null, color: isDark ? 'text-amber-400' : 'text-amber-600' },
-    { label: 'Disponíveis', value: metrics ? metrics.disponiveis : null, color: isDark ? 'text-violet-400' : 'text-violet-600' },
-  ];
-
-  return (
-    <div className={`rounded-2xl overflow-hidden ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
-      <div className={`flex flex-wrap items-center gap-3 p-4 border-b ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`}>
-        <div className={`flex items-center justify-center w-9 h-9 rounded-xl ${isDark ? 'bg-emerald-500/20' : 'bg-emerald-100'}`}>
-          <Gift className={`w-[18px] h-[18px] ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`} />
-        </div>
-        <div className="mr-auto">
-          <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Cortesias</h3>
-          <p className={`text-[11px] ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Dados ao vivo do app de Cortesias</p>
-        </div>
-
-        {/* Filtro: tipo */}
-        <div className="relative">
-          <select
-            value={filtroTipo}
-            onChange={e => {
-              const tipo = e.target.value as CortesiaFiltroTipo;
-              setFiltroTipo(tipo);
-              setError(null);
-            }}
-            className={selClass}
-          >
-            <option value="area">Por área</option>
-            <option value="userId">Por usuário</option>
-            <option value="sku">Por SKU</option>
-          </select>
-          <ChevronDown className={`pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
-        </div>
-
-        {/* Filtro: valor */}
-        {filtroTipo === 'area' && (
-          <div className="relative">
-            <select
-              value={filtroArea}
-              onChange={e => setFiltroArea(e.target.value)}
-              disabled={usersLoading || areas.length === 0}
-              className={selClass}
-            >
-              {areas.length === 0 && <option value="">{usersLoading ? 'Carregando...' : 'Sem áreas'}</option>}
-              {areas.map(a => <option key={a} value={a}>{a}</option>)}
-            </select>
-            <ChevronDown className={`pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
-          </div>
-        )}
-        {filtroTipo === 'userId' && (
-          <div className="relative">
-            <select
-              value={filtroUserId}
-              onChange={e => setFiltroUserId(e.target.value)}
-              disabled={usersLoading || users.length === 0}
-              className={`${selClass} max-w-[240px]`}
-            >
-              <option value="">{usersLoading ? 'Carregando...' : 'Selecione o usuário'}</option>
-              {users.map(u => <option key={u.id} value={u.id}>{u.name}{u.area ? ` — ${u.area}` : ''}</option>)}
-            </select>
-            <ChevronDown className={`pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
-          </div>
-        )}
-        {filtroTipo === 'sku' && (
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              placeholder="SKU do evento..."
-              value={skuInput}
-              onChange={e => setSkuInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') consultarSku(); }}
-              className={`h-9 px-3 w-44 rounded-xl border text-sm ${isDark ? 'bg-gray-900/50 border-gray-600 text-white placeholder-gray-500' : 'bg-gray-50 border-gray-200 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-emerald-500`}
-            />
-            <button
-              onClick={consultarSku}
-              disabled={!skuInput.trim() || loading}
-              className="h-9 px-3.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:shadow-md disabled:opacity-50 transition-all"
-            >
-              Consultar
-            </button>
-          </div>
-        )}
-      </div>
-
-      <div className="p-4">
-        {(usersError && filtroTipo !== 'sku') ? (
-          <div className={`flex items-start gap-2.5 p-3 rounded-xl border text-sm ${isDark ? 'bg-red-500/10 border-red-500/40 text-red-300' : 'bg-red-50 border-red-200 text-red-700'}`}>
-            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-            <span>{usersError}</span>
-          </div>
-        ) : error ? (
-          <div className={`flex items-start gap-2.5 p-3 rounded-xl border text-sm ${isDark ? 'bg-red-500/10 border-red-500/40 text-red-300' : 'bg-red-50 border-red-200 text-red-700'}`}>
-            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-            <span className="flex-1">{error}</span>
-            <button
-              onClick={() => {
-                if (filtroTipo === 'area' && filtroArea) fetchMetrics({ area: filtroArea });
-                else if (filtroTipo === 'userId' && filtroUserId) fetchMetrics({ userId: filtroUserId });
-                else if (filtroTipo === 'sku') consultarSku();
-              }}
-              className={`flex items-center gap-1 text-xs font-semibold shrink-0 ${isDark ? 'text-red-300 hover:text-red-200' : 'text-red-600 hover:text-red-800'}`}
-            >
-              <RefreshCw className="w-3 h-3" />
-              Tentar novamente
-            </button>
-          </div>
-        ) : loading ? (
-          <div className={`flex items-center gap-2 text-sm py-3 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-            <RefreshCw className="w-4 h-4 animate-spin" />
-            Consultando o app de Cortesias...
-          </div>
-        ) : metrics ? (
-          <>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {kpis.map(k => (
-                <div key={k.label} className={`p-3 rounded-xl border ${isDark ? 'bg-gray-900/40 border-gray-700/60' : 'bg-gray-50 border-gray-200'}`}>
-                  <p className={`text-[11px] font-semibold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{k.label}</p>
-                  <p className={`text-xl font-bold mt-0.5 ${k.color}`}>{k.value !== null ? fmtNum(k.value) : '—'}</p>
-                </div>
-              ))}
-            </div>
-            {metrics.filter?.label && (
-              <p className={`text-[11px] mt-2.5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                Filtro aplicado: <span className="font-semibold">{metrics.filter.label}</span>
-              </p>
-            )}
-          </>
-        ) : (
-          <p className={`text-sm py-2 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-            {filtroTipo === 'sku'
-              ? 'Informe o SKU do evento e clique em Consultar.'
-              : 'Selecione um filtro para consultar as cortesias.'}
-          </p>
-        )}
-      </div>
-    </div>
-  );
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -3155,11 +2922,6 @@ const ProjecaoInscritos: React.FC = () => {
               </button>
             </div>
           </div>
-        )}
-
-        {activeTab === 'projecoes' && !selectedEvento && (
-          /* ── Painel de Cortesias (app externo) ── */
-          <CortesiasPanel isDark={isDark} />
         )}
 
         {activeTab === 'projecoes' && !selectedEvento && (
