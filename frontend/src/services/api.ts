@@ -1587,6 +1587,18 @@ export const marketingService = {
     const response = await api.get(url, { signal });
     return response.data;
   },
+  getVendasDiariasPorKit: async (eventoId: string, dataInicio: string, dataFim: string, ano?: number, signal?: AbortSignal): Promise<{
+    kitTypes: string[];
+    dailySalesByKit: Record<string, Record<string, number>>;
+  }> => {
+    const queryParams = new URLSearchParams();
+    queryParams.append('data_inicio', dataInicio);
+    queryParams.append('data_fim', dataFim);
+    if (ano) queryParams.append('ano', ano.toString());
+    const url = `/marketing/eventos/${encodeURIComponent(eventoId)}/vendas-diarias-por-kit?${queryParams.toString()}`;
+    const response = await api.get(url, { signal });
+    return response.data;
+  },
   getCurvaSnapshot: async (eventoId: string, signal?: AbortSignal, ano?: number): Promise<{
     status: string;
     evento_grupo: string;

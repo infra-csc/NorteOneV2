@@ -52,3 +52,5 @@
 - [Ano seguinte em eventos agrupados](ano-seguinte-eventos-agrupados.md) — 4 camadas (batch/defaults/classificação/fast-path); nunca usar ano==calendário como proxy de regime.
 - [Prod/dev schema drift diagnosis](prod-dev-schema-drift.md) — "feature não funciona" após ficar mais visível pode ser tabela dev-only nunca publicada em prod; diff information_schema antes de suspeitar de bug de código.
 - [External Cortesias integration removed](cortesia-panel-projecao-removal.md) — app externo app-cortesia.vercel.app deletado por completo (tela, rotas, service); não confundir com cortesia_solicitacao (interno, preservado).
+- [Magento query timeout mirroring](magento-query-timeout-mirroring.md) — ao copiar função SQL irmã, diff o literal MAX_EXECUTION_TIME contra a fonte; timeout menor = "0 rows" que parece bug, não é.
+- [On-demand kit breakdown pattern](on-demand-kit-breakdown-pattern.md) — nova dimensão (kit/categoria) ausente no snapshot: endpoint próprio + range explícito curto (<=31d) + cache TTL leve; ano sempre opcional, resolvido via _resolve_evento_ano_efetivo.

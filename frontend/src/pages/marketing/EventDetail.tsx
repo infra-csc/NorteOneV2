@@ -4,6 +4,7 @@ import { useParams, useNavigate, useSearchParams, useLocation, Link } from 'reac
 import ConnectionAlert from '../../components/common/ConnectionAlert';
 import FaixasPrecoSiteCard from './FaixasPrecoSiteCard';
 import ProjetosVinculadosCard from './ProjetosVinculadosCard';
+import KitFilterDropdown from './KitFilterDropdown';
 import { 
   ArrowLeft, 
   Calendar, 
@@ -107,8 +108,44 @@ const formatCurrencyModule = (value: number) => _nfBRL.format(value);
 const curvaVendasFormatter = (value: any): [string, string] => [formatNumberModule(Number(value || 0)), ''];
 const curvaReceitaFormatter = (value: any): [string, string] => [formatCurrencyModule(Number(value || 0)), ''];
 const curvaSemanaLabelFormatter = (label: any) => `${label} (semana)`;
-const last30TooltipFormatter = (value: any) => formatNumberModule(Math.round(Number(value ?? 0)));
 const curvaDailyLabelFormatter = (label: any) => `${label}`;
+// Paleta para as séries por tipo de kit no gráfico "Vendas Diárias" — cores
+// distintas o bastante em claro/escuro, ciclo se houver mais kits que cores.
+const KIT_BAR_COLORS = ['#3B82F6', '#F59E0B', '#10B981', '#EF4444', '#8B5CF6', '#EC4899', '#14B8A6', '#F97316', '#6366F1', '#84CC16'];
+const kitBarColor = (index: number) => KIT_BAR_COLORS[index >= 0 ? index % KIT_BAR_COLORS.length : 0];
+// Tooltip do gráfico "Vendas Diárias": sempre mostra o detalhamento completo
+// por tipo de kit (independente do filtro selecionado), porque `last30DaysWithKits`
+// já traz cada tipo de kit mesclado como chave no mesmo objeto de linha.
+const buildDailySalesTooltip = (kitTypesAvailable: string[], selected: Set<string>) =>
+  ({ active, payload, label }: any) => {
+    if (!active || !payload || !payload.length) return null;
+    const row = payload[0].payload || {};
+    const total = Math.round(Number(row.sales ?? 0));
+    return (
+      <div style={TOOLTIP_STYLE_DARK_CARD} className="px-3 py-2 text-xs min-w-[160px]">
+        <p className="font-semibold mb-1">{labelDateFull(label)}</p>
+        <p className="flex justify-between gap-4">
+          <span className="text-gray-300">Total</span>
+          <span className="font-semibold">{formatNumberModule(total)}</span>
+        </p>
+        {kitTypesAvailable.length > 0 && (
+          <div className="mt-1 pt-1 border-t border-gray-600 space-y-0.5">
+            {kitTypesAvailable.map(tipo => {
+              const qtd = Math.round(Number(row[tipo] ?? 0));
+              if (qtd <= 0) return null;
+              const dimmed = selected.size > 0 && !selected.has(tipo);
+              return (
+                <p key={tipo} className={`flex justify-between gap-4 ${dimmed ? 'opacity-50' : ''}`}>
+                  <span className="text-gray-300">{tipo}</span>
+                  <span>{formatNumberModule(qtd)}</span>
+                </p>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
 
 // Tick objects estáticos — Recharts não recria a ref por render
 const TICK_FS_10 = { fontSize: 10 } as const;
@@ -1755,6 +1792,68 @@ const EventDetail: React.FC = () => {
   const last30Days = useMemo(
     () => completeDailySales.slice(-30).map(d => ({ ...d, sales: d.sales })),
     [completeDailySales]
+  );
+
+  // ─── Vendas Diárias por Kit — filtro multi-select do gráfico "Vendas Diárias" ───
+  // Endpoint separado e sob demanda (não faz parte do payload principal do
+  // evento, que é fortemente cacheado/otimizado): buscado só quando o range de
+  // datas do gráfico é conhecido, sempre com o mesmo range exibido (last30Days),
+  // e cacheado no backend por (ids, ano, range). Falha aqui nunca derruba o
+  // gráfico base — só o filtro/tooltip por kit ficam indisponíveis.
+  const [kitFilterSelected, setKitFilterSelected] = useState<Set<string>>(new Set());
+  const [kitTypesAvailable, setKitTypesAvailable] = useState<string[]>([]);
+  const [dailySalesByKit, setDailySalesByKit] = useState<Record<string, Record<string, number>>>({});
+  const [kitBreakdownLoading, setKitBreakdownLoading] = useState(false);
+
+  const _last30RangeStart = last30Days[0]?.date;
+  const _last30RangeEnd = last30Days[last30Days.length - 1]?.date;
+
+  useEffect(() => {
+    setKitFilterSelected(new Set());
+  }, [id]);
+
+  useEffect(() => {
+    if (!id || !_last30RangeStart || !_last30RangeEnd) {
+      setKitTypesAvailable([]);
+      setDailySalesByKit({});
+      return;
+    }
+    const controller = new AbortController();
+    setKitBreakdownLoading(true);
+    marketingService.getVendasDiariasPorKit(id, _last30RangeStart, _last30RangeEnd, anoParam, controller.signal)
+      .then(data => {
+        setKitTypesAvailable(data.kitTypes || []);
+        setDailySalesByKit(data.dailySalesByKit || {});
+      })
+      .catch((err: any) => {
+        if (err?.name !== 'CanceledError' && err?.name !== 'AbortError') {
+          console.error('Erro ao buscar vendas diárias por kit:', err);
+        }
+        setKitTypesAvailable([]);
+        setDailySalesByKit({});
+      })
+      .finally(() => setKitBreakdownLoading(false));
+    return () => controller.abort();
+  }, [id, anoParam, _last30RangeStart, _last30RangeEnd]);
+
+  // Funde o total diário (last30Days) com o breakdown por kit, por data — a
+  // mesma estrutura alimenta tanto as barras (quando há filtro) quanto o
+  // tooltip (que mostra o detalhamento completo independente do filtro).
+  const last30DaysWithKits = useMemo(
+    () => last30Days.map(d => ({ ...d, ...(dailySalesByKit[d.date] || {}) })),
+    [last30Days, dailySalesByKit]
+  );
+
+  // Ordem canônica = ordem de kitTypesAvailable (não a ordem de clique), para
+  // que a cor de cada barra fique estável conforme o usuário liga/desliga kits.
+  const kitFilterSelectedList = useMemo(
+    () => kitTypesAvailable.filter(t => kitFilterSelected.has(t)),
+    [kitTypesAvailable, kitFilterSelected]
+  );
+
+  const dailySalesTooltipContent = useMemo(
+    () => buildDailySalesTooltip(kitTypesAvailable, kitFilterSelected),
+    [kitTypesAvailable, kitFilterSelected]
   );
 
   // Curva Diária % meta — pré-cálculo de chaves + chartData enriquecido.
@@ -4629,11 +4728,21 @@ const EventDetail: React.FC = () => {
           </div>
 
           <div>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
-              {last30Days.length >= 30
-                ? 'Vendas Diárias (Últimos 30 dias)'
-                : `Vendas Diárias (Últimos ${last30Days.length} ${last30Days.length === 1 ? 'dia' : 'dias'})`}
-            </p>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {last30Days.length >= 30
+                  ? 'Vendas Diárias (Últimos 30 dias)'
+                  : `Vendas Diárias (Últimos ${last30Days.length} ${last30Days.length === 1 ? 'dia' : 'dias'})`}
+              </p>
+              {last30Days.length > 0 && (
+                <KitFilterDropdown
+                  kitTypes={kitTypesAvailable}
+                  selected={kitFilterSelected}
+                  onChange={setKitFilterSelected}
+                  loading={kitBreakdownLoading}
+                />
+              )}
+            </div>
             <div className="h-56">
               {last30Days.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-center px-6 bg-gray-50 dark:bg-gray-900/30 rounded-lg border border-dashed border-gray-300 dark:border-gray-700">
@@ -4645,7 +4754,7 @@ const EventDetail: React.FC = () => {
                 </div>
               ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={last30Days}>
+                <BarChart data={last30DaysWithKits}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
                   <XAxis 
                     dataKey="date" 
@@ -4654,18 +4763,27 @@ const EventDetail: React.FC = () => {
                     fontSize={11}
                   />
                   <YAxis stroke="#6B7280" fontSize={11} />
-                  <Tooltip 
-                    labelFormatter={labelDateFull}
-                    formatter={last30TooltipFormatter}
-                    contentStyle={TOOLTIP_STYLE_DARK_CARD}
-                  />
-                  <Bar 
-                    dataKey="sales" 
-                    name="Vendas"
-                    fill="#3B82F6" 
-                    radius={[4, 4, 0, 0]}
-                    isAnimationActive={false}
-                  />
+                  <Tooltip content={dailySalesTooltipContent} />
+                  {kitFilterSelectedList.length === 0 && (
+                    <Bar 
+                      dataKey="sales" 
+                      name="Vendas"
+                      fill="#3B82F6" 
+                      radius={[4, 4, 0, 0]}
+                      isAnimationActive={false}
+                    />
+                  )}
+                  {kitFilterSelectedList.map(tipo => (
+                    <Bar
+                      key={tipo}
+                      dataKey={tipo}
+                      name={tipo}
+                      fill={kitBarColor(kitTypesAvailable.indexOf(tipo))}
+                      radius={[4, 4, 0, 0]}
+                      isAnimationActive={false}
+                    />
+                  ))}
+                  {kitFilterSelectedList.length > 0 && <Legend wrapperStyle={{ fontSize: 11 }} />}
                 </BarChart>
               </ResponsiveContainer>
               )}

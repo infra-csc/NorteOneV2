@@ -7405,6 +7405,166 @@ def get_sales_averages(
     return medias_result
 
 
+@router.get("/eventos/{evento_id}/vendas-diarias-por-kit")
+def get_vendas_diarias_por_kit(
+    evento_id: str,
+    ano: Optional[int] = Query(default=None, description="Ano do evento; se omitido, resolve o ano efetivo (mesma regra do endpoint principal)"),
+    data_inicio: str = Query(..., description="Data inicial (YYYY-MM-DD), inclusive"),
+    data_fim: str = Query(..., description="Data final (YYYY-MM-DD), inclusive"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("marketing_dashboard", "pode_visualizar")),
+):
+    """
+    Breakdown por tipo de kit das vendas diárias de um evento, para o filtro
+    do gráfico "Vendas Diárias" do Detalhe do Evento (Magento + Ativo).
+
+    Endpoint separado e sob demanda — não entra no payload principal de
+    `/eventos/{evento_id}` (que é fortemente cacheado/otimizado). É chamado
+    lazy quando o gráfico monta, sempre consulta ao vivo (nunca o snapshot
+    noturno, que não tem dimensão de kit) e é barato porque o range de datas
+    é sempre explícito e curto (o mesmo período exibido no gráfico, no
+    máximo 31 dias) — inclusive para eventos antigos/congelados. Qualquer
+    falha aqui é isolada: devolve listas vazias, nunca derruba o gráfico base.
+    """
+    # `ano` ausente: resolve o mesmo "ano efetivo" usado pelo endpoint principal
+    # (GET /eventos/{evento_id}), para que o breakdown por kit sempre bata com
+    # o ano que o resto da página está mostrando.
+    if ano is None:
+        ano = _resolve_evento_ano_efetivo(db, evento_id, None)
+    try:
+        _di = date.fromisoformat(data_inicio)
+        _df = date.fromisoformat(data_fim)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="data_inicio/data_fim inválidas (use YYYY-MM-DD)")
+    if _df < _di:
+        raise HTTPException(status_code=400, detail="data_fim deve ser >= data_inicio")
+    if (_df - _di).days > 31:
+        raise HTTPException(status_code=400, detail="Intervalo máximo de 31 dias")
+
+    is_consolidated = evento_id.startswith('grp_')
+    all_skus: list = []
+    if is_consolidated:
+        grupo_nome = evento_id.replace('grp_', '')
+        mappings = _wq_sku_mappings_by_grupo_single_year(db, grupo_nome, ano)
+        if not mappings:
+            mappings = _wq_sku_mappings_by_grupo(db, grupo_nome, [ano])
+            if not mappings:
+                all_grupo_mappings = db.query(SkuMapping).filter(
+                    SkuMapping.evento_grupo == grupo_nome,
+                    SkuMapping.ativo == True
+                ).all()
+                if all_grupo_mappings:
+                    best_year = max((m.ano for m in all_grupo_mappings if m.ano), default=None)
+                    if best_year is not None:
+                        mappings = [m for m in all_grupo_mappings if m.ano == best_year]
+        all_skus = list(set(m.sku.upper().strip() for m in mappings if m.sku))
+    else:
+        try:
+            projeto_id = int(evento_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="ID do evento inválido")
+        projeto = _wq_dim_projeto_by_id(db, projeto_id)
+        if projeto and projeto.codigo:
+            all_skus = [str(projeto.codigo).upper().strip()]
+
+    if not all_skus:
+        return {"kitTypes": [], "dailySalesByKit": {}}
+
+    all_active_mappings = _wq_sku_mappings_by_skus(db, all_skus)
+    if all_active_mappings is None:
+        all_active_mappings = db.query(SkuMapping).filter(
+            SkuMapping.sku.in_(all_skus),
+            SkuMapping.ativo == True
+        ).all()
+
+    year_mappings = [m for m in all_active_mappings if m.ano == ano]
+    if not year_mappings and all_active_mappings:
+        available_years = sorted(set(m.ano for m in all_active_mappings if m.ano), reverse=True)
+        if available_years:
+            year_mappings = [m for m in all_active_mappings if m.ano == available_years[0]]
+
+    ativo_ids: list = []
+    magento_ids: list = []
+    for m in year_mappings:
+        if m.id_externo:
+            if m.fonte == 'ATIVO':
+                ativo_ids.append(str(m.id_externo))
+            elif m.fonte == 'MAGENTO':
+                magento_ids.append(str(m.id_externo))
+
+    if not ativo_ids and not magento_ids:
+        return {"kitTypes": [], "dailySalesByKit": {}}
+
+    ativo_ids = sorted(set(ativo_ids))
+    magento_ids = sorted(set(magento_ids))
+    cache_key = (tuple(magento_ids), tuple(ativo_ids), ano, data_inicio, data_fim)
+    cached = _vendas_por_kit_cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    magento_ids_int = [int(i) for i in magento_ids if str(i).isdigit()]
+
+    from ...services.detalhe_eventos_service import _build_kit_canonical_maps
+    try:
+        _, ativo_kit_map = _build_kit_canonical_maps(db, magento_ids_int)
+    except Exception as e:
+        logger.warning(f"[vendas-diarias-por-kit] _build_kit_canonical_maps falhou (ignorado): {e}")
+        ativo_kit_map = {}
+
+    bundle_tipo_map: dict = {}
+    if magento_ids_int:
+        try:
+            from ...models.kit_config import KitConfig
+            kit_rows = db.query(KitConfig).filter(
+                KitConfig.id_evento.in_(magento_ids_int),
+                KitConfig.tipo_kit.isnot(None),
+                KitConfig.ignorado == False,
+            ).all()
+            bundle_tipo_map = {
+                int(k.bundle_entity_id): k.tipo_kit.strip()
+                for k in kit_rows if k.bundle_entity_id and k.tipo_kit and k.tipo_kit.strip()
+            }
+        except Exception as e:
+            logger.warning(f"[vendas-diarias-por-kit] KitConfig lookup falhou (ignorado): {e}")
+
+    OUTROS = "Outros"
+    merged: dict = {}
+    kit_types_seen: set = set()
+
+    def _add(dia: str, tipo: str, qtd: int):
+        if qtd <= 0:
+            return
+        day_bucket = merged.setdefault(dia, {})
+        day_bucket[tipo] = day_bucket.get(tipo, 0) + qtd
+        kit_types_seen.add(tipo)
+
+    if magento_ids:
+        try:
+            for r in _fetch_daily_sales_magento_by_ids_kit(magento_ids, _di, _df):
+                bundle_id = r.get('bundle_entity_id')
+                tipo = bundle_tipo_map.get(bundle_id) if bundle_id is not None else None
+                _add(str(r['dia']), tipo or OUTROS, int(r.get('qtd') or 0))
+        except Exception as e:
+            logger.warning(f"[vendas-diarias-por-kit] Magento falhou (ignorado, gráfico base não afetado): {e}")
+
+    if ativo_ids:
+        try:
+            for r in _fetch_daily_sales_ativo_by_ids_kit(ativo_ids, _di, _df):
+                raw_cat = (r.get('categoria') or '').strip()
+                tipo = ativo_kit_map.get(raw_cat) if raw_cat else None
+                _add(str(r['dia']), tipo or OUTROS, int(r.get('qtd') or 0))
+        except Exception as e:
+            logger.warning(f"[vendas-diarias-por-kit] Ativo falhou (ignorado, gráfico base não afetado): {e}")
+
+    kit_types_sorted = sorted(kit_types_seen - {OUTROS})
+    if OUTROS in kit_types_seen:
+        kit_types_sorted.append(OUTROS)
+
+    result = {"kitTypes": kit_types_sorted, "dailySalesByKit": merged}
+    _vendas_por_kit_cache_set(cache_key, result)
+    return result
+
+
 @router.get("/eventos/{evento_id}/curva-snapshot")
 def get_curva_snapshot(
     evento_id: str,
@@ -8775,6 +8935,67 @@ ORDER BY dia
         return []
 
 
+def _fetch_daily_sales_ativo_by_ids_kit(id_eventos: list, data_inicio: date, data_fim: date) -> list:
+    """Vendas diárias por (dia, categoria Ativo) para o breakdown por tipo de
+    kit do gráfico "Vendas Diárias" do Detalhe do Evento. Irmã de
+    `_fetch_daily_sales_ativo_by_ids`, com a dimensão de categoria adicionada
+    (h.ds_categoria — mesmo campo bruto usado por `_build_kit_canonical_maps`
+    para resolver o tipo_kit canônico) e range de datas sempre explícito.
+    Quem chama já limita o range (<=31 dias), então o custo é baixo mesmo
+    para eventos antigos/congelados — não há particionamento de snapshot
+    aqui (o snapshot noturno não tem dimensão de kit).
+    """
+    if not id_eventos:
+        return []
+    if db_module.engine_ssh is None:
+        return []
+    try:
+        safe_ids = [int(i) for i in id_eventos if str(i).isdigit()]
+        if not safe_ids:
+            return []
+        query = text("""
+SELECT /*+ MAX_EXECUTION_TIME(90000) */
+    DATE(c.dt_pedido)                                                          AS dia,
+    h.ds_categoria                                                             AS categoria,
+    COUNT(DISTINCT a.id_pedido_evento)                                         AS qtd
+FROM sa_pedido_evento AS a
+INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
+INNER JOIN sa_pedido AS c
+    ON c.id_pedido = a.id_pedido
+   AND c.id_pedido_status IN (2)
+LEFT JOIN sa_modalidade_categoria AS h ON h.id_categoria = a.id_categoria
+LEFT JOIN (
+    SELECT e.id_cupom_desconto_item, f.en_cupom_classificacao
+    FROM sa_cupom_desconto_item AS e
+    INNER JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
+) AS cupom ON cupom.id_cupom_desconto_item = a.id_cupom_individual
+WHERE
+    b.id_evento IN :id_eventos
+    AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
+    AND a.nr_preco > 0
+    AND (cupom.en_cupom_classificacao IS NULL OR cupom.en_cupom_classificacao <> 'Grupos')
+    AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+    AND c.dt_pedido >= :data_inicio
+    AND c.dt_pedido < :data_fim_excl
+GROUP BY DATE(c.dt_pedido), h.ds_categoria
+ORDER BY dia
+""").bindparams(bindparam("id_eventos", expanding=True))
+        params = {
+            "id_eventos": safe_ids,
+            "data_inicio": data_inicio,
+            "data_fim_excl": data_fim + timedelta(days=1),
+        }
+        with db_module.engine_ssh.connect() as conn:
+            result = conn.execute(query, params)
+            return [
+                {"dia": str(r[0]), "categoria": r[1], "qtd": int(r[2] or 0)}
+                for r in result.fetchall()
+            ]
+    except Exception as e:
+        logger.error(f"Erro daily sales por kit Ativo by IDs: {e}")
+        return []
+
+
 def _fetch_today_sales_ativo_by_ids(id_eventos: list) -> dict:
     if not id_eventos or db_module.engine_ssh is None:
         return {}
@@ -9362,6 +9583,110 @@ ORDER BY dia
                 {"dia": d.isoformat() if hasattr(d, 'isoformat') else str(d), "qtd": v[0], "receita": v[1]}
                 for d, v in sorted(_snap_daily.items())
             ]
+        return []
+
+
+# --- Cache leve (TTL curto) para o breakdown por kit do gráfico "Vendas Diárias" ---
+# Um único evento por chamada e range de datas sempre <=31 dias: não precisa do
+# aparato de singleflight usado acima (hot path multi-evento, muitos callers).
+# Isso só evita reconsultar Magento/Ativo a cada re-render/remount do gráfico
+# dentro da mesma janela de visualização.
+_VENDAS_KIT_CACHE_LOCK = _threading.Lock()
+_VENDAS_KIT_CACHE: dict = {}
+_VENDAS_KIT_CACHE_TTL = 120.0
+
+
+def _vendas_por_kit_cache_get(key):
+    with _VENDAS_KIT_CACHE_LOCK:
+        cached = _VENDAS_KIT_CACHE.get(key)
+        if cached and (_time.time() - cached[0]) < _VENDAS_KIT_CACHE_TTL:
+            return cached[1]
+        return None
+
+
+def _vendas_por_kit_cache_set(key, value):
+    with _VENDAS_KIT_CACHE_LOCK:
+        _VENDAS_KIT_CACHE[key] = (_time.time(), value)
+        if len(_VENDAS_KIT_CACHE) > 128:
+            cutoff = _time.time() - (_VENDAS_KIT_CACHE_TTL * 2)
+            stale = [k for k, v in _VENDAS_KIT_CACHE.items() if v[0] < cutoff]
+            for k in stale:
+                _VENDAS_KIT_CACHE.pop(k, None)
+
+
+def _fetch_daily_sales_magento_by_ids_kit(magento_event_ids: list, data_inicio: date, data_fim: date) -> list:
+    """Vendas diárias por (dia, bundle_entity_id) para o breakdown por tipo de
+    kit do gráfico "Vendas Diárias" do Detalhe do Evento. Irmã de
+    `_fetch_daily_sales_magento_by_ids_impl`, com a dimensão de bundle
+    adicionada e sem a alocação de receita (não usada aqui — o gráfico só
+    precisa de quantidade). Sem particionamento de snapshot para eventos
+    congelados: o range de datas é sempre explícito e curto (<=31 dias), então
+    uma consulta ao vivo é barata mesmo para eventos antigos.
+    """
+    if not magento_event_ids:
+        return []
+    if db_module.engine_magento is None:
+        return []
+    try:
+        safe_ids = [str(int(i)) for i in magento_event_ids if str(i).isdigit()]
+        if not safe_ids:
+            return []
+        query = text("""
+SELECT /*+ MAX_EXECUTION_TIME(90000) */
+    DATE(so.created_at)                    AS dia,
+    soi_parent.product_id                  AS bundle_entity_id,
+    COUNT(DISTINCT soi_parent.item_id)     AS qtd
+FROM catalog_product_entity_varchar cpev1
+INNER JOIN sales_order_item soi_parent
+       ON soi_parent.product_id   = cpev1.entity_id
+      AND soi_parent.product_type = 'bundle'
+INNER JOIN sales_order so
+       ON so.entity_id = soi_parent.order_id
+      AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
+      AND so.state NOT IN ('canceled')
+      AND so.increment_id NOT REGEXP '-[0-9]'
+      AND so.base_grand_total > 0
+      AND (so.discount_description NOT LIKE '%%GRUPOS%%' OR so.discount_description IS NULL)
+      AND (so.coupon_code NOT LIKE 'GRUP%%' OR so.coupon_code IS NULL)
+      AND so.created_at >= :data_inicio
+      AND so.created_at < :data_fim_excl
+INNER JOIN sales_order_item soi_child
+       ON soi_child.parent_item_id = soi_parent.item_id
+      AND soi_child.product_type   = 'simple'
+      AND soi_child.price > 0
+      AND (soi_child.price - soi_child.discount_amount) > 0
+      AND (
+            soi_child.name LIKE '%%Distância%%'
+         OR soi_child.name LIKE '%%Distancia%%'
+         OR soi_child.name LIKE '%%Distâncias%%'
+         OR soi_child.name LIKE '%%Modalidade%%'
+         OR soi_child.name REGEXP '-[0-9]+[Kk]m$'
+         OR soi_child.name REGEXP '^[0-9]+[Kk]m?$'
+         OR soi_child.name LIKE 'Kit Participação%%'
+         OR soi_child.name LIKE 'Olímpico%%'
+         OR soi_child.name LIKE 'Yoga%%'
+      )
+WHERE
+    cpev1.attribute_id = 321
+    AND cpev1.store_id = 0
+    AND cpev1.value IN :magento_event_ids
+GROUP BY DATE(so.created_at), soi_parent.product_id
+ORDER BY dia
+""").bindparams(bindparam("magento_event_ids", expanding=True))
+        params = {
+            "magento_event_ids": safe_ids,
+            "data_inicio": data_inicio,
+            "data_fim_excl": data_fim + timedelta(days=1),
+        }
+        def _work(conn):
+            return conn.execute(query, params).fetchall()
+        rows = magento_run(_work, label="daily-sales-by-ids-kit", profile="request")
+        return [
+            {"dia": str(r[0]), "bundle_entity_id": int(r[1]) if r[1] is not None else None, "qtd": int(r[2] or 0)}
+            for r in rows
+        ]
+    except Exception as e:
+        logger.error(f"Erro daily sales por kit Magento by IDs: {e}")
         return []
 
 
