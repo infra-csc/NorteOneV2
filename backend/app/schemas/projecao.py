@@ -97,6 +97,9 @@ class ProjecaoInscritosUpdate(BaseModel):
     quantidade: int
     clientes: Optional[List[ClienteProjecaoItem]] = None
     kits: Optional[List[KitProjecaoItem]] = None
+    # Preenchido pelo usuário quando a edição é uma redução do total durante o
+    # Corte de Ajuste e precisa virar chamado de aprovação (Task #212).
+    motivo_reducao: Optional[str] = None
 
 
 class ProjecaoInscritosResponse(BaseModel):
@@ -376,4 +379,52 @@ class CorteSnapshotResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ---------------------------------------------------------------------------
+# Aprovação de redução no Corte de Ajuste (Task #212)
+# ---------------------------------------------------------------------------
+
+class AreaAprovadoraReducaoUpdate(BaseModel):
+    # None desliga o gate de "quem pode aprovar" (fica só o fallback admin).
+    area_projecao_id: Optional[int] = None
+
+
+class AreaAprovadoraReducaoResponse(BaseModel):
+    area_projecao_id: Optional[int] = None
+    area_projecao_nome: Optional[str] = None
+    updated_by_nome: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class SolicitacaoReducaoResponse(BaseModel):
+    id: int
+    projecao_id: int
+    evento_id: int
+    evento_nome: Optional[str] = None
+    area_projecao_id: int
+    area_projecao_nome: Optional[str] = None
+    quantidade_atual: int
+    quantidade_proposta: int
+    kits_propostos: List[KitProjecaoItem] = []
+    clientes_propostos: List[ClienteProjecaoItem] = []
+    motivo: Optional[str] = None
+    status: str
+    solicitado_por: int
+    solicitado_por_nome: Optional[str] = None
+    solicitado_em: Optional[datetime] = None
+    decidido_por: Optional[int] = None
+    decidido_por_nome: Optional[str] = None
+    decidido_em: Optional[datetime] = None
+    motivo_rejeicao: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class SolicitacaoReducaoRejeitar(BaseModel):
+    motivo_rejeicao: Optional[str] = None
 

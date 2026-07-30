@@ -21,7 +21,7 @@
 - [Corte 2 baseline = dist snapshot](corte2-dist-snapshot-baseline.md) — "Projeção Ajuste volta com 0": evento em Corte 2 sem projecao_corte_dist_snapshot usa baseline AO VIVO (move a cada save, absorve o ajuste). corte1-distribuicao se auto-cura capturando a foto.
 - [Corte 2 toggle deadlock](corte2-toggle-deadlock.md) — validação de save nunca pode exigir estado que a UI bloqueia; form reconcilia com baseline C1 assíncrona e lock de toggle só congela o LIGADO.
 - [Camiseta avulsa teto](camiseta-avulsa-teto.md) — pós-Corte 1, "Camiseta avulsa" é TETO (valor congelado = máximo, usuário só diminui), não piso; UI deve gatear max por teto>0.
-- [Digest pendências e-mail](projecao-notif-email.md) — guard diário só marca dia em sucesso (mesmo parcial) ou nada-a-enviar; falha TOTAL re-tenta c/ cooldown. SendGrid via connector proxy.
+- [Digest pendências e-mail](projecao-notif-email.md) — guard diário só marca dia em sucesso (mesmo parcial) ou nada-a-enviar; falha TOTAL re-tenta c/ cooldown. Microsoft Graph, não SendGrid.
 - [Projeção Convicta canônica](projecao-convicta-reconciliation.md) — valor_corte_1 é a fonte; foto por área pode derivar; self-heal usa only_missing e consolidado reconcilia a soma ao total no read.
 - [ISC "Site" channel + V8 net-revenue](isc-site-channel.md) — ISC conta só Site (exclui Cortesia+Grupos) em todas as 8 funcs Ativo/Magento; receita V8 rateia desconto de carrinho e o agg DEVE ser time-windowed senão today_grouped (12s) estoura.
 - [Bundle count cross-event contamination](bundle-count-cross-event.md) — count_query sem filtro id_evento soma pedidos de edições anteriores na janela 15 meses; fix: VALUES inline + JOIN catalog_product_entity_varchar attr 321; _persist_batch usa EXCLUDED (não GREATEST) para bundles com mapa.
@@ -54,3 +54,5 @@
 - [External Cortesias integration removed](cortesia-panel-projecao-removal.md) — app externo app-cortesia.vercel.app deletado por completo (tela, rotas, service); não confundir com cortesia_solicitacao (interno, preservado).
 - [Magento query timeout mirroring](magento-query-timeout-mirroring.md) — ao copiar função SQL irmã, diff o literal MAX_EXECUTION_TIME contra a fonte; timeout menor = "0 rows" que parece bug, não é.
 - [On-demand kit breakdown pattern](on-demand-kit-breakdown-pattern.md) — nova dimensão (kit/categoria) ausente no snapshot: endpoint próprio + range explícito curto (<=31d) + cache TTL leve; ano sempre opcional, resolvido via _resolve_evento_ano_efetivo.
+- [Redução no Corte 2 exige aprovação](reducao-corte2-aprovacao.md) — só DIMINUIR quantidade total em corte de ajuste vira chamado; área aprovadora é global; novo chamado mesmo evento/área auto-cancela o anterior; aprovação revalida snapshot (409 se desatualizado).
+- [E2E testing against live backend](e2e-testing-live-backend.md) — scripts dentro de backend/ disparam reload do uvicorn (deadlock falso-positivo); envios de e-mail em teste são reais, não mockados.

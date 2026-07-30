@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { projecaoService, usersService } from '../../services/api';
+import type { AreaAprovadoraReducaoResponse, SolicitacaoReducao } from '../../services/api';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { usePermissions } from '../../context/PermissionContext';
@@ -10,7 +11,7 @@ import {
   Layers, Download, RotateCcw,
   AlertTriangle, Trash, Check, Lock, LockOpen, Clock, Bell, Zap,
   Package, Info, Truck, Mail, MessageSquare,
-  HelpCircle, ArrowLeft, ArrowRight, Sparkles, RefreshCw,
+  HelpCircle, ArrowLeft, ArrowRight, Sparkles, RefreshCw, ShieldCheck,
 } from 'lucide-react';
 
 interface MultiSelectOption {
@@ -152,6 +153,13 @@ interface KitResponse {
   nome_kit: string;
   quantidade: number;
 }
+
+const _STATUS_SOLICITACAO_LABEL_FRONT: Record<string, string> = {
+  pendente: 'Pendente',
+  aprovado: 'Aprovado',
+  rejeitado: 'Rejeitado',
+  cancelado: 'Cancelado (substituído)',
+};
 
 const KITS_PADRAO = ['Kit Básico', 'Inscrição Participação', 'Kit Completo - Sem camiseta', 'Kit Vip', 'Kit Plus', 'Kit Super'];
 const KIT_BIKE = 'Kit Bike';
@@ -814,7 +822,7 @@ const ProjecaoInscritos: React.FC = () => {
   const canEditProjecao = canEdit('projecao_inscritos');
   const canDeleteProjecao = canDelete('projecao_inscritos');
 
-  const [activeTab, setActiveTab] = useState<'projecoes' | 'consolidado' | 'config' | 'lixeira'>('projecoes');
+  const [activeTab, setActiveTab] = useState<'projecoes' | 'consolidado' | 'aprovacoes' | 'config' | 'lixeira'>('projecoes');
   // Ref espelho da aba ativa para guards em callbacks assíncronos (timers/retries)
   // sem closure sobre estado antigo.
   const activeTabRef = useRef(activeTab);
@@ -932,6 +940,29 @@ const ProjecaoInscritos: React.FC = () => {
   const [savingCorte, setSavingCorte] = useState(false);
   const [savingProjecao, setSavingProjecao] = useState(false);
   const [corteActionBusy, setCorteActionBusy] = useState<string | null>(null);
+
+  // ── Aprovação de Redução no Corte de Ajuste (Task #212) ──
+  const [aprovadoraConfig, setAprovadoraConfig] = useState<AreaAprovadoraReducaoResponse>({ area_projecao_id: null });
+  const [aprovadoraDraft, setAprovadoraDraft] = useState<number | ''>('');
+  const [savingAprovadora, setSavingAprovadora] = useState(false);
+  const [minhasSolicitacoesReducao, setMinhasSolicitacoesReducao] = useState<SolicitacaoReducao[]>([]);
+  const [solicitacoesPendentes, setSolicitacoesPendentes] = useState<SolicitacaoReducao[]>([]);
+  const [loadingSolicitacoesReducao, setLoadingSolicitacoesReducao] = useState(false);
+  const [decisaoBusyId, setDecisaoBusyId] = useState<number | null>(null);
+  // Chamado disparado por um 409 "reducao_requer_aprovacao" ao salvar a edição.
+  const [reducaoPending, setReducaoPending] = useState<{
+    projecaoId: number;
+    quantidadeAtual: number;
+    quantidadeProposta: number;
+    clientes: { nome_cliente: string; quantidade: number }[];
+    kits: { nome_kit: string; quantidade: number }[];
+  } | null>(null);
+  const [reducaoMotivo, setReducaoMotivo] = useState('');
+  const [submittingReducao, setSubmittingReducao] = useState(false);
+  const [rejeitandoSolicitacao, setRejeitandoSolicitacao] = useState<SolicitacaoReducao | null>(null);
+  const [motivoRejeicaoDraft, setMotivoRejeicaoDraft] = useState('');
+  // Admin sempre pode decidir (fallback), independente da área aprovadora configurada.
+  const isAprovadorReducao = isAdmin || (aprovadoraConfig.area_projecao_id != null && myAreaIds.has(aprovadoraConfig.area_projecao_id));
 
   const [notifDraft, setNotifDraft] = useState<{ ativo: boolean; hora: string }>({ ativo: false, hora: '8' });
   const [savingNotif, setSavingNotif] = useState(false);
@@ -1152,6 +1183,93 @@ const ProjecaoInscritos: React.FC = () => {
       setAreasDetail(areasData);
     } catch (error) {
       console.error('Erro ao carregar config de áreas:', error);
+    }
+  };
+
+  // ── Aprovação de Redução no Corte de Ajuste (Task #212) ──
+  const loadAprovadoraConfig = async () => {
+    try {
+      const data = await projecaoService.getConfigAprovacaoReducao();
+      setAprovadoraConfig(data);
+      setAprovadoraDraft(data.area_projecao_id ?? '');
+    } catch {
+      // silently ignore — config pode não existir ainda
+    }
+  };
+
+  const saveAprovadoraConfig = async () => {
+    setSavingAprovadora(true);
+    try {
+      const updated = await projecaoService.updateConfigAprovacaoReducao(aprovadoraDraft === '' ? null : Number(aprovadoraDraft));
+      setAprovadoraConfig(updated);
+      setAprovadoraDraft(updated.area_projecao_id ?? '');
+      showToast('Área aprovadora de redução atualizada', 'success');
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail || 'Erro ao salvar área aprovadora');
+    } finally {
+      setSavingAprovadora(false);
+    }
+  };
+
+  const loadMinhasSolicitacoesReducao = async () => {
+    try {
+      const data = await projecaoService.getMinhasSolicitacoesReducao();
+      setMinhasSolicitacoesReducao(data);
+    } catch (error) {
+      console.error('Erro ao carregar minhas solicitações de redução:', error);
+    }
+  };
+
+  const loadSolicitacoesPendentes = async () => {
+    try {
+      const data = await projecaoService.getSolicitacoesReducaoPendentes();
+      setSolicitacoesPendentes(data);
+    } catch (error) {
+      console.error('Erro ao carregar solicitações de redução pendentes:', error);
+    }
+  };
+
+  const loadSolicitacoesReducao = async (podeAprovar: boolean) => {
+    setLoadingSolicitacoesReducao(true);
+    try {
+      await Promise.all([
+        loadMinhasSolicitacoesReducao(),
+        podeAprovar ? loadSolicitacoesPendentes() : Promise.resolve(),
+      ]);
+    } finally {
+      setLoadingSolicitacoesReducao(false);
+    }
+  };
+
+  const handleAprovarSolicitacao = async (sol: SolicitacaoReducao) => {
+    if (decisaoBusyId) return;
+    setDecisaoBusyId(sol.id);
+    try {
+      await projecaoService.aprovarSolicitacaoReducao(sol.id);
+      showToast(`Redução aprovada para ${sol.evento_nome || 'evento'} / ${sol.area_projecao_nome || 'área'}`, 'success');
+      projClearCache('proj_projecoes_v1');
+      loadSolicitacoesReducao(true);
+      loadData(true);
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail || 'Erro ao aprovar solicitação');
+    } finally {
+      setDecisaoBusyId(null);
+    }
+  };
+
+  const handleRejeitarSolicitacao = async () => {
+    if (!rejeitandoSolicitacao || decisaoBusyId) return;
+    setDecisaoBusyId(rejeitandoSolicitacao.id);
+    try {
+      await projecaoService.rejeitarSolicitacaoReducao(rejeitandoSolicitacao.id, motivoRejeicaoDraft.trim() || undefined);
+      showToast('Solicitação de redução rejeitada', 'success');
+      setRejeitandoSolicitacao(null);
+      setMotivoRejeicaoDraft('');
+      loadSolicitacoesReducao(true);
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail || 'Erro ao rejeitar solicitação');
+    } finally {
+      setDecisaoBusyId(null);
     }
   };
 
@@ -1595,9 +1713,16 @@ const ProjecaoInscritos: React.FC = () => {
   useEffect(() => {
     if (activeTab === 'consolidado') loadConsolidado();
     else stopConsolidadoPolling(); // saiu da aba: para o polling e invalida respostas em voo
-    if (activeTab === 'config' && isAdmin) { loadAreasDetail(); loadAutoLockConfig(); loadCorteConfig(); loadDiagnosticoPosCorte(); fetchNotifHistory(); loadAlteracaoNotifConfig(); }
+    if (activeTab === 'config' && isAdmin) { loadAreasDetail(); loadAutoLockConfig(); loadCorteConfig(); loadDiagnosticoPosCorte(); fetchNotifHistory(); loadAlteracaoNotifConfig(); loadAprovadoraConfig(); }
     if (activeTab === 'lixeira' && isAdmin) loadLixeira();
+    if (activeTab === 'aprovacoes') loadSolicitacoesReducao(isAprovadorReducao);
   }, [activeTab]);
+
+  // A área aprovadora pode chegar depois do primeiro load da aba (fetch assíncrono
+  // separado); reconsulta pendentes assim que soubermos que o usuário aprova.
+  useEffect(() => {
+    if (activeTab === 'aprovacoes' && isAprovadorReducao) loadSolicitacoesPendentes();
+  }, [activeTab, isAprovadorReducao]);
 
   useEffect(() => {
     if (activeTab === 'projecoes' && selectedEvento) {
@@ -2048,18 +2173,18 @@ const ProjecaoInscritos: React.FC = () => {
         return;
       }
     }
+    const clientes = formTemCliente
+      ? formClientes
+          .filter(c => c.nome_cliente.trim() && parseInt(c.quantidade) > 0)
+          .map(c => ({ nome_cliente: c.nome_cliente.trim(), quantidade: parseInt(c.quantidade) }))
+      : [];
+    const kits = formTemKit
+      ? formKits
+          .filter(k => k.nome_kit.trim() && parseInt(k.quantidade) > 0)
+          .map(k => ({ nome_kit: k.nome_kit.trim(), quantidade: parseInt(k.quantidade) }))
+      : [];
     setSavingProjecao(true);
     try {
-      const clientes = formTemCliente
-        ? formClientes
-            .filter(c => c.nome_cliente.trim() && parseInt(c.quantidade) > 0)
-            .map(c => ({ nome_cliente: c.nome_cliente.trim(), quantidade: parseInt(c.quantidade) }))
-        : [];
-      const kits = formTemKit
-        ? formKits
-            .filter(k => k.nome_kit.trim() && parseInt(k.quantidade) > 0)
-            .map(k => ({ nome_kit: k.nome_kit.trim(), quantidade: parseInt(k.quantidade) }))
-        : [];
       await projecaoService.update(editingProjecao.id, { quantidade: qty, clientes, kits });
       projClearCache('proj_projecoes_v1');
       setEditingProjecao(null);
@@ -2067,9 +2192,43 @@ const ProjecaoInscritos: React.FC = () => {
       showToast('Projeção salva com sucesso', 'success');
       loadData();
     } catch (error: any) {
-      showToast(error.response?.data?.detail || 'Erro ao atualizar projeção');
+      const detail = error.response?.data?.detail;
+      if (error.response?.status === 409 && detail && typeof detail === 'object' && detail.code === 'reducao_requer_aprovacao') {
+        setReducaoMotivo('');
+        setReducaoPending({
+          projecaoId: editingProjecao.id,
+          quantidadeAtual: detail.quantidade_atual,
+          quantidadeProposta: detail.quantidade_proposta,
+          clientes,
+          kits,
+        });
+        return;
+      }
+      showToast(detail || 'Erro ao atualizar projeção');
     } finally {
       setSavingProjecao(false);
+    }
+  };
+
+  const handleEnviarSolicitacaoReducao = async () => {
+    if (!reducaoPending || submittingReducao) return;
+    setSubmittingReducao(true);
+    try {
+      await projecaoService.criarSolicitacaoReducao(reducaoPending.projecaoId, {
+        quantidade: reducaoPending.quantidadeProposta,
+        clientes: reducaoPending.clientes,
+        kits: reducaoPending.kits,
+        motivo_reducao: reducaoMotivo.trim() || null,
+      });
+      setReducaoPending(null);
+      setEditingProjecao(null);
+      resetForm();
+      showToast('Chamado de aprovação enviado. A área responsável foi avisada.', 'success');
+      loadMinhasSolicitacoesReducao();
+    } catch (error: any) {
+      showToast(error.response?.data?.detail || 'Erro ao enviar chamado de aprovação');
+    } finally {
+      setSubmittingReducao(false);
     }
   };
 
@@ -2772,17 +2931,23 @@ const ProjecaoInscritos: React.FC = () => {
         {/* Tabs */}
         <div className="flex gap-2" data-tour="tabs">
           {[
-            { key: 'projecoes' as const, label: 'Projeções', icon: BarChart3 },
-            { key: 'consolidado' as const, label: 'Visão Consolidada', icon: Eye },
+            { key: 'projecoes' as const, label: 'Projeções', icon: BarChart3, badge: 0 },
+            { key: 'consolidado' as const, label: 'Visão Consolidada', icon: Eye, badge: 0 },
+            {
+              key: 'aprovacoes' as const,
+              label: 'Aprovações',
+              icon: ShieldCheck,
+              badge: solicitacoesPendentes.filter(s => s.status === 'pendente').length,
+            },
             ...(isAdmin ? [
-              { key: 'config' as const, label: 'Configurações', icon: Settings },
-              { key: 'lixeira' as const, label: 'Lixeira', icon: Trash },
+              { key: 'config' as const, label: 'Configurações', icon: Settings, badge: 0 },
+              { key: 'lixeira' as const, label: 'Lixeira', icon: Trash, badge: 0 },
             ] : []),
           ].map(tab => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+              className={`relative flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${
                 activeTab === tab.key
                   ? 'bg-gradient-to-r from-violet-600 to-blue-600 text-white shadow-lg shadow-violet-500/30'
                   : isDark ? 'bg-gray-800/50 text-gray-400 hover:text-white hover:bg-gray-700/50' : 'bg-white/70 text-gray-600 hover:text-gray-900 hover:bg-gray-100'
@@ -2790,6 +2955,11 @@ const ProjecaoInscritos: React.FC = () => {
             >
               <tab.icon className="w-4 h-4" />
               {tab.label}
+              {tab.badge > 0 && (
+                <span className={`inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full text-[10px] font-bold ${activeTab === tab.key ? 'bg-white/25 text-white' : 'bg-rose-500 text-white'}`}>
+                  {tab.badge}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -4011,6 +4181,153 @@ const ProjecaoInscritos: React.FC = () => {
           </div>
         )}
 
+        {activeTab === 'aprovacoes' && (
+          <div className="space-y-6">
+            {isAprovadorReducao && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className={`w-5 h-5 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`} />
+                    <div>
+                      <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Pendentes para aprovação</h2>
+                      <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                        Reduções de projeção solicitadas durante o Corte de Ajuste, aguardando sua decisão.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => loadSolicitacoesReducao(true)}
+                    disabled={loadingSolicitacoesReducao}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold border transition-all disabled:opacity-50 ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700/50' : 'border-gray-300 text-gray-700 hover:bg-gray-100'}`}
+                  >
+                    <RotateCcw className={`w-4 h-4 ${loadingSolicitacoesReducao ? 'animate-spin' : ''}`} />
+                    Atualizar
+                  </button>
+                </div>
+
+                {solicitacoesPendentes.length === 0 ? (
+                  <div className={`flex items-center gap-3 px-5 py-4 rounded-2xl border text-sm ${isDark ? 'bg-gray-800/50 border-gray-700/50 text-emerald-400' : 'bg-white border-gray-200 text-emerald-700'}`}>
+                    <Check className="w-5 h-5 flex-shrink-0" />
+                    Nenhum chamado pendente no momento.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {solicitacoesPendentes.map(sol => (
+                      <div key={sol.id} className={cardClass}>
+                        <div className="flex items-start justify-between gap-4 flex-wrap">
+                          <div className="min-w-0 space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className={`text-base font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{sol.evento_nome || `Evento #${sol.evento_id}`}</h3>
+                              <span className={`inline-flex px-2 py-0.5 rounded-lg text-xs font-semibold ${isDark ? 'bg-blue-500/20 text-blue-300' : 'bg-blue-100 text-blue-700'}`}>
+                                {sol.area_projecao_nome || `Área #${sol.area_projecao_id}`}
+                              </span>
+                            </div>
+                            <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                              Quantidade: <span className="line-through opacity-60">{sol.quantidade_atual}</span>
+                              {' → '}
+                              <span className="font-bold text-rose-500">{sol.quantidade_proposta}</span>
+                            </p>
+                            {sol.motivo && (
+                              <p className={`text-xs italic ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>"{sol.motivo}"</p>
+                            )}
+                            <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                              Solicitado por <span className="font-semibold">{sol.solicitado_por_nome || `Usuário #${sol.solicitado_por}`}</span>
+                              {sol.solicitado_em ? ` em ${new Date(sol.solicitado_em).toLocaleString('pt-BR')}` : ''}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              onClick={() => handleAprovarSolicitacao(sol)}
+                              disabled={decisaoBusyId === sol.id}
+                              className="flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-sm font-semibold hover:shadow-lg transition-all disabled:opacity-50"
+                            >
+                              <Check className="w-4 h-4" />
+                              Aprovar
+                            </button>
+                            <button
+                              onClick={() => { setRejeitandoSolicitacao(sol); setMotivoRejeicaoDraft(''); }}
+                              disabled={decisaoBusyId === sol.id}
+                              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold border transition-all disabled:opacity-50 ${isDark ? 'border-red-500/40 text-red-300 hover:bg-red-500/10' : 'border-red-300 text-red-600 hover:bg-red-50'}`}
+                            >
+                              <X className="w-4 h-4" />
+                              Rejeitar
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <History className={`w-5 h-5 ${isDark ? 'text-violet-400' : 'text-violet-600'}`} />
+                <div>
+                  <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Minhas solicitações de redução</h2>
+                  <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Chamados que você abriu ao tentar reduzir uma projeção durante o Corte de Ajuste.
+                  </p>
+                </div>
+              </div>
+
+              {minhasSolicitacoesReducao.length === 0 ? (
+                <div className={`flex items-center gap-3 px-5 py-4 rounded-2xl border text-sm ${isDark ? 'bg-gray-800/50 border-gray-700/50 text-gray-400' : 'bg-white border-gray-200 text-gray-500'}`}>
+                  Você ainda não abriu nenhum chamado de redução.
+                </div>
+              ) : (
+                <div className={`rounded-2xl border overflow-hidden ${isDark ? 'bg-gray-800/50 border-gray-700/50' : 'bg-white border-gray-200'}`}>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className={`text-left text-xs uppercase tracking-wide ${isDark ? 'text-gray-500 border-b border-gray-700' : 'text-gray-400 border-b border-gray-200'}`}>
+                          <th className="px-4 py-2.5">Evento</th>
+                          <th className="px-4 py-2.5">Área</th>
+                          <th className="px-4 py-2.5 text-right">Qtd.</th>
+                          <th className="px-4 py-2.5">Status</th>
+                          <th className="px-4 py-2.5">Quando</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {minhasSolicitacoesReducao.map(sol => {
+                          const statusStyle = sol.status === 'pendente'
+                            ? (isDark ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-100 text-amber-700')
+                            : sol.status === 'aprovado'
+                              ? (isDark ? 'bg-emerald-500/20 text-emerald-300' : 'bg-emerald-100 text-emerald-700')
+                              : sol.status === 'rejeitado'
+                                ? (isDark ? 'bg-red-500/20 text-red-300' : 'bg-red-100 text-red-700')
+                                : (isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500');
+                          return (
+                            <tr key={sol.id} className={`border-b last:border-0 ${isDark ? 'border-gray-800' : 'border-gray-100'}`}>
+                              <td className={`px-4 py-2.5 font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>{sol.evento_nome || `Evento #${sol.evento_id}`}</td>
+                              <td className={`px-4 py-2.5 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{sol.area_projecao_nome || `Área #${sol.area_projecao_id}`}</td>
+                              <td className={`px-4 py-2.5 text-right tabular-nums ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                {sol.quantidade_atual} → {sol.quantidade_proposta}
+                              </td>
+                              <td className="px-4 py-2.5">
+                                <span className={`inline-flex px-2 py-0.5 rounded-lg text-xs font-semibold capitalize ${statusStyle}`}>
+                                  {_STATUS_SOLICITACAO_LABEL_FRONT[sol.status] || sol.status}
+                                </span>
+                                {sol.status === 'rejeitado' && sol.motivo_rejeicao && (
+                                  <p className={`mt-1 text-xs italic ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>"{sol.motivo_rejeicao}"</p>
+                                )}
+                              </td>
+                              <td className={`px-4 py-2.5 text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                                {sol.solicitado_em ? new Date(sol.solicitado_em).toLocaleString('pt-BR') : '—'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {activeTab === 'config' && isAdmin && (
           <div className="space-y-6">
             {/* ── Trava Automática ── */}
@@ -4513,6 +4830,47 @@ const ProjecaoInscritos: React.FC = () => {
                   Nova Área
                 </button>
               </div>
+
+              {/* ── Área aprovadora de redução no Corte de Ajuste ── */}
+              <div className={`rounded-2xl p-4 border ${isDark ? 'bg-gray-800/60 border-emerald-500/30' : 'bg-emerald-50/80 border-emerald-300/60'}`}>
+                <div className="flex items-start gap-2 mb-3">
+                  <ShieldCheck className={`w-5 h-5 flex-shrink-0 mt-0.5 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`} />
+                  <div>
+                    <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Área aprovadora de redução (Corte de Ajuste)</h3>
+                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      Durante o Corte de Ajuste (Corte 2), qualquer edição que DIMINUA o total já salvo vira um chamado de aprovação em vez de aplicar direto. Escolha a área responsável por decidir esses chamados — administradores sempre podem decidir também, mesmo sem estar nesta área.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="flex flex-col gap-1">
+                    <label className={`text-xs font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Área aprovadora</label>
+                    <select
+                      value={aprovadoraDraft}
+                      onChange={e => setAprovadoraDraft(e.target.value ? Number(e.target.value) : '')}
+                      className={selectClass}
+                    >
+                      <option value="">Nenhuma (só admins decidem)</option>
+                      {areas.map(a => (
+                        <option key={a.id} value={a.id}>{a.nome}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    onClick={saveAprovadoraConfig}
+                    disabled={savingAprovadora}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-sm font-semibold hover:shadow-lg transition-all disabled:opacity-50"
+                  >
+                    {savingAprovadora ? 'Salvando…' : 'Salvar'}
+                  </button>
+                </div>
+                {aprovadoraConfig.updated_by_nome && (
+                  <p className={`mt-3 text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                    Última atualização por <span className="font-semibold">{aprovadoraConfig.updated_by_nome}</span>
+                  </p>
+                )}
+              </div>
+
               {areasDetail.map(area => (
                 <div key={area.id} className={cardClass}>
                   <div className="flex items-center justify-between flex-wrap gap-3">
@@ -5982,6 +6340,110 @@ const ProjecaoInscritos: React.FC = () => {
                 className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 text-white font-semibold shadow-lg hover:shadow-xl transition-all"
               >
                 Salvar Atribuições
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Chamado de aprovação de redução (Task #212) */}
+      {reducaoPending && (
+        <div className="fixed inset-0 z-[65] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className={`w-full max-w-md rounded-2xl shadow-2xl ${isDark ? 'bg-gray-800 border border-gray-700' : 'bg-white'}`}>
+            <div className="p-6">
+              <div className="flex items-start gap-4">
+                <div className="p-3 rounded-xl shrink-0 bg-amber-500/15">
+                  <ShieldCheck className="w-6 h-6 text-amber-500" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                    Redução exige aprovação
+                  </h3>
+                  <p className={`mt-2 text-sm leading-relaxed ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                    O evento está no Corte de Ajuste — reduzir o total já salvo não pode ser aplicado direto. Isso vai abrir um chamado para a área responsável aprovar.
+                  </p>
+                  <p className={`mt-3 text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
+                    Quantidade: <span className="line-through opacity-60 font-normal">{reducaoPending.quantidadeAtual}</span>
+                    {' → '}
+                    <span className="text-amber-500">{reducaoPending.quantidadeProposta}</span>
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4">
+                <label className={`block text-xs font-semibold mb-1.5 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Motivo da redução (opcional)</label>
+                <textarea
+                  value={reducaoMotivo}
+                  onChange={e => setReducaoMotivo(e.target.value)}
+                  rows={3}
+                  placeholder="Ex: cliente cancelou parte do lote..."
+                  className={inputClass}
+                />
+              </div>
+            </div>
+            <div className={`flex items-center justify-end gap-3 px-6 py-4 border-t ${isDark ? 'border-gray-700' : 'border-gray-100'}`}>
+              <button
+                onClick={() => setReducaoPending(null)}
+                disabled={submittingReducao}
+                className={`px-4 py-2.5 rounded-xl font-semibold text-sm transition-colors disabled:opacity-50 ${isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+              >
+                Voltar a editar
+              </button>
+              <button
+                onClick={handleEnviarSolicitacaoReducao}
+                disabled={submittingReducao}
+                className="px-5 py-2.5 rounded-xl font-semibold text-sm text-white shadow-lg transition-all hover:scale-105 bg-gradient-to-r from-amber-600 to-orange-500 shadow-amber-500/30 hover:shadow-amber-500/50 disabled:opacity-50 disabled:hover:scale-100"
+              >
+                {submittingReducao ? 'Enviando…' : 'Enviar chamado de aprovação'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rejeitar solicitação de redução (Task #212) */}
+      {rejeitandoSolicitacao && (
+        <div className="fixed inset-0 z-[65] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className={`w-full max-w-md rounded-2xl shadow-2xl ${isDark ? 'bg-gray-800 border border-gray-700' : 'bg-white'}`}>
+            <div className="p-6">
+              <div className="flex items-start gap-4">
+                <div className="p-3 rounded-xl shrink-0 bg-red-500/15">
+                  <X className="w-6 h-6 text-red-500" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                    Rejeitar chamado de redução
+                  </h3>
+                  <p className={`mt-2 text-sm leading-relaxed ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                    {rejeitandoSolicitacao.evento_nome || `Evento #${rejeitandoSolicitacao.evento_id}`} / {rejeitandoSolicitacao.area_projecao_nome || `Área #${rejeitandoSolicitacao.area_projecao_id}`}:
+                    {' '}{rejeitandoSolicitacao.quantidade_atual} → {rejeitandoSolicitacao.quantidade_proposta}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4">
+                <label className={`block text-xs font-semibold mb-1.5 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Motivo da rejeição (opcional)</label>
+                <textarea
+                  value={motivoRejeicaoDraft}
+                  onChange={e => setMotivoRejeicaoDraft(e.target.value)}
+                  rows={3}
+                  placeholder="Ex: quantidade ainda não confirmada com o cliente..."
+                  className={inputClass}
+                />
+              </div>
+            </div>
+            <div className={`flex items-center justify-end gap-3 px-6 py-4 border-t ${isDark ? 'border-gray-700' : 'border-gray-100'}`}>
+              <button
+                onClick={() => setRejeitandoSolicitacao(null)}
+                disabled={decisaoBusyId === rejeitandoSolicitacao.id}
+                className={`px-4 py-2.5 rounded-xl font-semibold text-sm transition-colors disabled:opacity-50 ${isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleRejeitarSolicitacao}
+                disabled={decisaoBusyId === rejeitandoSolicitacao.id}
+                className="px-5 py-2.5 rounded-xl font-semibold text-sm text-white shadow-lg transition-all hover:scale-105 bg-gradient-to-r from-red-600 to-red-500 shadow-red-500/30 hover:shadow-red-500/50 disabled:opacity-50 disabled:hover:scale-100"
+              >
+                {decisaoBusyId === rejeitandoSolicitacao.id ? 'Rejeitando…' : 'Rejeitar chamado'}
               </button>
             </div>
           </div>

@@ -6,8 +6,9 @@ description: Política do guard diário (notif_email_last_sent) e regra de desti
 # Digest de pendências por e-mail (Projeção de Inscritos)
 
 Loop diário em `backend/main.py` (`_projecao_notif_loop`, thread `projecao-notif-loop`) +
-`services/projecao_notif_service.py` + `services/email_service.py` (SendGrid via connector
-proxy do Replit, credenciais buscadas em runtime, nunca logadas/persistidas).
+`services/projecao_notif_service.py` + `services/email_service.py` (Microsoft Graph API —
+client_credentials OAuth2 com MS_TENANT_ID/MS_CLIENT_ID/MS_CLIENT_SECRET/MS_SENDER_EMAIL,
+NÃO SendGrid — credenciais buscadas em runtime, nunca logadas/persistidas).
 
 ## Regra do disparo
 Reaproveita EXATAMENTE a regra do alerta in-app `/projecao/pendencias`:
@@ -31,5 +32,7 @@ total (ninguém recebeu) re-tenta.
 distinção sucesso-parcial vs falha-total. O endpoint de teste `POST /projecao/notif-test`
 usa `force=True` e NÃO toca em `last_sent` (testar não consome o envio do dia).
 
-O loop roda independente de `ENABLE_BACKGROUND_MAGENTO_SYNC` (puro-PG/SendGrid). Hora do
-envio é BRT, configurável (`notif_email_hora`); só envia se `notif_email_ativo`.
+O loop roda independente de `ENABLE_BACKGROUND_MAGENTO_SYNC` (puro-PG + Microsoft Graph).
+Hora do envio é BRT, configurável (`notif_email_hora`); só envia se `notif_email_ativo`.
+O mesmo `email_service.py` (Microsoft Graph) é reaproveitado por outros avisos best-effort
+da Projeção (ex.: aprovação de redução no Corte de Ajuste) — não é exclusivo do digest.

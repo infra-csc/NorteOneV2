@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Date, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Date, ForeignKey, Text, UniqueConstraint, Index, text
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -202,10 +202,16 @@ class ProjecaoCorteConfig(Base):
     # Canal de envio: 'email' | 'teams' | 'ambos'
     notif_canal = Column(String(20), default='email', nullable=False)
     ativo = Column(Boolean, default=False, nullable=False)
+    # Área global responsável por aprovar reduções do total de projeção durante
+    # o Corte de Ajuste (Task #212). None = nenhuma área configurada ainda —
+    # nesse caso só administradores enxergam/agem na fila de chamados
+    # pendentes (rede de segurança contra deadlock).
+    area_aprovadora_reducao_id = Column(Integer, ForeignKey("area_projecao.id", ondelete="SET NULL"), nullable=True)
     updated_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True)
     updated_at = Column(DateTime, default=_now_brasilia, onupdate=_now_brasilia)
 
     editor = relationship("Usuario", foreign_keys=[updated_by])
+    area_aprovadora_reducao = relationship("AreaProjecao", foreign_keys=[area_aprovadora_reducao_id])
 
 
 class ProjecaoCorteSnapshot(Base):
@@ -291,6 +297,55 @@ class ProjecaoCorteDistSnapshot(Base):
 
     __table_args__ = (
         UniqueConstraint("evento_id", "area_projecao_id", name="uq_corte_dist_snapshot_evento_area"),
+    )
+
+
+class ProjecaoReducaoSolicitacao(Base):
+    """Chamado de aprovação para reduzir o total de uma projeção durante o
+    Corte de Ajuste (Corte 2). Task #212: enquanto o evento está nessa fase,
+    uma edição que DIMINUI o total já salvo não é aplicada direto — vira um
+    chamado pendente que a área aprovadora (config global, ver
+    `ProjecaoCorteConfig.area_aprovadora_reducao_id`) precisa decidir. Fora do
+    Corte de Ajuste (ou aumentos/redistribuições que preservam o total), a
+    edição continua indo direto — este fluxo não se aplica.
+
+    Um novo chamado para o mesmo (evento, área) enquanto já existe um pendente
+    substitui o anterior (cancela o velho, cria o novo) — reforçado pelo
+    índice único parcial abaixo, não só pela lógica de aplicação, então uma
+    corrida entre duas requisições concorrentes nunca deixa dois pendentes.
+    """
+    __tablename__ = "projecao_reducao_solicitacao"
+
+    id = Column(Integer, primary_key=True, index=True)
+    projecao_id = Column(Integer, ForeignKey("projecao_inscritos.id", ondelete="CASCADE"), nullable=False, index=True)
+    evento_id = Column(Integer, ForeignKey("cadastro_evento.id", ondelete="CASCADE"), nullable=False, index=True)
+    area_projecao_id = Column(Integer, ForeignKey("area_projecao.id", ondelete="CASCADE"), nullable=False, index=True)
+    quantidade_atual = Column(Integer, nullable=False)
+    quantidade_proposta = Column(Integer, nullable=False)
+    kits_propostos_json = Column(Text, nullable=True)
+    clientes_propostos_json = Column(Text, nullable=True)
+    motivo = Column(Text, nullable=True)
+    # 'pendente' | 'aprovado' | 'rejeitado' | 'cancelado'
+    status = Column(String(20), nullable=False, default="pendente", index=True)
+    solicitado_por = Column(Integer, ForeignKey("dim_usuario.id"), nullable=False, index=True)
+    solicitado_em = Column(DateTime, default=_now_brasilia, nullable=False)
+    decidido_por = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True)
+    decidido_em = Column(DateTime, nullable=True)
+    motivo_rejeicao = Column(Text, nullable=True)
+
+    projecao = relationship("ProjecaoInscritos")
+    evento = relationship("CadastroEvento")
+    area_projecao = relationship("AreaProjecao", foreign_keys=[area_projecao_id])
+    solicitante = relationship("Usuario", foreign_keys=[solicitado_por])
+    decisor = relationship("Usuario", foreign_keys=[decidido_por])
+
+    __table_args__ = (
+        Index(
+            "uq_reducao_pendente_evento_area",
+            "evento_id", "area_projecao_id",
+            unique=True,
+            postgresql_where=text("status = 'pendente'"),
+        ),
     )
 
 

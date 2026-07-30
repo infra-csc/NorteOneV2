@@ -2102,7 +2102,65 @@ export const projecaoService = {
     });
     return response.data;
   },
+  // --- Aprovação de Redução no Corte de Ajuste (Task #212) ---
+  getConfigAprovacaoReducao: async (): Promise<AreaAprovadoraReducaoResponse> => {
+    const response = await api.get('/projecao/config-aprovacao-reducao');
+    return response.data;
+  },
+  updateConfigAprovacaoReducao: async (areaProjecaoId: number | null): Promise<AreaAprovadoraReducaoResponse> => {
+    const response = await api.put('/projecao/config-aprovacao-reducao', { area_projecao_id: areaProjecaoId });
+    return response.data;
+  },
+  criarSolicitacaoReducao: async (projecaoId: number, data: { quantidade: number; clientes?: { nome_cliente: string; quantidade: number }[] | null; kits?: { nome_kit: string; quantidade: number }[] | null; motivo_reducao?: string | null }): Promise<SolicitacaoReducao> => {
+    const response = await api.post(`/projecao/${projecaoId}/reducao-solicitacoes`, data);
+    return response.data;
+  },
+  getMinhasSolicitacoesReducao: async (status?: string): Promise<SolicitacaoReducao[]> => {
+    const response = await api.get('/projecao/reducao-solicitacoes/minhas', { params: status ? { status } : undefined });
+    return response.data;
+  },
+  getSolicitacoesReducaoPendentes: async (): Promise<SolicitacaoReducao[]> => {
+    const response = await api.get('/projecao/reducao-solicitacoes/pendentes');
+    return response.data;
+  },
+  aprovarSolicitacaoReducao: async (id: number): Promise<SolicitacaoReducao> => {
+    const response = await api.post(`/projecao/reducao-solicitacoes/${id}/aprovar`);
+    return response.data;
+  },
+  rejeitarSolicitacaoReducao: async (id: number, motivoRejeicao?: string): Promise<SolicitacaoReducao> => {
+    const response = await api.post(`/projecao/reducao-solicitacoes/${id}/rejeitar`, { motivo_rejeicao: motivoRejeicao ?? null });
+    return response.data;
+  },
 };
+
+export interface AreaAprovadoraReducaoResponse {
+  area_projecao_id: number | null;
+  area_projecao_nome?: string | null;
+  updated_by_nome?: string | null;
+  updated_at?: string | null;
+}
+
+export interface SolicitacaoReducao {
+  id: number;
+  projecao_id: number;
+  evento_id: number;
+  evento_nome: string | null;
+  area_projecao_id: number;
+  area_projecao_nome: string | null;
+  quantidade_atual: number;
+  quantidade_proposta: number;
+  kits_propostos: { nome_kit: string; quantidade: number }[];
+  clientes_propostos: { nome_cliente: string; quantidade: number }[];
+  motivo: string | null;
+  status: 'pendente' | 'aprovado' | 'rejeitado' | 'cancelado';
+  solicitado_por: number;
+  solicitado_por_nome: string | null;
+  solicitado_em: string | null;
+  decidido_por: number | null;
+  decidido_por_nome: string | null;
+  decidido_em: string | null;
+  motivo_rejeicao: string | null;
+}
 
 // ---------------------------------------------------------------------------
 // Detalhamento de Eventos

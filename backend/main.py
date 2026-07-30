@@ -1804,6 +1804,9 @@ def _run_column_migrations():
                  AND ccc.base IS NULL
                  AND a.sigla IS NOT NULL AND TRIM(a.sigla) <> ''
                  AND e.sku   IS NOT NULL AND TRIM(e.sku)   <> ''""",
+            # Task #212: área global responsável por aprovar chamados de
+            # redução de projeção durante o Corte de Ajuste (Corte 2).
+            "ALTER TABLE projecao_corte_config ADD COLUMN IF NOT EXISTS area_aprovadora_reducao_id INTEGER REFERENCES area_projecao(id) ON DELETE SET NULL",
         ]
         migrations.extend(cupom_auto_migrations)
         for sql in migrations:

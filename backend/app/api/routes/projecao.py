@@ -11,6 +11,7 @@ import logging
 import re
 import csv
 import io
+import json
 import threading
 import time as _time
 
@@ -22,7 +23,7 @@ from ...models.projecao import (
     ProjecaoCutoffEventoArea, ProjecaoAutoLockConfig,
     ProjecaoCorteConfig, ProjecaoCorteSnapshot, ProjecaoKitCorteSnapshot,
     ProjecaoCorteDistSnapshot, ProjecaoNotifLog,
-    ProjecaoAlteracaoNotifConfig,
+    ProjecaoAlteracaoNotifConfig, ProjecaoReducaoSolicitacao,
     KIT_CAMISETA_AVULSA_ORIGEM,
 )
 from ...models.cadastro_evento import CadastroEvento
@@ -44,6 +45,8 @@ from ...schemas.projecao import (
     CorteConfigUpdate, CorteConfigResponse, AlertaConfigUpdate,
     NotifConfigUpdate,
     AlteracaoNotifAreaUpsert, AlteracaoNotifAreaResponse,
+    AreaAprovadoraReducaoUpdate, AreaAprovadoraReducaoResponse,
+    SolicitacaoReducaoResponse, SolicitacaoReducaoRejeitar,
 )
 
 logger = logging.getLogger(__name__)
@@ -1295,6 +1298,531 @@ def upsert_cutoff_evento_area(
     )
 
 
+
+# ============================================================
+# APROVAÇÃO DE REDUÇÃO NO CORTE DE AJUSTE — Task #212
+# ============================================================
+#
+# Durante o Corte de Ajuste (Corte 2), reduzir o TOTAL (quantidade) já salvo
+# de uma projeção passa a exigir aprovação de uma área aprovadora global
+# (configurável, ver ProjecaoCorteConfig.area_aprovadora_reducao_id) antes de
+# ser aplicado. Fora dessa fase (ou no Corte 1), edições continuam indo
+# direto. Aumentos e redistribuições que preservam o total também não passam
+# por aqui: só decréscimo do total, só no Corte 2.
+#
+# Fluxo: (1) update_projecao recusa a redução com 409
+# {code: "reducao_requer_aprovacao"}; (2) o frontend chama
+# POST /{id}/reducao-solicitacoes com o mesmo payload + motivo, abrindo (ou
+# substituindo, se já houver uma pendente para o mesmo evento/área) um
+# chamado; (3) a área aprovadora (ou um admin, sempre com acesso de fallback)
+# decide via aprovar/rejeitar — aprovar revalida a fase do corte e a
+# quantidade atual antes de aplicar.
+
+_STATUS_SOLICITACAO_LABEL = {
+    "pendente": "pendente",
+    "aprovado": "aprovado",
+    "rejeitado": "rejeitado",
+    "cancelado": "cancelado",
+}
+
+
+def _em_corte2_ativo(db: Session, evento_id: int, corte_snap: Optional[ProjecaoCorteSnapshot] = None) -> bool:
+    """True quando o Corte 1 do evento está congelado — sinal autoritativo de
+    que o evento está na fase de Corte de Ajuste (Corte 2). Mesma condição
+    usada em get_corte1_distribuicao (fonte única — evita drift entre as
+    duas checagens)."""
+    if corte_snap is None:
+        corte_snap = db.query(ProjecaoCorteSnapshot).filter(
+            ProjecaoCorteSnapshot.evento_id == evento_id
+        ).first()
+    return bool(corte_snap is not None and (
+        corte_snap.valor_corte_1 is not None or corte_snap.congelado_corte_1_em is not None
+    ))
+
+
+def _is_area_aprovadora_member(db: Session, user: Usuario) -> bool:
+    """Admins sempre podem gerenciar chamados (rede de segurança contra
+    deadlock caso a área aprovadora ainda não tenha sido configurada, ou
+    tenha ficado sem nenhum usuário atribuído)."""
+    if is_user_admin(user):
+        return True
+    config = _get_corte_config(db)
+    if not config or not config.area_aprovadora_reducao_id:
+        return False
+    return config.area_aprovadora_reducao_id in _get_user_area_ids(db, user.id)
+
+
+def _require_aprovador(db: Session, user: Usuario):
+    if not _is_area_aprovadora_member(db, user):
+        raise HTTPException(status_code=403, detail="Você não tem permissão para gerenciar chamados de redução de projeção.")
+
+
+def _kits_from_json(raw: Optional[str]) -> Optional[List[KitProjecaoItem]]:
+    if raw is None:
+        return None
+    try:
+        items = json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    return [KitProjecaoItem(nome_kit=i.get("nome_kit", ""), quantidade=int(i.get("quantidade", 0) or 0)) for i in items]
+
+
+def _clientes_from_json(raw: Optional[str]) -> Optional[List[ClienteProjecaoItem]]:
+    if raw is None:
+        return None
+    try:
+        items = json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    return [ClienteProjecaoItem(nome_cliente=i.get("nome_cliente", ""), quantidade=int(i.get("quantidade", 0) or 0)) for i in items]
+
+
+def _solicitacao_to_response(sol: ProjecaoReducaoSolicitacao) -> SolicitacaoReducaoResponse:
+    return SolicitacaoReducaoResponse(
+        id=sol.id,
+        projecao_id=sol.projecao_id,
+        evento_id=sol.evento_id,
+        evento_nome=sol.evento.nome if sol.evento else None,
+        area_projecao_id=sol.area_projecao_id,
+        area_projecao_nome=sol.area_projecao.nome if sol.area_projecao else None,
+        quantidade_atual=sol.quantidade_atual,
+        quantidade_proposta=sol.quantidade_proposta,
+        kits_propostos=_kits_from_json(sol.kits_propostos_json) or [],
+        clientes_propostos=_clientes_from_json(sol.clientes_propostos_json) or [],
+        motivo=sol.motivo,
+        status=sol.status,
+        solicitado_por=sol.solicitado_por,
+        solicitado_por_nome=sol.solicitante.nome if sol.solicitante else None,
+        solicitado_em=sol.solicitado_em,
+        decidido_por=sol.decidido_por,
+        decidido_por_nome=sol.decisor.nome if sol.decisor else None,
+        decidido_em=sol.decidido_em,
+        motivo_rejeicao=sol.motivo_rejeicao,
+    )
+
+
+def _aplicar_mudancas_projecao(
+    db: Session,
+    projecao: ProjecaoInscritos,
+    quantidade: int,
+    clientes: Optional[List[ClienteProjecaoItem]],
+    kits: Optional[List[KitProjecaoItem]],
+    usuario_id: int,
+    trava_ativa: Optional[str],
+) -> None:
+    """Aplica quantidade/clientes/kits numa ProjecaoInscritos já carregada,
+    registrando o histórico por campo. Usado tanto pelo save normal
+    (update_projecao) quanto pela aplicação de um chamado de redução aprovado
+    — mesmo comportamento nos dois casos. Não comita; o caller decide
+    commit/rollback."""
+    old_qtd = projecao.quantidade
+    if quantidade != old_qtd:
+        _record_history(db, projecao.id, "EDICAO", usuario_id,
+                        fora_prazo=bool(trava_ativa), trava=trava_ativa,
+                        campo="quantidade", anterior=str(old_qtd), novo=str(quantidade))
+        projecao.quantidade = quantidade
+        projecao.updated_by = usuario_id
+
+    if clientes is not None:
+        old_clientes = {c.nome_cliente: c.quantidade for c in projecao.clientes}
+        new_clientes = {c.nome_cliente.strip(): c.quantidade for c in clientes}
+
+        old_names = set(old_clientes.keys())
+        new_names = set(new_clientes.keys())
+
+        for nome in old_names - new_names:
+            _record_history(db, projecao.id, "EDICAO", usuario_id,
+                        fora_prazo=bool(trava_ativa), trava=trava_ativa,
+                            campo="Cliente removido",
+                            anterior=f"{nome} ({old_clientes[nome]})", novo=None)
+
+        for nome in new_names - old_names:
+            _record_history(db, projecao.id, "EDICAO", usuario_id,
+                        fora_prazo=bool(trava_ativa), trava=trava_ativa,
+                            campo="Cliente adicionado",
+                            anterior=None, novo=f"{nome} ({new_clientes[nome]})")
+
+        for nome in old_names & new_names:
+            if old_clientes[nome] != new_clientes[nome]:
+                _record_history(db, projecao.id, "EDICAO", usuario_id,
+                        fora_prazo=bool(trava_ativa), trava=trava_ativa,
+                                campo=f"Cliente: {nome}",
+                                anterior=str(old_clientes[nome]), novo=str(new_clientes[nome]))
+
+        db.query(ProjecaoInscritosCliente).filter(
+            ProjecaoInscritosCliente.projecao_id == projecao.id
+        ).delete()
+        for c in clientes:
+            db.add(ProjecaoInscritosCliente(
+                projecao_id=projecao.id,
+                nome_cliente=c.nome_cliente.strip(),
+                quantidade=c.quantidade,
+            ))
+        if not projecao.updated_by:
+            projecao.updated_by = usuario_id
+
+    if kits is not None:
+        old_kits = {k.nome_kit: k.quantidade for k in projecao.kits}
+        new_kits = {k.nome_kit.strip(): k.quantidade for k in kits}
+
+        old_kit_names = set(old_kits.keys())
+        new_kit_names = set(new_kits.keys())
+
+        for nome in old_kit_names - new_kit_names:
+            _record_history(db, projecao.id, "EDICAO", usuario_id,
+                        fora_prazo=bool(trava_ativa), trava=trava_ativa,
+                            campo="Kit removido",
+                            anterior=f"{nome} ({old_kits[nome]})", novo=None)
+
+        for nome in new_kit_names - old_kit_names:
+            _record_history(db, projecao.id, "EDICAO", usuario_id,
+                        fora_prazo=bool(trava_ativa), trava=trava_ativa,
+                            campo="Kit adicionado",
+                            anterior=None, novo=f"{nome} ({new_kits[nome]})")
+
+        for nome in old_kit_names & new_kit_names:
+            if old_kits[nome] != new_kits[nome]:
+                _record_history(db, projecao.id, "EDICAO", usuario_id,
+                        fora_prazo=bool(trava_ativa), trava=trava_ativa,
+                                campo=f"Kit: {nome}",
+                                anterior=str(old_kits[nome]), novo=str(new_kits[nome]))
+
+        db.query(ProjecaoInscritosKit).filter(
+            ProjecaoInscritosKit.projecao_id == projecao.id
+        ).delete()
+        # Agrega por nome — evita duplicatas no payload e violação do índice
+        # único (projecao_id, nome_kit).
+        _kits_agg: dict[str, int] = {}
+        for k in kits:
+            _nome = k.nome_kit.strip()
+            _kits_agg[_nome] = _kits_agg.get(_nome, 0) + k.quantidade
+        for _nome, _qtd in _kits_agg.items():
+            db.add(ProjecaoInscritosKit(
+                projecao_id=projecao.id,
+                nome_kit=_nome,
+                quantidade=_qtd,
+            ))
+        if not projecao.updated_by:
+            projecao.updated_by = usuario_id
+
+
+@router.get("/config-aprovacao-reducao", response_model=AreaAprovadoraReducaoResponse)
+def get_config_aprovacao_reducao(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
+):
+    config = _get_corte_config(db)
+    if config is None or not config.area_aprovadora_reducao_id:
+        return AreaAprovadoraReducaoResponse(area_projecao_id=None)
+    area = db.query(AreaProjecao).filter(AreaProjecao.id == config.area_aprovadora_reducao_id).first()
+    editor = db.query(Usuario).filter(Usuario.id == config.updated_by).first() if config.updated_by else None
+    return AreaAprovadoraReducaoResponse(
+        area_projecao_id=config.area_aprovadora_reducao_id,
+        area_projecao_nome=area.nome if area else None,
+        updated_by_nome=editor.nome if editor else None,
+        updated_at=config.updated_at,
+    )
+
+
+@router.put("/config-aprovacao-reducao", response_model=AreaAprovadoraReducaoResponse)
+def update_config_aprovacao_reducao(
+    data: AreaAprovadoraReducaoUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
+):
+    """Define (ou remove) a área global responsável por aprovar chamados de
+    redução no Corte de Ajuste. Apenas administradores."""
+    if not is_user_admin(current_user):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem definir a área aprovadora de reduções")
+    area = None
+    if data.area_projecao_id is not None:
+        area = db.query(AreaProjecao).filter(
+            AreaProjecao.id == data.area_projecao_id, AreaProjecao.ativo == True
+        ).first()
+        if not area:
+            raise HTTPException(status_code=404, detail="Área não encontrada")
+
+    config = _get_corte_config(db)
+    if config is None:
+        config = ProjecaoCorteConfig(area_aprovadora_reducao_id=data.area_projecao_id, updated_by=current_user.id)
+        db.add(config)
+    else:
+        config.area_aprovadora_reducao_id = data.area_projecao_id
+        config.updated_by = current_user.id
+    db.commit()
+    db.refresh(config)
+    return AreaAprovadoraReducaoResponse(
+        area_projecao_id=config.area_aprovadora_reducao_id,
+        area_projecao_nome=area.nome if area else None,
+        updated_by_nome=current_user.nome,
+        updated_at=config.updated_at,
+    )
+
+
+@router.post("/{projecao_id}/reducao-solicitacoes", response_model=SolicitacaoReducaoResponse)
+def criar_solicitacao_reducao(
+    projecao_id: int,
+    data: ProjecaoInscritosUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
+):
+    """Abre um chamado de aprovação para reduzir o total de uma projeção
+    durante o Corte de Ajuste. Um chamado pendente já existente para o mesmo
+    (evento, área) é cancelado e substituído por este."""
+    projecao = db.query(ProjecaoInscritos).options(
+        joinedload(ProjecaoInscritos.evento),
+        joinedload(ProjecaoInscritos.area_projecao),
+    ).filter(
+        ProjecaoInscritos.id == projecao_id,
+        ProjecaoInscritos.deleted_at.is_(None),
+    ).first()
+    if not projecao:
+        raise HTTPException(status_code=404, detail="Projeção não encontrada")
+    if projecao.locked_at is not None:
+        raise HTTPException(status_code=423, detail="Esta projeção está travada e não pode ser editada")
+
+    _check_area_permission(db, current_user, projecao.area_projecao_id)
+
+    if not _em_corte2_ativo(db, projecao.evento_id):
+        raise HTTPException(status_code=400, detail="Este evento não está no Corte de Ajuste; a edição pode ser salva normalmente.")
+    if data.quantidade is None or data.quantidade <= 0:
+        raise HTTPException(status_code=400, detail="Quantidade deve ser maior que zero.")
+    if data.quantidade >= projecao.quantidade:
+        raise HTTPException(status_code=400, detail="Um chamado de redução só é necessário quando a quantidade total é diminuída.")
+
+    _validate_distribuicao_sums(data.quantidade, data.clientes, data.kits)
+    _validate_camiseta_avulsa_teto(db, projecao.evento_id, projecao.area_projecao_id, data.kits)
+
+    agora = datetime.now(ZoneInfo('America/Sao_Paulo')).replace(tzinfo=None)
+
+    pendente_anterior = db.query(ProjecaoReducaoSolicitacao).filter(
+        ProjecaoReducaoSolicitacao.evento_id == projecao.evento_id,
+        ProjecaoReducaoSolicitacao.area_projecao_id == projecao.area_projecao_id,
+        ProjecaoReducaoSolicitacao.status == "pendente",
+    ).first()
+    if pendente_anterior:
+        pendente_anterior.status = "cancelado"
+        pendente_anterior.decidido_por = current_user.id
+        pendente_anterior.decidido_em = agora
+        pendente_anterior.motivo_rejeicao = "Substituído por um novo chamado de redução para o mesmo evento/área."
+        db.flush()
+
+    nova = ProjecaoReducaoSolicitacao(
+        projecao_id=projecao.id,
+        evento_id=projecao.evento_id,
+        area_projecao_id=projecao.area_projecao_id,
+        quantidade_atual=projecao.quantidade,
+        quantidade_proposta=data.quantidade,
+        kits_propostos_json=(
+            json.dumps([{"nome_kit": k.nome_kit.strip(), "quantidade": k.quantidade} for k in data.kits], ensure_ascii=False)
+            if data.kits is not None else None
+        ),
+        clientes_propostos_json=(
+            json.dumps([{"nome_cliente": c.nome_cliente.strip(), "quantidade": c.quantidade} for c in data.clientes], ensure_ascii=False)
+            if data.clientes is not None else None
+        ),
+        motivo=(data.motivo_reducao or "").strip() or None,
+        status="pendente",
+        solicitado_por=current_user.id,
+        solicitado_em=agora,
+    )
+    db.add(nova)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Já existe um chamado sendo criado para esta área/evento neste momento. Tente novamente.",
+        )
+    db.refresh(nova)
+
+    try:
+        from ...services.projecao_reducao_aprovacao_service import notificar_solicitacao_criada
+        config = _get_corte_config(db)
+        notificar_solicitacao_criada(db, nova, config.area_aprovadora_reducao_id if config else None)
+    except Exception as exc:
+        logger.warning("[ReducaoAprovacao] Falha ao notificar abertura de chamado: %s", exc)
+
+    return _solicitacao_to_response(nova)
+
+
+@router.get("/reducao-solicitacoes/minhas", response_model=List[SolicitacaoReducaoResponse])
+def listar_minhas_solicitacoes_reducao(
+    status_filtro: Optional[str] = Query(None, alias="status"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
+):
+    """Chamados das áreas do usuário (todos, se admin) — para acompanhar o
+    andamento das solicitações de redução abertas pela própria área."""
+    q = db.query(ProjecaoReducaoSolicitacao).options(
+        joinedload(ProjecaoReducaoSolicitacao.evento),
+        joinedload(ProjecaoReducaoSolicitacao.area_projecao),
+        joinedload(ProjecaoReducaoSolicitacao.solicitante),
+        joinedload(ProjecaoReducaoSolicitacao.decisor),
+    )
+    if not is_user_admin(current_user):
+        area_ids = _get_user_area_ids(db, current_user.id)
+        if not area_ids:
+            return []
+        q = q.filter(ProjecaoReducaoSolicitacao.area_projecao_id.in_(area_ids))
+    if status_filtro:
+        q = q.filter(ProjecaoReducaoSolicitacao.status == status_filtro)
+    rows = q.order_by(ProjecaoReducaoSolicitacao.solicitado_em.desc()).limit(300).all()
+    return [_solicitacao_to_response(r) for r in rows]
+
+
+@router.get("/reducao-solicitacoes/pendentes", response_model=List[SolicitacaoReducaoResponse])
+def listar_solicitacoes_reducao_pendentes(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
+):
+    """Fila de aprovação: só para a área aprovadora configurada (ou admin, que
+    sempre tem acesso de fallback)."""
+    _require_aprovador(db, current_user)
+    rows = db.query(ProjecaoReducaoSolicitacao).options(
+        joinedload(ProjecaoReducaoSolicitacao.evento),
+        joinedload(ProjecaoReducaoSolicitacao.area_projecao),
+        joinedload(ProjecaoReducaoSolicitacao.solicitante),
+        joinedload(ProjecaoReducaoSolicitacao.decisor),
+    ).filter(
+        ProjecaoReducaoSolicitacao.status == "pendente"
+    ).order_by(ProjecaoReducaoSolicitacao.solicitado_em.asc()).all()
+    return [_solicitacao_to_response(r) for r in rows]
+
+
+@router.post("/reducao-solicitacoes/{solicitacao_id}/aprovar", response_model=SolicitacaoReducaoResponse)
+def aprovar_solicitacao_reducao(
+    solicitacao_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
+):
+    _require_aprovador(db, current_user)
+    sol = db.query(ProjecaoReducaoSolicitacao).options(
+        joinedload(ProjecaoReducaoSolicitacao.evento),
+        joinedload(ProjecaoReducaoSolicitacao.area_projecao),
+        joinedload(ProjecaoReducaoSolicitacao.solicitante),
+    ).filter(ProjecaoReducaoSolicitacao.id == solicitacao_id).first()
+    if not sol:
+        raise HTTPException(status_code=404, detail="Chamado não encontrado")
+    if sol.status != "pendente":
+        raise HTTPException(status_code=409, detail=f"Este chamado já foi {_STATUS_SOLICITACAO_LABEL.get(sol.status, sol.status)} e não pode mais ser aprovado.")
+
+    agora = datetime.now(ZoneInfo('America/Sao_Paulo')).replace(tzinfo=None)
+
+    if not _em_corte2_ativo(db, sol.evento_id):
+        sol.status = "cancelado"
+        sol.decidido_por = current_user.id
+        sol.decidido_em = agora
+        sol.motivo_rejeicao = "Cancelado automaticamente: o evento não está mais no Corte de Ajuste."
+        db.commit()
+        raise HTTPException(status_code=409, detail="O evento não está mais no Corte de Ajuste. O chamado foi cancelado automaticamente.")
+
+    projecao = db.query(ProjecaoInscritos).options(
+        joinedload(ProjecaoInscritos.evento),
+        joinedload(ProjecaoInscritos.area_projecao),
+        joinedload(ProjecaoInscritos.criador),
+        selectinload(ProjecaoInscritos.clientes),
+        selectinload(ProjecaoInscritos.kits),
+    ).filter(
+        ProjecaoInscritos.id == sol.projecao_id,
+        ProjecaoInscritos.deleted_at.is_(None),
+    ).first()
+    if not projecao:
+        sol.status = "cancelado"
+        sol.decidido_por = current_user.id
+        sol.decidido_em = agora
+        sol.motivo_rejeicao = "Cancelado automaticamente: a projeção original não existe mais."
+        db.commit()
+        raise HTTPException(status_code=409, detail="A projeção original não existe mais. O chamado foi cancelado automaticamente.")
+    if projecao.locked_at is not None:
+        raise HTTPException(status_code=423, detail="Esta projeção está travada e não pode ser editada")
+    if projecao.quantidade != sol.quantidade_atual:
+        raise HTTPException(status_code=409, detail={
+            "code": "solicitacao_desatualizada",
+            "message": f"A projeção mudou de {sol.quantidade_atual} para {projecao.quantidade} desde a abertura deste chamado. Peça para o solicitante enviar um novo chamado.",
+        })
+
+    kits_propostos = _kits_from_json(sol.kits_propostos_json)
+    clientes_propostos = _clientes_from_json(sol.clientes_propostos_json)
+    _validate_distribuicao_sums(sol.quantidade_proposta, clientes_propostos, kits_propostos)
+    _validate_camiseta_avulsa_teto(db, projecao.evento_id, projecao.area_projecao_id, kits_propostos)
+
+    trava_ativa = _detectar_trava_ativa(db, projecao.evento)
+    _aplicar_mudancas_projecao(
+        db, projecao,
+        quantidade=sol.quantidade_proposta,
+        clientes=clientes_propostos,
+        kits=kits_propostos,
+        usuario_id=sol.solicitado_por,
+        trava_ativa=trava_ativa,
+    )
+    if trava_ativa:
+        _marcar_fora_prazo(projecao, trava_ativa, sol.solicitado_por)
+
+    _record_history(
+        db, projecao.id, "EDICAO", current_user.id,
+        campo="Aprovação de redução",
+        anterior=None,
+        novo=f"Chamado #{sol.id} aprovado por {current_user.nome} — reduziu de {sol.quantidade_atual} para {sol.quantidade_proposta} (solicitado por {sol.solicitante.nome if sol.solicitante else '—'})",
+    )
+
+    sol.status = "aprovado"
+    sol.decidido_por = current_user.id
+    sol.decidido_em = agora
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Esta projeção foi salva por outra requisição ao mesmo tempo. Recarregue e tente novamente.")
+    db.refresh(projecao)
+    db.refresh(sol)
+    invalidate_consolidado_cache()
+
+    try:
+        from ...services.projecao_reducao_aprovacao_service import notificar_solicitacao_decidida
+        notificar_solicitacao_decidida(db, sol)
+    except Exception as exc:
+        logger.warning("[ReducaoAprovacao] Falha ao notificar decisão do chamado: %s", exc)
+
+    return _solicitacao_to_response(sol)
+
+
+@router.post("/reducao-solicitacoes/{solicitacao_id}/rejeitar", response_model=SolicitacaoReducaoResponse)
+def rejeitar_solicitacao_reducao(
+    solicitacao_id: int,
+    data: SolicitacaoReducaoRejeitar,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
+):
+    _require_aprovador(db, current_user)
+    sol = db.query(ProjecaoReducaoSolicitacao).options(
+        joinedload(ProjecaoReducaoSolicitacao.evento),
+        joinedload(ProjecaoReducaoSolicitacao.area_projecao),
+        joinedload(ProjecaoReducaoSolicitacao.solicitante),
+    ).filter(ProjecaoReducaoSolicitacao.id == solicitacao_id).first()
+    if not sol:
+        raise HTTPException(status_code=404, detail="Chamado não encontrado")
+    if sol.status != "pendente":
+        raise HTTPException(status_code=409, detail=f"Este chamado já foi {_STATUS_SOLICITACAO_LABEL.get(sol.status, sol.status)}.")
+
+    sol.status = "rejeitado"
+    sol.decidido_por = current_user.id
+    sol.decidido_em = datetime.now(ZoneInfo('America/Sao_Paulo')).replace(tzinfo=None)
+    sol.motivo_rejeicao = (data.motivo_rejeicao or "").strip() or None
+    db.commit()
+    db.refresh(sol)
+
+    try:
+        from ...services.projecao_reducao_aprovacao_service import notificar_solicitacao_decidida
+        notificar_solicitacao_decidida(db, sol)
+    except Exception as exc:
+        logger.warning("[ReducaoAprovacao] Falha ao notificar decisão do chamado: %s", exc)
+
+    return _solicitacao_to_response(sol)
+
+
 @router.put("/{projecao_id}", response_model=ProjecaoInscritosResponse)
 def update_projecao(
     projecao_id: int,
@@ -1335,94 +1863,20 @@ def update_projecao(
     # e para detectar se houve mudança real — marcação de fora do prazo).
     _notif_old_kits = {k.nome_kit: k.quantidade for k in projecao.kits}
     _old_clientes_snapshot = {c.nome_cliente: c.quantidade for c in projecao.clientes}
-    if data.quantidade != old_qtd:
-        _record_history(db, projecao.id, "EDICAO", current_user.id,
-                        fora_prazo=bool(trava_ativa), trava=trava_ativa,
-                        campo="quantidade", anterior=str(old_qtd), novo=str(data.quantidade))
-        projecao.quantidade = data.quantidade
-        projecao.updated_by = current_user.id
 
-    if data.clientes is not None:
-        old_clientes = {c.nome_cliente: c.quantidade for c in projecao.clientes}
-        new_clientes = {c.nome_cliente.strip(): c.quantidade for c in data.clientes}
+    # Task #212: no Corte de Ajuste (Corte 2), reduzir o TOTAL já salvo exige
+    # aprovação de uma área aprovadora — a edição é desviada para um chamado
+    # em vez de aplicada direto. Corte 1 (ou fora de qualquer corte) não é
+    # afetado; aumentos e redistribuições que preservam o total também não.
+    if data.quantidade < old_qtd and _em_corte2_ativo(db, projecao.evento_id):
+        raise HTTPException(status_code=409, detail={
+            "code": "reducao_requer_aprovacao",
+            "message": f"Reduzir de {old_qtd} para {data.quantidade} durante o Corte de Ajuste exige aprovação de uma área responsável. Envie um chamado de redução.",
+            "quantidade_atual": old_qtd,
+            "quantidade_proposta": data.quantidade,
+        })
 
-        old_names = set(old_clientes.keys())
-        new_names = set(new_clientes.keys())
-
-        for nome in old_names - new_names:
-            _record_history(db, projecao.id, "EDICAO", current_user.id,
-                        fora_prazo=bool(trava_ativa), trava=trava_ativa,
-                            campo="Cliente removido",
-                            anterior=f"{nome} ({old_clientes[nome]})", novo=None)
-
-        for nome in new_names - old_names:
-            _record_history(db, projecao.id, "EDICAO", current_user.id,
-                        fora_prazo=bool(trava_ativa), trava=trava_ativa,
-                            campo="Cliente adicionado",
-                            anterior=None, novo=f"{nome} ({new_clientes[nome]})")
-
-        for nome in old_names & new_names:
-            if old_clientes[nome] != new_clientes[nome]:
-                _record_history(db, projecao.id, "EDICAO", current_user.id,
-                        fora_prazo=bool(trava_ativa), trava=trava_ativa,
-                                campo=f"Cliente: {nome}",
-                                anterior=str(old_clientes[nome]), novo=str(new_clientes[nome]))
-
-        db.query(ProjecaoInscritosCliente).filter(
-            ProjecaoInscritosCliente.projecao_id == projecao.id
-        ).delete()
-        for c in data.clientes:
-            db.add(ProjecaoInscritosCliente(
-                projecao_id=projecao.id,
-                nome_cliente=c.nome_cliente.strip(),
-                quantidade=c.quantidade,
-            ))
-        if not projecao.updated_by:
-            projecao.updated_by = current_user.id
-
-    if data.kits is not None:
-        old_kits = {k.nome_kit: k.quantidade for k in projecao.kits}
-        new_kits = {k.nome_kit.strip(): k.quantidade for k in data.kits}
-
-        old_kit_names = set(old_kits.keys())
-        new_kit_names = set(new_kits.keys())
-
-        for nome in old_kit_names - new_kit_names:
-            _record_history(db, projecao.id, "EDICAO", current_user.id,
-                        fora_prazo=bool(trava_ativa), trava=trava_ativa,
-                            campo="Kit removido",
-                            anterior=f"{nome} ({old_kits[nome]})", novo=None)
-
-        for nome in new_kit_names - old_kit_names:
-            _record_history(db, projecao.id, "EDICAO", current_user.id,
-                        fora_prazo=bool(trava_ativa), trava=trava_ativa,
-                            campo="Kit adicionado",
-                            anterior=None, novo=f"{nome} ({new_kits[nome]})")
-
-        for nome in old_kit_names & new_kit_names:
-            if old_kits[nome] != new_kits[nome]:
-                _record_history(db, projecao.id, "EDICAO", current_user.id,
-                        fora_prazo=bool(trava_ativa), trava=trava_ativa,
-                                campo=f"Kit: {nome}",
-                                anterior=str(old_kits[nome]), novo=str(new_kits[nome]))
-
-        db.query(ProjecaoInscritosKit).filter(
-            ProjecaoInscritosKit.projecao_id == projecao.id
-        ).delete()
-        # Agrega por nome — evita duplicatas no payload e violação do índice
-        # único (projecao_id, nome_kit).
-        _kits_agg: dict[str, int] = {}
-        for k in data.kits:
-            _nome = k.nome_kit.strip()
-            _kits_agg[_nome] = _kits_agg.get(_nome, 0) + k.quantidade
-        for _nome, _qtd in _kits_agg.items():
-            db.add(ProjecaoInscritosKit(
-                projecao_id=projecao.id,
-                nome_kit=_nome,
-                quantidade=_qtd,
-            ))
-        if not projecao.updated_by:
-            projecao.updated_by = current_user.id
+    _aplicar_mudancas_projecao(db, projecao, data.quantidade, data.clientes, data.kits, current_user.id, trava_ativa)
 
     # Task #126: marca o resumo de fora do prazo na projeção apenas quando a
     # edição mudou algo de fato (quantidade, clientes ou kits).
