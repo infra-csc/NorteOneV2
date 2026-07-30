@@ -33,3 +33,25 @@ look for the sibling raw-SQL fetch functions the main endpoint already uses (e.g
 `backend/app/api/routes/marketing.py`) and write new sibling functions that add the extra
 GROUP BY dimension — see `magento-query-timeout-mirroring.md` for the pitfall to check
 when doing this.
+
+## Kit-name resolution needs a 3-level fallback chain, not ID-lookup-or-"Outros"
+
+When labeling a Magento bundle by kit type, a bare `KitConfig.bundle_entity_id -> tipo_kit`
+lookup that falls straight to a generic "Outros" bucket on miss is not enough: new bundles
+routinely go on sale in Magento before an admin tags them in KitConfig (confirmed live —
+a bundle selling 48 units in 30 days, more than an already-tagged kit type, had zero
+KitConfig rows). Dumping it into "Outros" hides which real kit is selling and undercounts
+anywhere else that also restricts to KitConfig-tagged bundles only (e.g. `get_margem_por_kit`
+scopes its bundle_ids the same way, so an untagged bundle is invisible there too — silently
+excluded from the total, not shown as a bucket).
+
+**Why:** the admin's manual tag (KitConfig) and "a bundle exists and is selling" (Magento
+reality) are on different update cadences; treat KitConfig as an *enrichment*, not the only
+source of a display name.
+
+**How to apply:** resolve the label as: admin-tagged canonical name (`KitConfig.tipo_kit`)
+→ raw real name (`kit_mapping_snapshot.nome_kit`, keyed by `bundle_entity_id` — already
+populated for every bundle Magento/Ativo sync has ever seen, tagged or not) → generic
+"Outros" only as the final catch-all. Apply the same principle on the Ativo side: an
+unmapped `categoria` string is still a real, human-readable name pulled straight from the
+sales row — use it directly instead of collapsing to "Outros".

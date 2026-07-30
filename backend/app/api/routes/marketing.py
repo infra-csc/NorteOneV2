@@ -7527,6 +7527,28 @@ def get_vendas_diarias_por_kit(
         except Exception as e:
             logger.warning(f"[vendas-diarias-por-kit] KitConfig lookup falhou (ignorado): {e}")
 
+    # Fallback para bundles que vendem mas ainda não foram marcados com um
+    # tipo_kit em KitConfig (mapeamento incompleto). Em vez de escondê-los
+    # sob "Outros", usa o nome real do bundle no Magento (kit_mapping_snapshot,
+    # a mesma fonte que alimenta a tela de Mapeamento de Kits) — assim o
+    # admin vê exatamente qual kit está vendendo e sabe o que falta mapear.
+    bundle_name_map: dict = {}
+    if magento_ids_int:
+        try:
+            from ...models.kit_mapping_snapshot import KitMappingSnapshot
+            snap_rows = db.query(KitMappingSnapshot).filter(
+                KitMappingSnapshot.fonte == 'magento',
+                KitMappingSnapshot.id_evento.in_([str(i) for i in magento_ids_int]),
+            ).all()
+            for s in snap_rows:
+                if not s.bundle_entity_id or not s.nome_kit or not s.nome_kit.strip():
+                    continue
+                bid = int(s.bundle_entity_id)
+                if bid not in bundle_name_map:
+                    bundle_name_map[bid] = s.nome_kit.strip()
+        except Exception as e:
+            logger.warning(f"[vendas-diarias-por-kit] KitMappingSnapshot lookup falhou (ignorado): {e}")
+
     OUTROS = "Outros"
     merged: dict = {}
     kit_types_seen: set = set()
@@ -7542,7 +7564,9 @@ def get_vendas_diarias_por_kit(
         try:
             for r in _fetch_daily_sales_magento_by_ids_kit(magento_ids, _di, _df):
                 bundle_id = r.get('bundle_entity_id')
-                tipo = bundle_tipo_map.get(bundle_id) if bundle_id is not None else None
+                tipo = None
+                if bundle_id is not None:
+                    tipo = bundle_tipo_map.get(bundle_id) or bundle_name_map.get(bundle_id)
                 _add(str(r['dia']), tipo or OUTROS, int(r.get('qtd') or 0))
         except Exception as e:
             logger.warning(f"[vendas-diarias-por-kit] Magento falhou (ignorado, gráfico base não afetado): {e}")
@@ -7551,7 +7575,10 @@ def get_vendas_diarias_por_kit(
         try:
             for r in _fetch_daily_sales_ativo_by_ids_kit(ativo_ids, _di, _df):
                 raw_cat = (r.get('categoria') or '').strip()
-                tipo = ativo_kit_map.get(raw_cat) if raw_cat else None
+                # Mesmo princípio do Magento: categoria sem tipo_kit mapeado
+                # ainda tem um nome real (vindo da própria venda) — usa-o em
+                # vez de escondê-la em "Outros".
+                tipo = (ativo_kit_map.get(raw_cat) or raw_cat) if raw_cat else None
                 _add(str(r['dia']), tipo or OUTROS, int(r.get('qtd') or 0))
         except Exception as e:
             logger.warning(f"[vendas-diarias-por-kit] Ativo falhou (ignorado, gráfico base não afetado): {e}")
