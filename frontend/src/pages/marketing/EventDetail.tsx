@@ -501,6 +501,32 @@ const EventDetail: React.FC = () => {
   const [editingAnaliseId, setEditingAnaliseId] = useState<string | null>(null);
   const [savingAnalise, setSavingAnalise] = useState(false);
   const [analiseError, setAnaliseError] = useState<string | null>(null);
+  // Redimensionamento horizontal do popup de Análise (estilo janela do Windows).
+  // Implementado via drag manual (não via CSS `resize`) porque o handle nativo do
+  // navegador nasce no canto inferior direito do container e ficava sobreposto ao
+  // botão "Salvar Análise" (mesmo canto), interceptando o clique e fazendo o save
+  // "não fazer nada" — o mousedown virava um resize de ~0px em vez de um click.
+  const [analiseModalWidth, setAnaliseModalWidth] = useState<number | null>(null);
+  const analiseResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const handleAnaliseResizeMove = useCallback((e: MouseEvent) => {
+    const st = analiseResizeRef.current;
+    if (!st) return;
+    const next = Math.min(Math.max(st.startWidth + (e.clientX - st.startX), 420), window.innerWidth * 0.95);
+    setAnaliseModalWidth(next);
+  }, []);
+  const handleAnaliseResizeEnd = useCallback(() => {
+    analiseResizeRef.current = null;
+    document.removeEventListener('mousemove', handleAnaliseResizeMove);
+    document.removeEventListener('mouseup', handleAnaliseResizeEnd);
+  }, [handleAnaliseResizeMove]);
+  const handleAnaliseResizeStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const container = e.currentTarget.parentElement as HTMLElement | null;
+    const startWidth = analiseModalWidth ?? container?.getBoundingClientRect().width ?? 896;
+    analiseResizeRef.current = { startX: e.clientX, startWidth };
+    document.addEventListener('mousemove', handleAnaliseResizeMove);
+    document.addEventListener('mouseup', handleAnaliseResizeEnd);
+  }, [analiseModalWidth, handleAnaliseResizeMove, handleAnaliseResizeEnd]);
   const [projetosVinculados, setProjetosVinculados] = useState<{id: number; nome: string; sku: string}[]>(_detailCacheFresh ? _detailCached!.projetosVinculados : []);
   const [comparacaoAnual, setComparacaoAnual] = useState<any>(_detailCacheFresh ? _detailCached!.comparacaoAnual : null);
   const [anosDisponiveis, setAnosDisponiveis] = useState<number[]>(_detailCacheFresh ? _detailCached!.anosDisponiveis : []);
@@ -4439,11 +4465,12 @@ const EventDetail: React.FC = () => {
                         <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300">ISC {analise.snapshot_isc.toFixed(2)}</span>
                       )}
                       {analise.ponto_critico && (
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                          analise.ponto_critico === 'CRITICO'
-                            ? 'bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-300'
-                            : 'bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300'
-                        }`}>{analise.ponto_critico === 'CRITICO' ? 'Crítico' : 'Alto'}</span>
+                        <span
+                          title={analise.ponto_critico}
+                          className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 truncate max-w-[110px]"
+                        >
+                          {analise.ponto_critico}
+                        </span>
                       )}
                       {(() => {
                         const tipos = analise.tipos_acao_sugerida ?? (analise.tipo_acao_sugerida ? [analise.tipo_acao_sugerida] : []);
@@ -5898,7 +5925,15 @@ const EventDetail: React.FC = () => {
 
         return (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="relative bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 w-full md:w-[56rem] max-w-[95vw] min-w-[320px] max-h-[90vh] md:resize-x overflow-y-auto">
+            <div
+              className="relative bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 w-full md:w-[56rem] max-w-[95vw] min-w-[320px] max-h-[90vh] overflow-y-auto"
+              style={analiseModalWidth ? { width: `${analiseModalWidth}px`, maxWidth: '95vw' } : undefined}
+            >
+              <div
+                onMouseDown={handleAnaliseResizeStart}
+                title="Arraste para redimensionar"
+                className="hidden md:block absolute top-0 right-0 bottom-0 w-2 cursor-ew-resize hover:bg-blue-400/30 active:bg-blue-500/40 rounded-r-2xl z-30"
+              />
               <div className="flex items-center justify-between p-5 pb-0 sticky top-0 bg-white dark:bg-gray-800 z-10">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                   {viewOnlyAnalise ? 'Visualizar Análise' : editingAnaliseId ? 'Editar Análise' : 'Registrar Análise'}
@@ -6000,35 +6035,14 @@ const EventDetail: React.FC = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Ponto Crítico/Alto</label>
-                  <div className="flex gap-2">
-                    {[
-                      { value: '', label: 'Nenhum' },
-                      { value: 'ALTO', label: 'Alto' },
-                      { value: 'CRITICO', label: 'Crítico' },
-                    ].map(opt => {
-                      const active = (analiseForm.ponto_critico || '') === opt.value;
-                      const activeClasses = opt.value === 'CRITICO'
-                        ? 'bg-red-600 border-red-600 text-white'
-                        : opt.value === 'ALTO'
-                          ? 'bg-amber-500 border-amber-500 text-white'
-                          : 'bg-gray-600 border-gray-600 text-white';
-                      return (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          disabled={viewOnlyAnalise}
-                          onClick={() => setAnaliseForm({ ...analiseForm, ponto_critico: opt.value })}
-                          className={`flex-1 px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors ${
-                            active
-                              ? activeClasses
-                              : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600'
-                          } ${viewOnlyAnalise ? 'opacity-70 cursor-not-allowed' : ''}`}
-                        >
-                          {opt.label}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <input
+                    type="text"
+                    value={analiseForm.ponto_critico}
+                    onChange={(e) => setAnaliseForm({ ...analiseForm, ponto_critico: e.target.value })}
+                    readOnly={viewOnlyAnalise}
+                    placeholder="Descreva o ponto crítico ou de atenção, se houver..."
+                    className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm ${viewOnlyAnalise ? 'opacity-70 cursor-not-allowed' : ''}`}
+                  />
                 </div>
 
                 <div>

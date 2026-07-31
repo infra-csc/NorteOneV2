@@ -1839,6 +1839,11 @@ def _run_column_migrations():
             # para compatibilidade; deixa de restringir aos 7 valores fixos pois agora pode
             # espelhar um código customizado criado pelo usuário.
             "ALTER TABLE analises_diarias DROP CONSTRAINT IF EXISTS check_tipo_acao_sugerida",
+            # "Ponto Crítico/Alto" deixou de ser um toggle fixo (ALTO/CRITICO) e virou
+            # campo de texto livre digitado pelo usuário — remove a constraint de enum
+            # e alarga a coluna (era VARCHAR(10), só cabia os códigos fixos).
+            "ALTER TABLE analises_diarias DROP CONSTRAINT IF EXISTS check_ponto_critico",
+            "ALTER TABLE analises_diarias ALTER COLUMN ponto_critico TYPE VARCHAR(255)",
         ]
         migrations.extend(cupom_auto_migrations)
         for sql in migrations:

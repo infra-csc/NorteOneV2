@@ -112,7 +112,7 @@ class AnaliseDiaria(Base):
     ponto_corte = Column(String(10))
     estagio = Column(String(20))
     analise_texto = Column(Text, nullable=False)
-    ponto_critico = Column(String(10))
+    ponto_critico = Column(String(255))
     tipo_acao_sugerida = Column(String(50), nullable=False)
     tipos_acao_sugerida = Column(JSON)
     acao_sugerida_descricao = Column(Text)
@@ -138,10 +138,8 @@ class AnaliseDiaria(Base):
         # check_tipo_acao_sugerida (valores fixos) foi removido: tipo_acao_sugerida agora é
         # apenas um espelho do primeiro item de tipos_acao_sugerida (que aceita códigos
         # customizados criados pelo usuário via tipo_acao_catalogo, não só os 7 fixos).
-        CheckConstraint(
-            "ponto_critico IS NULL OR ponto_critico IN ('CRITICO', 'ALTO')",
-            name="check_ponto_critico"
-        ),
+        # check_ponto_critico (ALTO/CRITICO fixos) foi removido: ponto_critico agora é
+        # texto livre (campo "Ponto Crítico/Alto" digitado pelo usuário).
         CheckConstraint(
             "retorno_estimado_tipo IS NULL OR retorno_estimado_tipo IN ('VOLUME', 'TICKET')",
             name="check_retorno_estimado_tipo"
