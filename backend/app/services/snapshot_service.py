@@ -2625,11 +2625,68 @@ def sincronizar_margem_bundle_rev_batch(db: Session, only_bundle_ids: Optional[l
     # em successful_batch_bids e portanto não são zerados.
     empty_bids = successful_batch_bids - set(rev_by_bid.keys()) - set(qtd_by_bid.keys())
     if empty_bids:
+        # -----------------------------------------------------------------------
+        # Guarda de janela estrutural — bundles legacy sem id_evento mapeado.
+        #
+        # Bundles COM id_evento (bid_to_evento_id): a query de COUNT usa JOIN
+        # via catalog_product_entity_varchar (sem filtro de data), portanto
+        # zero linhas significa genuinamente nenhum pedido para aquele evento.
+        # O persist-zero é seguro (e receita usa GREATEST de qualquer forma).
+        #
+        # Bundles SEM id_evento ("legacy"): AMBAS as queries (count e receita)
+        # usam DATE_SUB(CURDATE(), INTERVAL 15 MONTH). Se todos os pedidos de
+        # um bundle estão além de 15 meses, as queries retornam 0 linhas —
+        # não porque não há inscrições, mas porque a janela SQL é estruturalmente
+        # cega para esses dados. Persistir zero nesses casos seria gravar um
+        # falso-autoritativo exatamente como o bug do Painel do Evento
+        # (query com MAKEDATE hardcoded que retorna 0 para anos fora da janela).
+        #
+        # Proteção: para bundles legacy em empty_bids, verificamos se há snapshot
+        # existente com valores positivos. Se sim, pular o persist-zero — o dado
+        # existente é a única leitura confiável que resta (a janela de 15 meses
+        # já não enxerga os pedidos originais). GREATEST do upsert também
+        # protegeria, mas ser explícito é mais seguro e auditável.
+        # -----------------------------------------------------------------------
+        legado_empty_bids: set = {b for b in empty_bids if b not in bid_to_evento_id}
+        mapeado_empty_bids: set = empty_bids - legado_empty_bids
+        skipped_janela_legado = 0
+
+        if legado_empty_bids:
+            try:
+                _existing_rows = db.query(
+                    MargemBundleRevSnapshot.bundle_entity_id,
+                    MargemBundleRevSnapshot.receita_liquida,
+                    MargemBundleRevSnapshot.qtd_inscricoes,
+                ).filter(
+                    MargemBundleRevSnapshot.bundle_entity_id.in_(list(legado_empty_bids))
+                ).all()
+                _legado_has_positive = {
+                    int(row[0]) for row in _existing_rows
+                    if float(row[1] or 0) > 0 or int(row[2] or 0) > 0
+                }
+                if _legado_has_positive:
+                    skipped_janela_legado = len(_legado_has_positive)
+                    logger.info(
+                        f"[MargemRevSync] {skipped_janela_legado} bundles legacy pulados do "
+                        f"persist-zero: snapshot positivo existente + query sem id_evento usa "
+                        f"DATE_SUB(15 MONTH) — janela estruturalmente cega para pedidos antigos; "
+                        f"snapshot existente preservado"
+                    )
+                    legado_empty_bids -= _legado_has_positive
+            except Exception as _e_guard:
+                logger.warning(
+                    f"[MargemRevSync] Não foi possível checar snapshots para guarda de janela legacy: "
+                    f"{_e_guard} — prosseguindo sem guarda (GREATEST preserva positivos no upsert)"
+                )
+
+        safe_empty_bids = mapeado_empty_bids | legado_empty_bids
+
         ZERO_CHUNK = 200
-        empty_list = list(empty_bids)
+        empty_list = list(safe_empty_bids)
         logger.info(
-            f"[MargemRevSync] Persistindo zero p/ {len(empty_bids)} bundles sem orders no Magento "
+            f"[MargemRevSync] Persistindo zero p/ {len(safe_empty_bids)} bundles sem orders no Magento "
             f"(GREATEST preserva positivos já gravados; quebra loop de cobertura baixa)"
+            + (f" — {skipped_janela_legado} legacy pulados (guarda janela 15 meses)" if skipped_janela_legado else "")
         )
         for j in range(0, len(empty_list), ZERO_CHUNK):
             chunk = empty_list[j:j + ZERO_CHUNK]
