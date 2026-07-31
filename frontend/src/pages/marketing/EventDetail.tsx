@@ -6035,13 +6035,13 @@ const EventDetail: React.FC = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Ponto Crítico/Alto</label>
-                  <input
-                    type="text"
-                    value={analiseForm.ponto_critico}
+                  <textarea
+                    value={analiseForm.ponto_critico ?? ''}
                     onChange={(e) => setAnaliseForm({ ...analiseForm, ponto_critico: e.target.value })}
-                    readOnly={viewOnlyAnalise}
                     placeholder="Descreva o ponto crítico ou de atenção, se houver..."
-                    className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm ${viewOnlyAnalise ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    rows={3}
+                    readOnly={viewOnlyAnalise}
+                    className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 resize-y min-h-[4.5rem] text-sm ${viewOnlyAnalise ? 'opacity-70 cursor-not-allowed' : ''}`}
                   />
                 </div>
 
