@@ -673,6 +673,26 @@ def trigger_snapshot_consolidation(
     }
 
 
+@router.get("/detalhe-eventos/status")
+def get_detalhe_eventos_batch_status(
+    current_user: Usuario = Depends(require_permission("admin_dados_consolidados")),
+):
+    """Retorna o resultado da última execução de sincronizar_detalhe_eventos_batch.
+
+    Inclui: status, total, ok, falha, pulado, skipped_frozen, skipped_fora_janela,
+    elapsed_seconds, started_at, finished_at. Retorna ``{"nunca_executado": true}``
+    se o processo reiniciou e ainda não houve nenhuma execução.
+
+    Útil para confirmar que o job noturno (ou uma sincronização manual em
+    background) concluiu sem erros — sem precisar abrir os logs do servidor.
+    """
+    from app.services.snapshot_service import get_last_detalhe_eventos_batch_result
+    result = get_last_detalhe_eventos_batch_result()
+    if not result:
+        return {"nunca_executado": True}
+    return result
+
+
 @router.post("/detalhe-eventos/sincronizar")
 def trigger_detalhe_eventos_sync(
     evento_grupo: Optional[str] = None,

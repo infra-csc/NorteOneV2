@@ -3152,8 +3152,17 @@ def congelar_cortes_projecao_batch(db: Session) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Batch noturno: Detalhamento de Eventos
+# Rastreamento em memória do último resultado de sincronizar_detalhe_eventos_batch.
+# Sobrescrito a cada execução (agendada ou manual). Thread-safe via GIL para
+# dict replace atômico. Consultável via GET /api/admin/detalhe-eventos/status.
 # ---------------------------------------------------------------------------
+_last_detalhe_eventos_batch: dict = {}
+
+
+def get_last_detalhe_eventos_batch_result() -> dict:
+    """Retorna cópia do último resultado do batch (dict vazio se nunca rodou)."""
+    return dict(_last_detalhe_eventos_batch)
+
 
 def sincronizar_detalhe_eventos_batch(db: Session) -> dict:
     """Job noturno (~03h BRT): pré-computa payload de Detalhamento para todos
@@ -3163,10 +3172,14 @@ def sincronizar_detalhe_eventos_batch(db: Session) -> dict:
     - Respeita freeze logic: pula eventos cujo data_evento + EVENTO_FREEZE_AFTER_DAYS
       está no passado (mesma regra do sincronizar_margem_bundle_rev_batch).
     - Erros por evento são logados sem parar o batch.
-    - Retorna dict {status, total, ok, falha, pulado, skipped_frozen}.
+    - Retorna dict {status, total, ok, falha, pulado, skipped_frozen,
+      skipped_fora_janela, elapsed_seconds}.
+    - Resultado também gravado em _last_detalhe_eventos_batch (consultável via
+      GET /api/admin/detalhe-eventos/status sem precisar dos logs do servidor).
     """
     import json as _json
-    from datetime import date as _date
+    import time as _time_det
+    from datetime import date as _date, datetime as _datetime, timezone as _tz
     from app.services.detalhe_eventos_service import (
         list_eventos_disponiveis,
         _fetch_ativo,
@@ -3183,6 +3196,8 @@ def sincronizar_detalhe_eventos_batch(db: Session) -> dict:
     from app.models.dimensoes import SkuMapping
     from app.models.cadastro_evento import CadastroEvento
 
+    _t0_det = _time_det.time()
+    _started_at_iso = _datetime.now(_tz.utc).isoformat()
     logger.info("[DetalheEventosBatch] Iniciando sincronização de snapshots de Detalhamento...")
     freeze_days = _freeze_after_days()
     today = _date.today()
@@ -3314,12 +3329,13 @@ def sincronizar_detalhe_eventos_batch(db: Session) -> dict:
             logger.error(f"[DetalheEventosBatch] Erro ao processar '{eg}'/{ano}: {_e}")
             falha += 1
 
+    _elapsed = round(_time_det.time() - _t0_det, 1)
     logger.info(
-        f"[DetalheEventosBatch] Concluído: {total} total, {ok} ok, "
+        f"[DetalheEventosBatch] Concluído em {_elapsed}s: {total} total, {ok} ok, "
         f"{falha} falha, {pulado} pulado, {skipped_frozen} frozen, "
         f"{skipped_fora_janela} fora da janela ao vivo"
     )
-    return {
+    _result = {
         "status": "ok" if falha == 0 else ("parcial" if ok > 0 else "falha"),
         "total": total,
         "ok": ok,
@@ -3327,4 +3343,11 @@ def sincronizar_detalhe_eventos_batch(db: Session) -> dict:
         "pulado": pulado,
         "skipped_frozen": skipped_frozen,
         "skipped_fora_janela": skipped_fora_janela,
+        "elapsed_seconds": _elapsed,
+        "started_at": _started_at_iso,
+        "finished_at": _datetime.now(_tz.utc).isoformat(),
     }
+    # Persiste em memória para consulta posterior sem precisar abrir logs.
+    global _last_detalhe_eventos_batch
+    _last_detalhe_eventos_batch = _result
+    return _result
