@@ -5,6 +5,7 @@ import ConnectionAlert from '../../components/common/ConnectionAlert';
 import FaixasPrecoSiteCard from './FaixasPrecoSiteCard';
 import ProjetosVinculadosCard from './ProjetosVinculadosCard';
 import KitFilterDropdown from './KitFilterDropdown';
+import TipoAcaoMultiSelect, { TipoAcaoOption } from './TipoAcaoMultiSelect';
 import { 
   ArrowLeft, 
   Calendar, 
@@ -184,7 +185,9 @@ interface DailyAnalysis {
   ponto_corte?: string;
   estagio?: string;
   analise_texto: string;
+  ponto_critico?: string | null;
   tipo_acao_sugerida: string;
+  tipos_acao_sugerida?: string[];
   acao_sugerida_descricao?: string | null;
   retorno_estimado_tipo?: string | null;
   retorno_estimado_valor?: number | null;
@@ -217,7 +220,11 @@ const mapAnaliseResponseToDailyAnalysis = (a: any): DailyAnalysis => ({
   ponto_corte: a.ponto_corte,
   estagio: a.estagio,
   analise_texto: a.analise_texto,
+  ponto_critico: a.ponto_critico ?? null,
   tipo_acao_sugerida: a.tipo_acao_sugerida,
+  tipos_acao_sugerida: Array.isArray(a.tipos_acao_sugerida) && a.tipos_acao_sugerida.length > 0
+    ? a.tipos_acao_sugerida
+    : (a.tipo_acao_sugerida ? [a.tipo_acao_sugerida] : []),
   acao_sugerida_descricao: a.acao_sugerida_descricao ?? null,
   retorno_estimado_tipo: a.retorno_estimado_tipo ?? null,
   retorno_estimado_valor: a.retorno_estimado_valor ?? null,
@@ -481,7 +488,8 @@ const EventDetail: React.FC = () => {
 
   const [analiseForm, setAnaliseForm] = useState({
     analise_texto: '',
-    tipo_acao_sugerida: '',
+    ponto_critico: '',
+    tipos_acao_sugerida: [] as string[],
     acao_sugerida_descricao: '',
     retorno_estimado_tipo: '',
     retorno_estimado_valor: '',
@@ -2277,7 +2285,7 @@ const EventDetail: React.FC = () => {
 
   const handleSaveAnalise = async () => {
     if (viewOnlyAnalise) return;
-    if (!id || !analiseForm.analise_texto.trim() || !analiseForm.tipo_acao_sugerida) return;
+    if (!id || !analiseForm.analise_texto.trim() || analiseForm.tipos_acao_sugerida.length === 0) return;
 
     let projetoIdParaAnalise: number | null;
     if (isConsolidated) {
@@ -2323,7 +2331,8 @@ const EventDetail: React.FC = () => {
       if (editingAnaliseId) {
         const result = await marketingService.updateAnaliseDiaria(parseInt(editingAnaliseId), {
           analise_texto: analiseForm.analise_texto,
-          tipo_acao_sugerida: analiseForm.tipo_acao_sugerida,
+          ponto_critico: analiseForm.ponto_critico || null,
+          tipos_acao_sugerida: analiseForm.tipos_acao_sugerida,
           acao_sugerida_descricao: analiseForm.acao_sugerida_descricao,
           retorno_estimado_tipo: analiseForm.retorno_estimado_tipo || null,
           retorno_estimado_valor: retornoValorNum,
@@ -2340,7 +2349,8 @@ const EventDetail: React.FC = () => {
           ponto_corte: cutoffInfo.ponto_corte,
           estagio: cutoffInfo.estagio,
           analise_texto: analiseForm.analise_texto,
-          tipo_acao_sugerida: analiseForm.tipo_acao_sugerida,
+          ponto_critico: analiseForm.ponto_critico || null,
+          tipos_acao_sugerida: analiseForm.tipos_acao_sugerida,
           acao_sugerida_descricao: analiseForm.acao_sugerida_descricao || undefined,
           retorno_estimado_tipo: analiseForm.retorno_estimado_tipo || undefined,
           retorno_estimado_valor: retornoValorNum,
@@ -2358,7 +2368,8 @@ const EventDetail: React.FC = () => {
       setEditingAnaliseId(null);
       setAnaliseForm({
         analise_texto: '',
-        tipo_acao_sugerida: '',
+        ponto_critico: '',
+        tipos_acao_sugerida: [],
         acao_sugerida_descricao: '',
         retorno_estimado_tipo: '',
         retorno_estimado_valor: '',
@@ -2391,6 +2402,23 @@ const EventDetail: React.FC = () => {
     }
   };
 
+  const [tipoAcaoCatalogo, setTipoAcaoCatalogo] = useState<TipoAcaoOption[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    marketingService.getTiposAcaoCatalogo()
+      .then(res => { if (!cancelled) setTipoAcaoCatalogo(res.tipos || []); })
+      .catch(err => console.error('Erro ao carregar catálogo de tipos de ação:', err));
+    return () => { cancelled = true; };
+  }, []);
+  const handleCreateTipoAcao = async (nome: string): Promise<TipoAcaoOption> => {
+    const res = await marketingService.createTipoAcaoCatalogo(nome);
+    setTipoAcaoCatalogo(prev => prev.some(t => t.codigo === res.tipo.codigo) ? prev : [...prev, res.tipo]);
+    return res.tipo;
+  };
+  const tipoLabelMap: Record<string, string> = Object.fromEntries(tipoAcaoCatalogo.map(t => [t.codigo, t.nome]));
+
+  // Usado apenas pelo select de "Tipo de Ação" do modal de Ação Comercial (feature
+  // separada de Análise Diária, fora do escopo do catálogo dinâmico acima).
   const tipoOptions = [
     { value: '', label: '' },
     { value: 'AUMENTO_PRECO', label: 'Aumento de Preço' },
@@ -2401,15 +2429,6 @@ const EventDetail: React.FC = () => {
     { value: 'NENHUMA_ACAO', label: 'Nenhuma Ação Tomada' },
     { value: 'OUTROS', label: 'Outros' },
   ];
-  const tipoLabelMap: Record<string, string> = {
-    AUMENTO_PRECO: 'Aumento de Preço',
-    REDUCAO_PRECO: 'Redução de Preço',
-    PROMOCAO: 'Promoção/Desconto',
-    CAMPANHA: 'Campanha de Marketing',
-    COMUNICACAO: 'Comunicação/Email',
-    NENHUMA_ACAO: 'Nenhuma Ação Tomada',
-    OUTROS: 'Outros',
-  };
 
   const retornoTipoOptions = [
     { value: '', label: 'Nenhum' },
@@ -2426,7 +2445,8 @@ const EventDetail: React.FC = () => {
       setAnaliseForm(f => ({
         ...f,
         analise_texto: todayAnalise.analise_texto,
-        tipo_acao_sugerida: todayAnalise.tipo_acao_sugerida,
+        ponto_critico: todayAnalise.ponto_critico ?? '',
+        tipos_acao_sugerida: todayAnalise.tipos_acao_sugerida ?? (todayAnalise.tipo_acao_sugerida ? [todayAnalise.tipo_acao_sugerida] : []),
         acao_sugerida_descricao: todayAnalise.acao_sugerida_descricao ?? '',
         retorno_estimado_tipo: todayAnalise.retorno_estimado_tipo ?? '',
         retorno_estimado_valor: todayAnalise.retorno_estimado_valor != null ? String(todayAnalise.retorno_estimado_valor) : '',
@@ -2439,7 +2459,8 @@ const EventDetail: React.FC = () => {
       setViewOnlyAnalise(false);
       setAnaliseForm({
         analise_texto: '',
-        tipo_acao_sugerida: '',
+        ponto_critico: '',
+        tipos_acao_sugerida: [],
         acao_sugerida_descricao: '',
         retorno_estimado_tipo: '',
         retorno_estimado_valor: '',
@@ -3995,10 +4016,10 @@ const EventDetail: React.FC = () => {
             <button
               onClick={() => openAnaliseModal()}
               title={todayAnalise ? 'Análise de Hoje' : 'Registrar Análise'}
-              className={`flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded-lg border transition-colors ${
+              className={`flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded-lg border transition-colors shadow-sm ${
                 todayAnalise
-                  ? 'border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/30 hover:bg-blue-100 dark:hover:bg-blue-900/40'
-                  : 'border-dashed border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                  ? 'border-emerald-600 text-white bg-emerald-600 hover:bg-emerald-700'
+                  : 'border-blue-600 text-white bg-blue-600 hover:bg-blue-700'
               }`}
             >
               <NotebookPen className="w-3 h-3" />
@@ -4390,7 +4411,8 @@ const EventDetail: React.FC = () => {
                       setAnaliseForm(f => ({
                         ...f,
                         analise_texto: analise.analise_texto,
-                        tipo_acao_sugerida: analise.tipo_acao_sugerida,
+                        ponto_critico: analise.ponto_critico ?? '',
+                        tipos_acao_sugerida: analise.tipos_acao_sugerida ?? (analise.tipo_acao_sugerida ? [analise.tipo_acao_sugerida] : []),
                         acao_sugerida_descricao: analise.acao_sugerida_descricao ?? '',
                         retorno_estimado_tipo: analise.retorno_estimado_tipo ?? '',
                         retorno_estimado_valor: analise.retorno_estimado_valor != null ? String(analise.retorno_estimado_valor) : '',
@@ -4416,9 +4438,22 @@ const EventDetail: React.FC = () => {
                       {analise.snapshot_isc != null && (
                         <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300">ISC {analise.snapshot_isc.toFixed(2)}</span>
                       )}
-                      {analise.tipo_acao_sugerida && tipoLabelMap[analise.tipo_acao_sugerida] && (
-                        <span className="text-[10px] text-gray-500 dark:text-gray-400">{tipoLabelMap[analise.tipo_acao_sugerida]}</span>
+                      {analise.ponto_critico && (
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                          analise.ponto_critico === 'CRITICO'
+                            ? 'bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-300'
+                            : 'bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300'
+                        }`}>{analise.ponto_critico === 'CRITICO' ? 'Crítico' : 'Alto'}</span>
                       )}
+                      {(() => {
+                        const tipos = analise.tipos_acao_sugerida ?? (analise.tipo_acao_sugerida ? [analise.tipo_acao_sugerida] : []);
+                        if (tipos.length === 0) return null;
+                        const labels = tipos.map(t => tipoLabelMap[t] || t);
+                        const texto = labels.length > 1 ? `${labels[0]} +${labels.length - 1}` : labels[0];
+                        return (
+                          <span className="text-[10px] text-gray-500 dark:text-gray-400 truncate max-w-[140px]" title={labels.join(', ')}>{texto}</span>
+                        );
+                      })()}
                       {isToday ? (
                         <Pencil className="w-3 h-3 text-gray-300" />
                       ) : (
@@ -5863,7 +5898,7 @@ const EventDetail: React.FC = () => {
 
         return (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="relative bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 w-full max-w-lg md:max-w-3xl max-h-[90vh] overflow-y-auto">
+            <div className="relative bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 w-full md:w-[56rem] max-w-[95vw] min-w-[320px] max-h-[90vh] md:resize-x overflow-y-auto">
               <div className="flex items-center justify-between p-5 pb-0 sticky top-0 bg-white dark:bg-gray-800 z-10">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                   {viewOnlyAnalise ? 'Visualizar Análise' : editingAnaliseId ? 'Editar Análise' : 'Registrar Análise'}
@@ -5964,17 +5999,47 @@ const EventDetail: React.FC = () => {
                 </div>
 
                 <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Ponto Crítico/Alto</label>
+                  <div className="flex gap-2">
+                    {[
+                      { value: '', label: 'Nenhum' },
+                      { value: 'ALTO', label: 'Alto' },
+                      { value: 'CRITICO', label: 'Crítico' },
+                    ].map(opt => {
+                      const active = (analiseForm.ponto_critico || '') === opt.value;
+                      const activeClasses = opt.value === 'CRITICO'
+                        ? 'bg-red-600 border-red-600 text-white'
+                        : opt.value === 'ALTO'
+                          ? 'bg-amber-500 border-amber-500 text-white'
+                          : 'bg-gray-600 border-gray-600 text-white';
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          disabled={viewOnlyAnalise}
+                          onClick={() => setAnaliseForm({ ...analiseForm, ponto_critico: opt.value })}
+                          className={`flex-1 px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors ${
+                            active
+                              ? activeClasses
+                              : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600'
+                          } ${viewOnlyAnalise ? 'opacity-70 cursor-not-allowed' : ''}`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tipo de Ação Sugerida <span className="text-red-500">*</span></label>
-                  <select
-                    value={analiseForm.tipo_acao_sugerida}
-                    onChange={(e) => { setAnaliseForm({ ...analiseForm, tipo_acao_sugerida: e.target.value }); setAnaliseError(null); }}
+                  <TipoAcaoMultiSelect
+                    options={tipoAcaoCatalogo}
+                    selected={analiseForm.tipos_acao_sugerida}
+                    onChange={(next) => { setAnaliseForm({ ...analiseForm, tipos_acao_sugerida: next }); setAnaliseError(null); }}
+                    onCreateNew={handleCreateTipoAcao}
                     disabled={viewOnlyAnalise}
-                    className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm ${viewOnlyAnalise ? 'opacity-70 cursor-not-allowed' : ''}`}
-                  >
-                    {tipoOptions.map(opt => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
+                  />
                 </div>
 
                 <div>
@@ -6038,7 +6103,7 @@ const EventDetail: React.FC = () => {
                     </button>
                     <button
                       onClick={handleSaveAnalise}
-                      disabled={savingAnalise || !analiseForm.analise_texto.trim() || !analiseForm.tipo_acao_sugerida}
+                      disabled={savingAnalise || !analiseForm.analise_texto.trim() || analiseForm.tipos_acao_sugerida.length === 0}
                       className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm font-medium"
                     >
                       {savingAnalise ? (

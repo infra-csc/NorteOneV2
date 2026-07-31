@@ -15359,7 +15359,7 @@ class AnaliseDiariaCreate(BaseModel):
     estagio: Optional[str] = None
     analise_texto: str
     ponto_critico: Optional[str] = None
-    tipo_acao_sugerida: str
+    tipos_acao_sugerida: List[str]
     acao_sugerida_descricao: Optional[str] = None
     retorno_estimado_tipo: Optional[str] = None
     retorno_estimado_valor: Optional[float] = None
@@ -15378,7 +15378,7 @@ class AnaliseDiariaCreate(BaseModel):
 class AnaliseDiariaUpdate(BaseModel):
     analise_texto: Optional[str] = None
     ponto_critico: Optional[str] = None
-    tipo_acao_sugerida: Optional[str] = None
+    tipos_acao_sugerida: Optional[List[str]] = None
     acao_sugerida_descricao: Optional[str] = None
     retorno_estimado_tipo: Optional[str] = None
     retorno_estimado_valor: Optional[float] = None
@@ -15411,6 +15411,7 @@ def _analise_diaria_to_dict(a) -> dict:
         "analise_texto": a.analise_texto,
         "ponto_critico": a.ponto_critico,
         "tipo_acao_sugerida": a.tipo_acao_sugerida,
+        "tipos_acao_sugerida": a.tipos_acao_sugerida if a.tipos_acao_sugerida else ([a.tipo_acao_sugerida] if a.tipo_acao_sugerida else []),
         "acao_sugerida_descricao": a.acao_sugerida_descricao,
         "retorno_estimado_tipo": a.retorno_estimado_tipo,
         "retorno_estimado_valor": float(a.retorno_estimado_valor) if a.retorno_estimado_valor is not None else None,
@@ -15427,6 +15428,103 @@ def _analise_diaria_to_dict(a) -> dict:
         "created_at": _naive_utc_iso(a.created_at),
         "updated_at": _naive_utc_iso(a.updated_at),
     }
+
+
+def _validar_tipos_acao_catalogo(db: Session, codigos: List[str]) -> None:
+    """Garante que todo código em `codigos` existe (e está ativo) no catálogo de tipos
+    de ação. Como tipos_acao_sugerida é JSONB (sem FK por elemento), a integridade é
+    garantida aqui na camada de aplicação."""
+    from ...models.dimensoes import TipoAcaoCatalogo
+
+    encontrados = set(
+        row[0] for row in db.query(TipoAcaoCatalogo.codigo).filter(
+            TipoAcaoCatalogo.codigo.in_(codigos),
+            TipoAcaoCatalogo.ativo.is_(True)
+        ).all()
+    )
+    faltantes = [c for c in codigos if c not in encontrados]
+    if faltantes:
+        raise HTTPException(status_code=422, detail=f"Tipo(s) de ação inválido(s): {', '.join(faltantes)}")
+
+
+def _tipo_acao_catalogo_to_dict(t) -> dict:
+    return {"id": t.id, "codigo": t.codigo, "nome": t.nome, "is_custom": t.is_custom}
+
+
+@router.get("/tipos-acao-catalogo")
+def listar_tipos_acao_catalogo(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("marketing_dashboard", "pode_visualizar"))
+):
+    """Lista o catálogo de tipos de ação sugerida disponíveis (fixos + customizados
+    criados pelos usuários), para popular o multi-select de Análise Diária."""
+    from ...models.dimensoes import TipoAcaoCatalogo
+
+    tipos = db.query(TipoAcaoCatalogo).filter(TipoAcaoCatalogo.ativo.is_(True)).order_by(
+        TipoAcaoCatalogo.is_custom.asc(), TipoAcaoCatalogo.nome.asc()
+    ).all()
+    return {"status": "success", "tipos": [_tipo_acao_catalogo_to_dict(t) for t in tipos]}
+
+
+class TipoAcaoCatalogoCreate(BaseModel):
+    nome: str
+
+
+@router.post("/tipos-acao-catalogo")
+def criar_tipo_acao_catalogo(
+    payload: TipoAcaoCatalogoCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("marketing_dashboard", "pode_editar"))
+):
+    """Cria um novo tipo de ação sugerida customizado, disponível para todos os
+    usuários a partir de então no multi-select de Análise Diária."""
+    import re as _re_tipo
+    import unicodedata as _ud_tipo
+    from ...models.dimensoes import TipoAcaoCatalogo
+
+    nome = (payload.nome or "").strip()
+    if not nome:
+        raise HTTPException(status_code=422, detail="Nome do tipo de ação é obrigatório")
+    if len(nome) > 100:
+        raise HTTPException(status_code=422, detail="Nome do tipo de ação muito longo (máx. 100 caracteres)")
+
+    existente_nome = db.query(TipoAcaoCatalogo).filter(
+        func.lower(TipoAcaoCatalogo.nome) == nome.lower(),
+        TipoAcaoCatalogo.ativo.is_(True)
+    ).first()
+    if existente_nome:
+        return {"status": "success", "tipo": _tipo_acao_catalogo_to_dict(existente_nome)}
+
+    # Deriva um código estável (maiúsculo, sem acento, só [A-Z0-9_]) a partir do nome.
+    sem_acento = _ud_tipo.normalize('NFKD', nome).encode('ascii', 'ignore').decode('ascii')
+    codigo_base = _re_tipo.sub(r'_+', '_', _re_tipo.sub(r'[^A-Za-z0-9]+', '_', sem_acento)).strip('_').upper()
+    if not codigo_base:
+        codigo_base = 'CUSTOM'
+    codigo_base = codigo_base[:50]
+
+    codigo = codigo_base
+    sufixo = 1
+    while db.query(TipoAcaoCatalogo).filter(TipoAcaoCatalogo.codigo == codigo).first():
+        sufixo += 1
+        codigo = f"{codigo_base[:57]}_{sufixo}"
+
+    novo_tipo = TipoAcaoCatalogo(
+        codigo=codigo,
+        nome=nome,
+        is_custom=True,
+        criado_por=current_user.nome,
+    )
+    db.add(novo_tipo)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existente = db.query(TipoAcaoCatalogo).filter(TipoAcaoCatalogo.codigo == codigo).first()
+        if existente:
+            return {"status": "success", "tipo": _tipo_acao_catalogo_to_dict(existente)}
+        raise
+    db.refresh(novo_tipo)
+    return {"status": "success", "tipo": _tipo_acao_catalogo_to_dict(novo_tipo)}
 
 
 @router.get("/analises-diarias/{projeto_id}")
@@ -15465,8 +15563,10 @@ def create_or_update_analise_diaria(
 
     if not analise.analise_texto.strip():
         raise HTTPException(status_code=422, detail="Análise Simplificada é obrigatória")
-    if not analise.tipo_acao_sugerida:
+    tipos_limpos = [t.strip() for t in (analise.tipos_acao_sugerida or []) if t and t.strip()]
+    if not tipos_limpos:
         raise HTTPException(status_code=422, detail="Tipo de Ação Sugerida é obrigatório")
+    _validar_tipos_acao_catalogo(db, tipos_limpos)
 
     existente = db.query(AnaliseDiaria).filter(
         AnaliseDiaria.projeto_id == analise.projeto_id,
@@ -15477,8 +15577,9 @@ def create_or_update_analise_diaria(
         ponto_corte=analise.ponto_corte,
         estagio=analise.estagio,
         analise_texto=analise.analise_texto,
-        ponto_critico=analise.ponto_critico,
-        tipo_acao_sugerida=analise.tipo_acao_sugerida,
+        ponto_critico=(analise.ponto_critico or None),
+        tipo_acao_sugerida=tipos_limpos[0],
+        tipos_acao_sugerida=tipos_limpos,
         acao_sugerida_descricao=analise.acao_sugerida_descricao,
         retorno_estimado_tipo=analise.retorno_estimado_tipo,
         retorno_estimado_valor=analise.retorno_estimado_valor,
@@ -15567,8 +15668,13 @@ def update_analise_diaria(
         if not analise_update.analise_texto.strip():
             raise HTTPException(status_code=422, detail="Análise Simplificada é obrigatória")
         analise.analise_texto = analise_update.analise_texto
-    if analise_update.tipo_acao_sugerida is not None:
-        analise.tipo_acao_sugerida = analise_update.tipo_acao_sugerida
+    if analise_update.tipos_acao_sugerida is not None:
+        tipos_limpos = [t.strip() for t in analise_update.tipos_acao_sugerida if t and t.strip()]
+        if not tipos_limpos:
+            raise HTTPException(status_code=422, detail="Tipo de Ação Sugerida é obrigatório")
+        _validar_tipos_acao_catalogo(db, tipos_limpos)
+        analise.tipos_acao_sugerida = tipos_limpos
+        analise.tipo_acao_sugerida = tipos_limpos[0]
     if analise_update.ponto_critico is not None:
         analise.ponto_critico = analise_update.ponto_critico or None
     if analise_update.acao_sugerida_descricao is not None:

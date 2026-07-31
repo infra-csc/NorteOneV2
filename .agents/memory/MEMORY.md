@@ -58,3 +58,5 @@
 - [E2E testing against live backend](e2e-testing-live-backend.md) — scripts dentro de backend/ disparam reload do uvicorn (deadlock falso-positivo); envios de e-mail em teste são reais, não mockados.
 - [Blob download error body](axios-blob-error-body.md) — erro de request com responseType:'blob' chega como Blob, não JSON; extractError(e.response.data.detail) sempre undefined sem parse no interceptor.
 - [tsc clean ≠ JSX balanced](tsc-clean-jsx-imbalance.md) — "Unterminated regexp literal" do SWC/esbuild com tsc limpo não é cache velho; rode esbuild isolado p/ confirmar e conte profundidade de tags por linha.
+- [Migration transaction cascade](migration-transaction-cascade.md) — `_run_column_migrations` roda tudo numa transação só; 1 statement falho aborta e faz commit final descartar os anteriores. Novo model+tabela junto precisa server_default (não só default=).
+- [Shared local const across unrelated features](shared-select-options-collision.md) — em arquivo grande com múltiplos modais, sempre `grep` todos os usos de uma const local (ex.: options de um `<select>`) antes de removê-la/substituí-la — outra feature no mesmo arquivo pode reusar o mesmo nome.

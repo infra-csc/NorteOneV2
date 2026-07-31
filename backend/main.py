@@ -1807,6 +1807,38 @@ def _run_column_migrations():
             # Task #212: área global responsável por aprovar chamados de
             # redução de projeção durante o Corte de Ajuste (Corte 2).
             "ALTER TABLE projecao_corte_config ADD COLUMN IF NOT EXISTS area_aprovadora_reducao_id INTEGER REFERENCES area_projecao(id) ON DELETE SET NULL",
+            # Catálogo de tipos de ação sugerida (Análise Diária / ISC): permite múltipla
+            # seleção e criação de tipos customizados pelo usuário, além dos 7 fixos.
+            """
+            CREATE TABLE IF NOT EXISTS tipo_acao_catalogo (
+                id SERIAL PRIMARY KEY,
+                codigo VARCHAR(60) UNIQUE NOT NULL,
+                nome VARCHAR(100) NOT NULL,
+                is_custom BOOLEAN NOT NULL DEFAULT FALSE,
+                ativo BOOLEAN NOT NULL DEFAULT TRUE,
+                criado_por VARCHAR(100),
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+            """,
+            """
+            INSERT INTO tipo_acao_catalogo (codigo, nome, is_custom, ativo) VALUES
+                ('AUMENTO_PRECO', 'Aumento de Preço', FALSE, TRUE),
+                ('REDUCAO_PRECO', 'Redução de Preço', FALSE, TRUE),
+                ('PROMOCAO', 'Promoção/Desconto', FALSE, TRUE),
+                ('CAMPANHA', 'Campanha de Marketing', FALSE, TRUE),
+                ('COMUNICACAO', 'Comunicação/Email', FALSE, TRUE),
+                ('NENHUMA_ACAO', 'Nenhuma Ação Tomada', FALSE, TRUE),
+                ('OUTROS', 'Outros', FALSE, TRUE)
+            ON CONFLICT (codigo) DO NOTHING
+            """,
+            "ALTER TABLE analises_diarias ADD COLUMN IF NOT EXISTS tipos_acao_sugerida JSONB",
+            """UPDATE analises_diarias
+               SET tipos_acao_sugerida = jsonb_build_array(tipo_acao_sugerida)
+               WHERE tipos_acao_sugerida IS NULL AND tipo_acao_sugerida IS NOT NULL""",
+            # tipo_acao_sugerida (legado) vira só um espelho do 1º item de tipos_acao_sugerida
+            # para compatibilidade; deixa de restringir aos 7 valores fixos pois agora pode
+            # espelhar um código customizado criado pelo usuário.
+            "ALTER TABLE analises_diarias DROP CONSTRAINT IF EXISTS check_tipo_acao_sugerida",
         ]
         migrations.extend(cupom_auto_migrations)
         for sql in migrations:

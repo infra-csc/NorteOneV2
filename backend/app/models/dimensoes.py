@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, ForeignKey, Numeric, Float, Text, CheckConstraint, UniqueConstraint, JSON
+from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, ForeignKey, Numeric, Float, Text, CheckConstraint, UniqueConstraint, JSON, text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..core.database import Base
@@ -114,6 +114,7 @@ class AnaliseDiaria(Base):
     analise_texto = Column(Text, nullable=False)
     ponto_critico = Column(String(10))
     tipo_acao_sugerida = Column(String(50), nullable=False)
+    tipos_acao_sugerida = Column(JSON)
     acao_sugerida_descricao = Column(Text)
     retorno_estimado_tipo = Column(String(10))
     retorno_estimado_valor = Column(Numeric(12, 2))
@@ -134,10 +135,9 @@ class AnaliseDiaria(Base):
 
     __table_args__ = (
         UniqueConstraint("projeto_id", "data_analise", name="uq_analise_diaria_projeto_data"),
-        CheckConstraint(
-            "tipo_acao_sugerida IN ('AUMENTO_PRECO', 'REDUCAO_PRECO', 'PROMOCAO', 'CAMPANHA', 'COMUNICACAO', 'NENHUMA_ACAO', 'OUTROS')",
-            name="check_tipo_acao_sugerida"
-        ),
+        # check_tipo_acao_sugerida (valores fixos) foi removido: tipo_acao_sugerida agora é
+        # apenas um espelho do primeiro item de tipos_acao_sugerida (que aceita códigos
+        # customizados criados pelo usuário via tipo_acao_catalogo, não só os 7 fixos).
         CheckConstraint(
             "ponto_critico IS NULL OR ponto_critico IN ('CRITICO', 'ALTO')",
             name="check_ponto_critico"
@@ -147,6 +147,21 @@ class AnaliseDiaria(Base):
             name="check_retorno_estimado_tipo"
         ),
     )
+
+
+class TipoAcaoCatalogo(Base):
+    """Catálogo de tipos de ação sugerida para Análises Diárias. Semeado com os 7 tipos
+    fixos originais (is_custom=False); usuários podem adicionar novos tipos pela UI
+    (is_custom=True), que ficam disponíveis para todos a partir de então."""
+    __tablename__ = "tipo_acao_catalogo"
+
+    id = Column(Integer, primary_key=True, index=True)
+    codigo = Column(String(60), unique=True, nullable=False)
+    nome = Column(String(100), nullable=False)
+    is_custom = Column(Boolean, nullable=False, default=False, server_default=text('false'))
+    ativo = Column(Boolean, nullable=False, default=True, server_default=text('true'))
+    criado_por = Column(String(100))
+    created_at = Column(DateTime, default=func.now(), server_default=func.now())
 
 
 class EventoConsolidado(Base):

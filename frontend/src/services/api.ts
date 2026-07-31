@@ -1514,7 +1514,8 @@ export const marketingService = {
     ponto_corte?: string;
     estagio?: string;
     analise_texto: string;
-    tipo_acao_sugerida: string;
+    ponto_critico?: string | null;
+    tipos_acao_sugerida: string[];
     acao_sugerida_descricao?: string;
     retorno_estimado_tipo?: string;
     retorno_estimado_valor?: number;
@@ -1534,7 +1535,8 @@ export const marketingService = {
   },
   updateAnaliseDiaria: async (id: number, data: {
     analise_texto?: string;
-    tipo_acao_sugerida?: string;
+    ponto_critico?: string | null;
+    tipos_acao_sugerida?: string[];
     acao_sugerida_descricao?: string;
     retorno_estimado_tipo?: string | null;
     retorno_estimado_valor?: number;
@@ -1544,6 +1546,14 @@ export const marketingService = {
   },
   deleteAnaliseDiaria: async (id: number): Promise<any> => {
     const response = await api.delete(`/marketing/analises-diarias/${id}`);
+    return response.data;
+  },
+  getTiposAcaoCatalogo: async (): Promise<{ status: string; tipos: { id: number; codigo: string; nome: string; is_custom: boolean }[] }> => {
+    const response = await api.get('/marketing/tipos-acao-catalogo');
+    return response.data;
+  },
+  createTipoAcaoCatalogo: async (nome: string): Promise<{ status: string; tipo: { id: number; codigo: string; nome: string; is_custom: boolean } }> => {
+    const response = await api.post('/marketing/tipos-acao-catalogo', { nome });
     return response.data;
   },
   getCurvaComparativa: async (signal?: AbortSignal): Promise<{
