@@ -363,11 +363,17 @@ def list_eventos_disponiveis(db: Session) -> List[Dict]:
 # Fetch individual por banco (usa bind params via SQLAlchemy text())
 # ---------------------------------------------------------------------------
 
-def _fetch_ativo(ids: Optional[List[int]]) -> Tuple[Optional[List[Dict]], Optional[str]]:
+def _fetch_ativo(
+    ids: Optional[List[int]],
+    ano_historico: Optional[int] = None,
+) -> Tuple[Optional[List[Dict]], Optional[str]]:
     """
     ids=None  → query sem filtro (modo global sem evento_grupo selecionado)
     ids=[]    → evento selecionado mas sem IDs Ativo → retorna vazio, NÃO executa query
     ids=[...] → filtra pelos IDs fornecidos
+
+    ano_historico: quando informado, usa janela de datas fixa para o ano
+      histórico em vez da janela móvel ao vivo. Ver build_ativo_detalhe.
     """
     if isinstance(ids, list) and len(ids) == 0:
         logger.info("[DetalheEventos] Ativo: nenhum ID para este evento_grupo, retornando vazio")
@@ -375,8 +381,8 @@ def _fetch_ativo(ids: Optional[List[int]]) -> Tuple[Optional[List[Dict]], Option
     if db_module.engine_ssh is None:
         return None, "SSH tunnel não configurado"
     try:
-        sql, params = build_ativo_detalhe(ids)
-        logger.info(f"[DetalheEventos] Ativo query ids={ids}")
+        sql, params = build_ativo_detalhe(ids, ano_historico=ano_historico)
+        logger.info(f"[DetalheEventos] Ativo query ids={ids} ano_historico={ano_historico}")
         with db_module.engine_ssh.connect() as conn:
             rows = conn.execute(text(sql), params).fetchall()
         logger.info(f"[DetalheEventos] Ativo: {len(rows)} linhas")
@@ -389,6 +395,7 @@ def _fetch_ativo(ids: Optional[List[int]]) -> Tuple[Optional[List[Dict]], Option
 def _fetch_magento(
     ids: Optional[List[int]],
     profile: str = "request",
+    ano_historico: Optional[int] = None,
 ) -> Tuple[Optional[List[Dict]], Optional[str]]:
     """
     ids=None  → query sem filtro (modo global sem evento_grupo selecionado)
@@ -397,6 +404,9 @@ def _fetch_magento(
 
     profile: "request" (padrão, para clicks de usuário — 2 tentativas, backoff curto)
              "background" (para batch noturno — 3 tentativas, backoff maior)
+
+    ano_historico: quando informado, usa janela de datas fixa para o ano
+      histórico em vez da janela móvel ao vivo. Ver build_magento_detalhe.
     """
     if isinstance(ids, list) and len(ids) == 0:
         logger.info("[DetalheEventos] Magento: nenhum ID para este evento_grupo, retornando vazio")
@@ -405,8 +415,8 @@ def _fetch_magento(
         return None, "Magento não configurado"
     try:
         from app.core.db_retry import magento_run
-        sql, params = build_magento_detalhe(ids)
-        logger.info(f"[DetalheEventos] Magento query ids={ids} profile={profile}")
+        sql, params = build_magento_detalhe(ids, ano_historico=ano_historico)
+        logger.info(f"[DetalheEventos] Magento query ids={ids} profile={profile} ano_historico={ano_historico}")
 
         t0 = time.time()
 
@@ -789,8 +799,16 @@ def _trigger_background_refresh(evento_grupo: str, ano: int) -> None:
     """
     Dispara um refresh ao vivo para evento_grupo/ano em background (thread daemon).
     Não faz nada se já houver um refresh em andamento para a mesma edição.
+    Não dispara para edições fora da janela ao vivo (anos históricos): nesses
+    casos o snapshot é frozen — só um force_refresh explícito do usuário o atualiza.
     Cria sua própria sessão de banco — não bloqueia o request atual.
     """
+    if _ano_fora_da_janela_ao_vivo(ano):
+        logger.debug(
+            f"[DetalheSnap SWR] Refresh background ignorado para '{evento_grupo}'/{ano} "
+            "— ano histórico (fora da janela ao vivo); snapshot é frozen"
+        )
+        return
     cache_key = (evento_grupo, ano)
     with _inflight_lock:
         if cache_key in _inflight:
@@ -984,12 +1002,10 @@ def get_detalhe(
         raise HTTPException(status_code=400, detail="ano é obrigatório quando evento_grupo é informado.")
 
     ano_fora_da_janela = bool(evento_grupo) and _ano_fora_da_janela_ao_vivo(ano)
-    if ano_fora_da_janela and force_refresh:
-        # Um refresh forçado nunca é honrado fora da janela: a query ao vivo
-        # sempre voltaria 0 para esse ano (ver _ano_fora_da_janela_ao_vivo),
-        # então tratamos como leitura normal (cache/snapshot) em vez de
-        # arriscar sobrescrever um snapshot bom com zero.
-        force_refresh = False
+    # force_refresh É honrado para anos históricos — a query histórica usa
+    # janela fixada em 'ano' (não CURDATE()) e retorna dados reais do período.
+    # O único guard automático é _trigger_background_refresh, que ignora anos
+    # históricos (snapshot frozen — só force_refresh explícito do usuário atualiza).
 
     cache_key = (evento_grupo or "__all__", ano)
 
@@ -1045,21 +1061,20 @@ def get_detalhe(
                     )
                     return payload_dict
                 elif _ano_fora_da_janela_ao_vivo(ano):
-                    # Edição fora da janela fixa da query ao vivo (ver
-                    # _ano_fora_da_janela_ao_vivo): o snapshot existente é o
-                    # único dado confiável que este ano jamais terá — uma
-                    # query nova sempre voltaria 0 (a janela SQL não enxerga
-                    # esse ano) e corromperia o snapshot bom se disparada.
-                    # Serve como "fresco" (nunca dispara refresh) mesmo além
-                    # de SNAPSHOT_MAX_AGE_HOURS.
+                    # Snapshot histórico frozen: o job noturno não o recomputa.
+                    # Snapshots de anos passados não mudam de forma significativa;
+                    # o admin pode forçar um recalculo via force_refresh=True, que
+                    # usará a query com janela fixada em 'ano' (ano_historico).
+                    # Auto-refresh em background NUNCA é disparado para anos históricos
+                    # (ver _trigger_background_refresh).
                     payload_dict["snapshot_stale"] = False
                     payload_dict["fora_da_janela_ao_vivo"] = True
                     with _cache_lock:
                         _cache[cache_key] = (time.time(), payload_dict)
                     logger.info(
-                        f"[DetalheSnap] Snapshot fora da janela ao vivo para "
+                        f"[DetalheSnap] Snapshot histórico frozen para "
                         f"'{evento_grupo}'/{ano} ({age_h:.1f}h) — servindo sem "
-                        "acionar refresh (query ao vivo não cobre este ano)"
+                        "acionar refresh automático"
                     )
                     return payload_dict
                 else:
@@ -1076,35 +1091,11 @@ def get_detalhe(
                     _trigger_background_refresh(evento_grupo, ano)
                     return payload_dict
 
-    if ano_fora_da_janela:
-        # Chegou aqui sem cache nem snapshot algum (steps 1-2 não encontraram
-        # nada) para uma edição que a query ao vivo estruturalmente não
-        # cobre. NUNCA executar a query nem persistir o resultado — ela
-        # sempre voltaria 0 independente do volume histórico real, e um
-        # snapshot com 0 seria indistinguível de "sem inscrições" de
-        # verdade. Retorna um payload vazio explícito.
-        logger.warning(
-            f"[DetalheEventos] ano={ano} fora da janela ao vivo "
-            f"({_anos_cobertos_pela_query_ao_vivo()}) para '{evento_grupo}' "
-            "e sem snapshot algum — retornando payload vazio explícito "
-            "(query ao vivo nunca é executada para ano fora da janela)."
-        )
-        return {
-            "evento_grupo": evento_grupo,
-            "ano": ano,
-            "nome_evento": None,
-            "skus": [],
-            "consolidado": [],
-            "por_banco": {"Ativo": [], "Magento": []},
-            "divergencias": [],
-            "erros": {},
-            "totais": {"inscritos": 0, "receita_bruta": 0.0, "receita_liquida": 0.0, "ticket_medio": 0.0, "por_canal": {}},
-            "source": "indisponivel",
-            "snapshot_updated_at": None,
-            "fora_da_janela_ao_vivo": True,
-        }
-
-    # 3. Query ao vivo — single-flight guard.
+    # 3. Query ao vivo (ou histórica) — single-flight guard.
+    # Para anos dentro da janela: query ao vivo usando CURDATE() como âncora.
+    # Para anos fora da janela (históricos): query com janela fixada em 'ano'
+    #   via ano_historico, retornando os dados reais da edição histórica.
+    # Em ambos os casos o resultado é salvo no snapshot PostgreSQL.
     # Quando force_refresh=True e outro request já está executando as queries
     # pesadas para o mesmo evento_grupo, serve o dado em cache/snapshot com
     # refresh_in_progress=True (sem levantar 429), para que o frontend possa
@@ -1198,9 +1189,15 @@ def get_detalhe(
         # Build canonical map BEFORE fetching (lightweight PG query)
         canonical_map = _build_canonical_map(db)
 
+        # Para anos históricos, fixa a janela de datas em 'ano' em vez de
+        # usar CURDATE() (que jamais enxergaria uma edição passada).
+        _ano_hist = ano if ano_fora_da_janela else None
+
         with ThreadPoolExecutor(max_workers=2) as executor:
-            fut_ativo = executor.submit(_fetch_ativo, ativo_ids)
-            fut_magento = executor.submit(_fetch_magento, magento_ids)
+            fut_ativo = executor.submit(_fetch_ativo, ativo_ids, _ano_hist)
+            fut_magento = executor.submit(
+                _fetch_magento, magento_ids, "request", _ano_hist
+            )
 
             rows_ativo, error_ativo = fut_ativo.result()
             rows_magento, error_magento = fut_magento.result()

@@ -66,19 +66,14 @@ const resolveAnoPadrao = (anos: number[]): number | null => {
   return anos.includes(anoCorrente) ? anoCorrente : anos[0];
 };
 
-// Espelha a janela fixa das queries ao vivo no backend (ver
-// _ano_fora_da_janela_ao_vivo em detalhe_eventos_service.py): apenas
-// ano corrente e o seguinte têm cobertura real de dados ao vivo. Edições
-// mais antigas nunca devem ser oferecidas como seleção normal — a query ao
-// vivo sempre voltaria 0 para elas, mesmo que o evento tenha acontecido de
-// verdade. Se a edição só tiver anos fora dessa janela (ex.: série sem
-// edição atual/futura cadastrada), mantém todos como fallback em vez de
-// esconder a seleção por completo.
+// Retorna todos os anos cadastrados para o evento_grupo.
+// Edições passadas agora têm cobertura histórica real via query com janela
+// fixada no ano da edição (ver build_ativo_detalhe/build_magento_detalhe com
+// ano_historico em detalhe_eventos.py). O snapshot é computado na primeira
+// leitura e frozen (não auto-refreshado pelo job noturno).
 const anosComCoberturaAoVivo = (anos: number[]): number[] => {
   if (!anos || anos.length === 0) return [];
-  const anoCorrente = new Date().getFullYear();
-  const filtrados = anos.filter(a => a === anoCorrente || a === anoCorrente + 1);
-  return filtrados.length > 0 ? filtrados : anos;
+  return anos;
 };
 
 const CANAL_COLORS: Record<string, string> = {
@@ -208,8 +203,9 @@ const BancoBadge: React.FC<{ banco: string }> = ({ banco }) => {
 const SnapshotBadge: React.FC<{
   source?: string | null;
   snapshotUpdatedAt?: string | null;
+  foraJanela?: boolean;
   dark: boolean;
-}> = ({ source, snapshotUpdatedAt, dark }) => {
+}> = ({ source, snapshotUpdatedAt, foraJanela, dark }) => {
   if (!source) return null;
 
   if (source === 'snapshot' && snapshotUpdatedAt) {
@@ -217,15 +213,21 @@ const SnapshotBadge: React.FC<{
     const hours = Math.floor(diff / 3600000);
     const mins = Math.floor((diff % 3600000) / 60000);
     const label = hours > 0 ? `há ${hours}h${mins > 0 ? `${mins}m` : ''}` : `há ${mins}m`;
+    const frozenNote = foraJanela ? ' · Histórico (frozen)' : '';
+    const titleText = foraJanela
+      ? `Dados históricos capturados ${label}. Snapshot frozen — o job noturno não o recomputa. Clique em "Atualizar" para forçar um recálculo histórico.`
+      : `Dados do snapshot noturno. Atualizado ${label}. Clique em "Atualizar" para buscar ao vivo.`;
     return (
       <span
-        title={`Dados do snapshot noturno. Atualizado ${label}. Clique em "Atualizar" para buscar ao vivo.`}
+        title={titleText}
         className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold tracking-wide ${
-          dark ? 'bg-blue-500/10 text-blue-400 ring-1 ring-blue-500/20' : 'bg-blue-50 text-blue-700 ring-1 ring-blue-200'
+          foraJanela
+            ? dark ? 'bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20' : 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'
+            : dark ? 'bg-blue-500/10 text-blue-400 ring-1 ring-blue-500/20' : 'bg-blue-50 text-blue-700 ring-1 ring-blue-200'
         }`}
       >
         <Database className="w-3 h-3" />
-        Snapshot · {label}
+        Snapshot · {label}{frozenNote}
       </span>
     );
   }
@@ -233,13 +235,15 @@ const SnapshotBadge: React.FC<{
   if (source === 'live') {
     return (
       <span
-        title="Dados buscados ao vivo de Ativo e Magento agora."
+        title={foraJanela ? 'Dados históricos buscados agora via query com janela fixada no ano da edição.' : 'Dados buscados ao vivo de Ativo e Magento agora.'}
         className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold tracking-wide ${
-          dark ? 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20' : 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
+          foraJanela
+            ? dark ? 'bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20' : 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'
+            : dark ? 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20' : 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
         }`}
       >
         <TrendingUp className="w-3 h-3" />
-        Ao vivo
+        {foraJanela ? 'Histórico' : 'Ao vivo'}
       </span>
     );
   }
@@ -1630,7 +1634,7 @@ const DetalheEventos: React.FC = () => {
                 )}
                 {payload && !loading && (
                   <div className="ml-auto">
-                    <SnapshotBadge source={payload.source} snapshotUpdatedAt={payload.snapshot_updated_at} dark={dark} />
+                    <SnapshotBadge source={payload.source} snapshotUpdatedAt={payload.snapshot_updated_at} foraJanela={payload.fora_da_janela_ao_vivo} dark={dark} />
                   </div>
                 )}
               </motion.div>

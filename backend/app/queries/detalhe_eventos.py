@@ -25,10 +25,18 @@ def _validate_ids(ids: List[int]) -> None:
             raise TypeError(f"ID inválido (esperado int): {v!r}")
 
 
-def build_ativo_detalhe(ids: Optional[List[int]] = None) -> Tuple[str, Dict]:
+def build_ativo_detalhe(
+    ids: Optional[List[int]] = None,
+    ano_historico: Optional[int] = None,
+) -> Tuple[str, Dict]:
     """
     Retorna (sql, params) para query Ativo.
     Quando ids é fornecido, gera cláusula IN parametrizada com bind params nomeados.
+
+    ano_historico: quando informado, a janela de datas é fixada naquele ano
+      (MAKEDATE(ano_historico,1)..MAKEDATE(ano_historico+1,1)-1 dia).
+      Usado para consultas históricas de edições fora da janela ao vivo.
+      Quando None, usa a janela móvel padrão (ano corrente + seguinte).
     """
     params: Dict = {}
     ids_clause = ""
@@ -40,6 +48,18 @@ def build_ativo_detalhe(ids: Optional[List[int]] = None) -> Tuple[str, Dict]:
         for name, val in zip(param_names, ids):
             params[name] = val
         ids_clause = f"    AND b.id_evento IN ({placeholders})\n"
+
+    if ano_historico is not None:
+        params["ano_hist"] = int(ano_historico)
+        date_filter = (
+            "    b.dt_evento BETWEEN MAKEDATE(:ano_hist, 1)\n"
+            "                    AND MAKEDATE(:ano_hist + 1, 1) - INTERVAL 1 DAY"
+        )
+    else:
+        date_filter = (
+            "    b.dt_evento BETWEEN MAKEDATE(YEAR(CURDATE()), 1)\n"
+            "                    AND MAKEDATE(YEAR(CURDATE()) + 2, 1) - INTERVAL 1 DAY"
+        )
 
     sql = f"""
 SELECT /*+ MAX_EXECUTION_TIME(90000) */
@@ -114,8 +134,7 @@ LEFT JOIN (
     ON cupom.id_cupom_desconto_item = a.id_cupom_individual
 
 WHERE
-    b.dt_evento BETWEEN MAKEDATE(YEAR(CURDATE()), 1)
-                    AND MAKEDATE(YEAR(CURDATE()) + 2, 1) - INTERVAL 1 DAY
+{date_filter}
     AND (b.id_campanha_salesforce IS NULL
          OR b.id_campanha_salesforce NOT LIKE '701d0000000%')
 {ids_clause}GROUP BY
@@ -232,7 +251,10 @@ _RECEITA_LIQUIDA_SUM = """SUM(CASE
     END)"""
 
 
-def build_magento_detalhe(ids: Optional[List[int]] = None) -> Tuple[str, Dict]:
+def build_magento_detalhe(
+    ids: Optional[List[int]] = None,
+    ano_historico: Optional[int] = None,
+) -> Tuple[str, Dict]:
     """
     Retorna (sql, params) para query Magento.
 
@@ -242,9 +264,9 @@ def build_magento_detalhe(ids: Optional[List[int]] = None) -> Tuple[str, Dict]:
       - Os subqueries shirt/prod ancoram diretamente no id_evento via
         catalog_product_entity_varchar (evb.value IN ids), eliminando o
         inner_parent_filter com subquery de item_id que era mais custoso.
-      - O join cped (catalog_product_entity_datetime) é removido: ele era
-        necessário apenas para o filtro de ano quando ids=None (modo global).
-        Com ids explícitos, o filtro de evento já garante o escopo correto.
+      - O join cped (catalog_product_entity_datetime) filtra pelo ano da edição:
+        janela móvel (ano corrente + seguinte) no modo ao vivo, ou janela fixa
+        do ano histórico quando ano_historico é informado.
       - Os joins redundantes por order_id nos subqueries shirt/prod são
         PRESERVADOS: destravam o índice SALES_ORDER_ITEM_ORDER_ID e evitam
         full scan da tabela de 5,4M linhas. NÃO remover.
@@ -252,6 +274,10 @@ def build_magento_detalhe(ids: Optional[List[int]] = None) -> Tuple[str, Dict]:
     Quando ids é None (modo global sem filtro, uso legado):
       - Estrutura original preservada com join cped para filtro de ano corrente.
       - STRAIGHT_JOIN não aplicado (cpev1 sem filtro seria muito grande).
+
+    ano_historico: quando informado, substitui a janela móvel de datas por uma
+      janela fixa cobrindo apenas aquele ano. Usado para consultas históricas
+      de edições fora da janela ao vivo.
     """
     params: Dict = {}
 
@@ -274,6 +300,32 @@ def build_magento_detalhe(ids: Optional[List[int]] = None) -> Tuple[str, Dict]:
     shirt_prod_ids_filter = f"      AND evb.value IN ({placeholders})\n"
     # Filtro dos pedidos-alvo do agregado 'agg' (rateio de desconto de carrinho)
     agg_ids_filter = f"          AND v.value IN ({placeholders})\n"
+
+    # Janela de datas do cpev1: móvel (ao vivo) ou fixa (histórico)
+    if ano_historico is not None:
+        params["ano_hist"] = int(ano_historico)
+        cped_date_filter = (
+            "         AND cped.value >= MAKEDATE(:ano_hist, 1)\n"
+            "         AND cped.value <  MAKEDATE(:ano_hist + 1, 1)"
+        )
+        anchor_comment = (
+            "    -- Âncora: bundles dos eventos solicitados, restritos ao ano\n"
+            "    -- histórico informado (edição fora da janela ao vivo).\n"
+            "    -- STRAIGHT_JOIN garante que o MySQL parte daqui e desce por índice."
+        )
+    else:
+        cped_date_filter = (
+            "         AND cped.value >= MAKEDATE(YEAR(CURDATE()), 1)\n"
+            "         AND cped.value <  MAKEDATE(YEAR(CURDATE()) + 2, 1)"
+        )
+        anchor_comment = (
+            "    -- Âncora: bundles dos eventos solicitados, restritos ao ano-competência\n"
+            "    -- corrente + o ano seguinte (eventos com carrinho aberto antecipadamente).\n"
+            "    -- O JOIN em cped (data do evento) filtra IDs cujo evento cai numa dessas\n"
+            "    -- duas janelas, evitando que edições mais antigas com os mesmos IDs\n"
+            "    -- Magento sejam somadas. Janela seguirá deslizando ano a ano.\n"
+            "    -- STRAIGHT_JOIN garante que o MySQL parte daqui e desce por índice."
+        )
 
     sql = f"""
 SELECT /*+ MAX_EXECUTION_TIME(90000) */ STRAIGHT_JOIN
@@ -308,12 +360,7 @@ SELECT /*+ MAX_EXECUTION_TIME(90000) */ STRAIGHT_JOIN
     END), 0)                                                                            AS ticket_medio
 
 FROM (
-    -- Âncora: bundles dos eventos solicitados, restritos ao ano-competência
-    -- corrente + o ano seguinte (eventos com carrinho aberto antecipadamente).
-    -- O JOIN em cped (data do evento) filtra IDs cujo evento cai numa dessas
-    -- duas janelas, evitando que edições mais antigas com os mesmos IDs
-    -- Magento sejam somadas. Janela seguirá deslizando ano a ano.
-    -- STRAIGHT_JOIN garante que o MySQL parte daqui e desce por índice.
+{anchor_comment}
     SELECT cpev.entity_id AS product_id,
            cpev.value     AS id_evento
     FROM catalog_product_entity_varchar cpev
@@ -323,8 +370,7 @@ FROM (
     JOIN catalog_product_entity_datetime cped
           ON cped.entity_id    = cpev.value
          AND cped.attribute_id = 195
-         AND cped.value >= MAKEDATE(YEAR(CURDATE()), 1)
-         AND cped.value <  MAKEDATE(YEAR(CURDATE()) + 2, 1)
+{cped_date_filter}
     WHERE cpev.attribute_id = 321
       AND cpev.store_id     = 0
 {inner_ids_filter}) AS cpev1

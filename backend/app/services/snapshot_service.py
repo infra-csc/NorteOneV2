@@ -3244,16 +3244,15 @@ def sincronizar_detalhe_eventos_batch(db: Session) -> dict:
             continue
 
         if _ano_fora_da_janela_ao_vivo(ano):
-            # Edição fora da janela fixa [ano_atual, ano_atual+1] das queries
-            # SQL de Ativo/Magento: uma query nova aqui sempre voltaria 0
-            # (não é "sem inscrições", é "o SQL não enxerga essa data"), o
-            # que corromperia qualquer snapshot histórico bom já existente.
-            # Nunca recomputar — o snapshot capturado quando o ano ainda
-            # estava na janela é o único dado confiável que resta.
+            # Edição histórica: snapshot é frozen — o job noturno não o
+            # recomputa. Snapshots históricos são criados on-demand quando
+            # o admin acessa a edição pela primeira vez (query com janela
+            # fixada em 'ano' via ano_historico), e daí em diante servidos
+            # do cache sem recalcular (dados de anos passados não mudam).
             skipped_fora_janela += 1
             logger.debug(
-                f"[DetalheEventosBatch] '{eg}'/{ano} fora da janela ao vivo — "
-                "pulando (snapshot existente, se houver, é preservado)"
+                f"[DetalheEventosBatch] '{eg}'/{ano} histórico — "
+                "snapshot frozen (criado on-demand; job noturno não recomputa)"
             )
             continue
 

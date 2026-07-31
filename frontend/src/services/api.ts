@@ -2254,6 +2254,7 @@ export interface DetalheEventoPayload {
   totais: DetalheTotais;
   source?: 'cache' | 'snapshot' | 'live';
   snapshot_updated_at?: string | null;
+  fora_da_janela_ao_vivo?: boolean;
   financeiro_oculto?: boolean;
 }
 
