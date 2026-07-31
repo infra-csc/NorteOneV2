@@ -94,7 +94,7 @@ export const PermissionProvider: React.FC<{ children: ReactNode }> = ({ children
     return permissions.permissoes[modulo]?.pode_deletar || false;
   };
 
-  const DENY_BY_DEFAULT_ENTIDADES = ['dashboard'];
+  const DENY_BY_DEFAULT_ENTIDADES = ['dashboard', 'marketing_detalhe'];
 
   const canViewCampo = (entidade: string, campo: string): boolean => {
     if (!permissions) return false;

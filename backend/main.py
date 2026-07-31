@@ -1746,6 +1746,69 @@ def _run_column_migrations():
                WHERE p.modulo = 'marketing_dashboard'
                  AND NOT EXISTS (SELECT 1 FROM perfil_permissao q WHERE q.modulo = 'marketing_detalhe')
                ON CONFLICT (perfil_acesso_id, modulo) DO NOTHING""",
+            # Task #216 — Painel do evento passa a ter uma edição (ano) por snapshot,
+            # em vez de um snapshot único por evento_grupo (que travava tudo no ano
+            # corrente). Índice único troca de evento_grupo sozinho para (evento_grupo, ano).
+            "ALTER TABLE detalhe_eventos_snapshot ADD COLUMN IF NOT EXISTS ano INTEGER",
+            # O modelo original (pré-Task #216) declarava evento_grupo como unique=True
+            # sozinho. Em qualquer ambiente onde a tabela já existia com esse shape
+            # (produção), esse constraint legado sobrevive à simples criação do índice
+            # composto abaixo e bloquearia a 2ª edição (ano) de um mesmo evento_grupo.
+            # Busca dinamicamente (por estrutura de colunas, não por nome — o nome
+            # exato varia conforme como foi criado) qualquer constraint/índice único
+            # que cubra SOMENTE evento_grupo e remove. Idempotente e no-op seguro
+            # quando não há nada de legado (confirmado em teste).
+            """DO $$
+            DECLARE
+                r RECORD;
+            BEGIN
+                FOR r IN
+                    SELECT con.conname
+                    FROM pg_constraint con
+                    JOIN pg_class rel ON rel.oid = con.conrelid
+                    WHERE rel.relname = 'detalhe_eventos_snapshot'
+                      AND con.contype = 'u'
+                      AND (
+                          SELECT array_agg(att.attname::text ORDER BY att.attname::text)
+                          FROM unnest(con.conkey) AS k(attnum)
+                          JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = k.attnum
+                      ) = ARRAY['evento_grupo']::text[]
+                LOOP
+                    EXECUTE format('ALTER TABLE detalhe_eventos_snapshot DROP CONSTRAINT %I', r.conname);
+                END LOOP;
+
+                FOR r IN
+                    SELECT ic.relname AS indexname
+                    FROM pg_index idx
+                    JOIN pg_class ic ON ic.oid = idx.indexrelid
+                    JOIN pg_class tc ON tc.oid = idx.indrelid
+                    WHERE tc.relname = 'detalhe_eventos_snapshot'
+                      AND idx.indisunique
+                      AND NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conindid = idx.indexrelid)
+                      AND (
+                          SELECT array_agg(att.attname::text ORDER BY att.attname::text)
+                          FROM unnest(idx.indkey::int2[]) AS k(attnum)
+                          JOIN pg_attribute att ON att.attrelid = idx.indrelid AND att.attnum = k.attnum
+                      ) = ARRAY['evento_grupo']::text[]
+                LOOP
+                    EXECUTE format('DROP INDEX IF EXISTS %I', r.indexname);
+                END LOOP;
+            END $$""",
+            "DROP INDEX IF EXISTS ix_detalhe_eventos_snapshot_evento_grupo",
+            "CREATE INDEX IF NOT EXISTS ix_detalhe_eventos_snapshot_evento_grupo ON detalhe_eventos_snapshot (evento_grupo)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_detalhe_eventos_snapshot_grupo_ano ON detalhe_eventos_snapshot (evento_grupo, ano)",
+            # Backfill one-shot: campo "Dados Financeiros" do Painel do evento (marketing_detalhe)
+            # herda a configuração já existente do Dashboard por perfil. Guard GLOBAL (mesmo
+            # padrão do backfill de módulo acima): NOT EXISTS qualquer linha marketing_detalhe
+            # para não reaplicar (e sobrescrever revogações manuais) a cada restart.
+            """INSERT INTO perfil_permissao_campo (perfil_acesso_id, entidade, campo, pode_visualizar, pode_editar)
+               SELECT p.perfil_acesso_id, 'marketing_detalhe', 'dados_financeiros', p.pode_visualizar, FALSE
+               FROM perfil_permissao_campo p
+               WHERE p.entidade = 'dashboard' AND p.campo = 'dados_financeiros'
+                 AND NOT EXISTS (
+                     SELECT 1 FROM perfil_permissao_campo q
+                     WHERE q.entidade = 'marketing_detalhe' AND q.campo = 'dados_financeiros'
+                 )""",
         ]
         kit_basico_idx = [
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_kit_basico_per_evento ON kit_config (id_evento) WHERE is_kit_basico = TRUE",

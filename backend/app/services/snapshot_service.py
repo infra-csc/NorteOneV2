@@ -3112,7 +3112,6 @@ def sincronizar_detalhe_eventos_batch(db: Session) -> dict:
     from datetime import date as _date
     from app.services.detalhe_eventos_service import (
         list_eventos_disponiveis,
-        get_evento_ids,
         _fetch_ativo,
         _fetch_magento,
         _build_canonical_map,
@@ -3122,6 +3121,7 @@ def sincronizar_detalhe_eventos_batch(db: Session) -> dict:
         _calc_totais,
         save_snapshot,
         CACHE_TTL_SECONDS,
+        _ano_fora_da_janela_ao_vivo,
     )
     from app.models.dimensoes import SkuMapping
     from app.models.cadastro_evento import CadastroEvento
@@ -3147,47 +3147,73 @@ def sincronizar_detalhe_eventos_batch(db: Session) -> dict:
         logger.warning(f"[DetalheEventosBatch] Erro ao carregar cadastros para freeze: {_e_cad}")
         cad_nome_to_date = {}
 
-    # Also build grupo → data_evento map from sku_mappings.data_evento
+    # Also build (grupo, ano) → data_evento map from sku_mappings.data_evento.
+    # Escopado por edição (ano): uma edição já concluída deve poder congelar
+    # (parar de ser recomputada todo dia) mesmo que outra edição do MESMO
+    # evento_grupo (ex.: ano seguinte) ainda esteja por vir.
     try:
-        grupo_dates: dict = {}
-        rows_date = db.query(SkuMapping.evento_grupo, SkuMapping.data_evento).filter(
+        grupo_ano_dates: dict = {}
+        rows_date = db.query(SkuMapping.evento_grupo, SkuMapping.ano, SkuMapping.data_evento).filter(
             SkuMapping.ativo == True,
             SkuMapping.evento_grupo != None,
             SkuMapping.data_evento != None,
         ).all()
-        for eg, dt in rows_date:
+        for eg, ano_row, dt in rows_date:
             if eg and dt:
-                if eg not in grupo_dates or dt > grupo_dates[eg]:
-                    grupo_dates[eg] = dt
+                key = (eg, ano_row)
+                if key not in grupo_ano_dates or dt > grupo_ano_dates[key]:
+                    grupo_ano_dates[key] = dt
     except Exception as _e_dt:
         logger.warning(f"[DetalheEventosBatch] Erro ao carregar datas de sku_mappings: {_e_dt}")
-        grupo_dates = {}
+        grupo_ano_dates = {}
 
     eventos = list_eventos_disponiveis(db)
-    total = len(eventos)
+    # Achata para uma iteração por EDIÇÃO (evento_grupo, ano) — cada edição tem
+    # seu próprio snapshot e precisa ser pré-computada separadamente (ex.: uma
+    # edição do ano seguinte não pode depender só do snapshot da edição atual).
+    edicoes_pairs = [(ev, edicao) for ev in eventos for edicao in (ev.get("edicoes") or [])]
+    total = len(edicoes_pairs)
     ok = 0
     falha = 0
     pulado = 0
     skipped_frozen = 0
+    skipped_fora_janela = 0
 
-    for ev in eventos:
+    for ev, edicao in edicoes_pairs:
         eg = ev.get("evento_grupo")
-        if not eg:
+        ano = edicao.get("ano")
+        if not eg or ano is None:
             pulado += 1
             continue
 
-        # Freeze check
-        ev_date = grupo_dates.get(eg)
+        if _ano_fora_da_janela_ao_vivo(ano):
+            # Edição fora da janela fixa [ano_atual, ano_atual+1] das queries
+            # SQL de Ativo/Magento: uma query nova aqui sempre voltaria 0
+            # (não é "sem inscrições", é "o SQL não enxerga essa data"), o
+            # que corromperia qualquer snapshot histórico bom já existente.
+            # Nunca recomputar — o snapshot capturado quando o ano ainda
+            # estava na janela é o único dado confiável que resta.
+            skipped_fora_janela += 1
+            logger.debug(
+                f"[DetalheEventosBatch] '{eg}'/{ano} fora da janela ao vivo — "
+                "pulando (snapshot existente, se houver, é preservado)"
+            )
+            continue
+
+        # Freeze check (por edição; cai para a data de cadastro por nome se
+        # sku_mappings não tiver data_evento registrada para essa edição).
+        ev_date = grupo_ano_dates.get((eg, ano))
         if ev_date is None:
             nm_lower = (ev.get("nome_evento") or "").strip().lower()
             ev_date = cad_nome_to_date.get(nm_lower)
         if ev_date is not None and is_event_frozen(ev_date, freeze_days):
             skipped_frozen += 1
-            logger.debug(f"[DetalheEventosBatch] '{eg}' frozen (data={ev_date}) — pulando")
+            logger.debug(f"[DetalheEventosBatch] '{eg}'/{ano} frozen (data={ev_date}) — pulando")
             continue
 
         try:
-            ativo_ids, magento_ids = get_evento_ids(db, eg)
+            ativo_ids = edicao.get("ativo_ids") or []
+            magento_ids = edicao.get("magento_ids") or []
             if len(ativo_ids) == 0 and len(magento_ids) == 0:
                 pulado += 1
                 continue
@@ -3204,20 +3230,11 @@ def sincronizar_detalhe_eventos_batch(db: Session) -> dict:
             consolidado = _consolidar(rows_ativo or [], rows_magento or [])
             divergencias = _check_divergencias(consolidado, rows_ativo or [], rows_magento or [])
 
-            # Resolve nome_evento + skus
-            mapping = db.query(SkuMapping).filter(
-                SkuMapping.evento_grupo == eg, SkuMapping.ativo == True
-            ).first()
-            evento_nome = mapping.nome_evento if mapping else None
-            skus_q = db.query(SkuMapping.sku).filter(
-                SkuMapping.evento_grupo == eg, SkuMapping.ativo == True
-            ).all()
-            skus = [s[0] for s in skus_q if s[0]]
-
             payload = {
                 "evento_grupo": eg,
-                "nome_evento": evento_nome,
-                "skus": skus,
+                "ano": ano,
+                "nome_evento": ev.get("nome_evento"),
+                "skus": ev.get("skus") or [],
                 "consolidado": consolidado,
                 "por_banco": {
                     "Ativo": rows_ativo or [],
@@ -3232,18 +3249,19 @@ def sincronizar_detalhe_eventos_batch(db: Session) -> dict:
                 "snapshot_updated_at": None,
             }
 
-            saved = save_snapshot(db, eg, payload)
+            saved = save_snapshot(db, eg, ano, payload)
             if saved:
                 ok += 1
             else:
                 falha += 1
         except Exception as _e:
-            logger.error(f"[DetalheEventosBatch] Erro ao processar '{eg}': {_e}")
+            logger.error(f"[DetalheEventosBatch] Erro ao processar '{eg}'/{ano}: {_e}")
             falha += 1
 
     logger.info(
         f"[DetalheEventosBatch] Concluído: {total} total, {ok} ok, "
-        f"{falha} falha, {pulado} pulado, {skipped_frozen} frozen"
+        f"{falha} falha, {pulado} pulado, {skipped_frozen} frozen, "
+        f"{skipped_fora_janela} fora da janela ao vivo"
     )
     return {
         "status": "ok" if falha == 0 else ("parcial" if ok > 0 else "falha"),
@@ -3252,4 +3270,5 @@ def sincronizar_detalhe_eventos_batch(db: Session) -> dict:
         "falha": falha,
         "pulado": pulado,
         "skipped_frozen": skipped_frozen,
+        "skipped_fora_janela": skipped_fora_janela,
     }

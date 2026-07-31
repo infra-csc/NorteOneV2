@@ -676,31 +676,39 @@ def trigger_snapshot_consolidation(
 @router.post("/detalhe-eventos/sincronizar")
 def trigger_detalhe_eventos_sync(
     evento_grupo: Optional[str] = None,
+    ano: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission("admin_dados_consolidados")),
 ):
     """Dispara a sincronização manual do snapshot de Detalhamento de Eventos.
 
-    Se `evento_grupo` for fornecido, sincroniza apenas esse evento (ao vivo).
-    Caso contrário, dispara o batch completo em background.
+    Se `evento_grupo` for fornecido, sincroniza apenas essa edição (ao vivo) —
+    `ano` opcional (default: ano corrente, ou o mais recente cadastrado).
+    Caso contrário, dispara o batch completo (todas as edições) em background.
     """
     import threading as _thr
     import logging as _log
     _logger_de = _log.getLogger(__name__)
 
     if evento_grupo:
-        # Sincronização ao vivo de um evento específico
+        # Sincronização ao vivo de uma edição específica
         try:
-            from app.services.detalhe_eventos_service import get_detalhe
-            payload = get_detalhe(db, evento_grupo, force_refresh=True)
+            from app.services.detalhe_eventos_service import get_detalhe, get_anos_evento, resolve_ano_padrao
+            ano_efetivo = ano if ano is not None else resolve_ano_padrao(get_anos_evento(db, evento_grupo))
+            if ano_efetivo is None:
+                raise HTTPException(status_code=404, detail=f"evento_grupo '{evento_grupo}' não encontrado ou sem mapeamentos ativos.")
+            payload = get_detalhe(db, evento_grupo, ano_efetivo, force_refresh=True)
             return {
                 "status": "ok",
                 "evento_grupo": evento_grupo,
+                "ano": ano_efetivo,
                 "source": payload.get("source"),
                 "snapshot_updated_at": payload.get("snapshot_updated_at"),
             }
+        except HTTPException:
+            raise
         except Exception as e:
-            _logger_de.error(f"[DetalheSync] Erro ao sincronizar '{evento_grupo}': {e}")
+            _logger_de.error(f"[DetalheSync] Erro ao sincronizar '{evento_grupo}'/{ano}: {e}")
             raise HTTPException(status_code=500, detail=str(e))
     else:
         # Batch completo em background

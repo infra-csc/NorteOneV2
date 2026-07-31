@@ -217,23 +217,22 @@ def _row_to_dict(row) -> Dict:
 # Resolução de IDs via sku_mappings
 # ---------------------------------------------------------------------------
 
-def get_evento_ids(db: Session, evento_grupo: str) -> Tuple[List[int], List[int]]:
+def get_evento_ids(db: Session, evento_grupo: str, ano: int) -> Tuple[List[int], List[int]]:
     """
-    Retorna (ativo_ids, magento_ids) para o evento_grupo, filtrando pelo ano-competência corrente.
+    Retorna (ativo_ids, magento_ids) para o evento_grupo na edição (ano) pedida.
 
-    O campo SkuMapping.ano representa o ano da edição do evento.
-    Filtrar por YEAR(CURDATE()) evita somar pedidos de edições anteriores que
-    compartilham o mesmo evento_grupo (ex.: Troféu Brasil 2025 + 2026).
-    Mapeamentos sem ano (nullable historicamente) são conservados via OR IS NULL.
+    O campo SkuMapping.ano representa o ano da edição do evento. Filtrar por
+    ano evita somar pedidos de edições diferentes que compartilham o mesmo
+    evento_grupo (ex.: Troféu Brasil 2025 + 2026). Mapeamentos sem ano
+    (nullable historicamente) são conservados via OR IS NULL — valem para
+    qualquer edição.
     """
-    from datetime import date as _date
-    current_year = _date.today().year
     mappings = (
         db.query(SkuMapping)
         .filter(
             SkuMapping.evento_grupo == evento_grupo,
             SkuMapping.ativo == True,
-            (SkuMapping.ano == current_year) | (SkuMapping.ano == None),
+            (SkuMapping.ano == ano) | (SkuMapping.ano == None),
         )
         .all()
     )
@@ -242,10 +241,65 @@ def get_evento_ids(db: Session, evento_grupo: str) -> Tuple[List[int], List[int]
     return ativo_ids, magento_ids
 
 
+def get_anos_evento(db: Session, evento_grupo: str) -> List[int]:
+    """Retorna todos os anos (edições) cadastrados para o evento_grupo, desc."""
+    rows = (
+        db.query(SkuMapping.ano)
+        .filter(
+            SkuMapping.evento_grupo == evento_grupo,
+            SkuMapping.ativo == True,
+            SkuMapping.ano != None,
+        )
+        .distinct()
+        .all()
+    )
+    return sorted({r[0] for r in rows}, reverse=True)
+
+
+def resolve_ano_padrao(anos: List[int]) -> Optional[int]:
+    """
+    Resolve o ano padrão a exibir para um evento_grupo, mesmo critério usado
+    no Dashboard (ano_atual): ano corrente se disponível, senão o mais recente.
+    """
+    if not anos:
+        return None
+    from datetime import date as _date
+    current_year = _date.today().year
+    return current_year if current_year in anos else anos[0]
+
+
+def _anos_cobertos_pela_query_ao_vivo() -> Tuple[int, int]:
+    """
+    Espelha a janela de datas fixa usada em build_ativo_detalhe/build_magento_detalhe
+    (b.dt_evento BETWEEN MAKEDATE(YEAR(CURDATE()),1) AND MAKEDATE(YEAR(CURDATE())+2,1)-1).
+    Só edições com ano dentro dessa janela têm cobertura real na query ao vivo.
+    """
+    from datetime import date as _date
+    current_year = _date.today().year
+    return current_year, current_year + 1
+
+
+def _ano_fora_da_janela_ao_vivo(ano: Optional[int]) -> bool:
+    """
+    True quando `ano` é uma edição que a query ao vivo NUNCA vai enxergar
+    (fora da janela fixa current_year..current_year+1 do SQL). Uma edição
+    assim só pode ser servida por um snapshot já existente (capturado quando
+    aquele ano ainda estava dentro da janela) — nunca por uma query nova, que
+    retornaria 0 mesmo com inscrições reais e corromperia o snapshot se salva.
+    """
+    if ano is None:
+        return False
+    ano_min, ano_max = _anos_cobertos_pela_query_ao_vivo()
+    return not (ano_min <= ano <= ano_max)
+
+
 def list_eventos_disponiveis(db: Session) -> List[Dict]:
     """
     Lista todos os evento_grupos com pelo menos um mapeamento ativo.
-    Retorna nome canônico, evento_grupo (chave SKU), IDs por banco e anos.
+
+    Retorna nome canônico, evento_grupo (chave SKU), todos os anos cadastrados
+    e, para cada ano, os IDs por banco daquela edição especifica (`edicoes`) —
+    necessário porque cada edição pode ter IDs Ativo/Magento diferentes.
     """
     mappings = (
         db.query(SkuMapping)
@@ -253,9 +307,6 @@ def list_eventos_disponiveis(db: Session) -> List[Dict]:
         .order_by(SkuMapping.evento_grupo, SkuMapping.ano.desc())
         .all()
     )
-
-    from datetime import date as _date
-    _current_year = _date.today().year
 
     grupos: Dict[str, Dict] = {}
     for m in mappings:
@@ -266,29 +317,43 @@ def list_eventos_disponiveis(db: Session) -> List[Dict]:
             grupos[eg] = {
                 "evento_grupo": eg,
                 "nome_evento": m.nome_evento or eg,
-                "ativo_ids": [],
-                "magento_ids": [],
                 "skus": [],
                 "anos": set(),
+                "_edicoes": {},  # ano -> {ativo_ids: [...], magento_ids: [...]}
             }
         g = grupos[eg]
         if m.nome_evento and len(m.nome_evento) > len(g["nome_evento"]):
             g["nome_evento"] = m.nome_evento
-        # Exibe apenas IDs do ano corrente (ou sem ano cadastrado) no header.
-        # O campo "anos" acumula todos os anos para o label do dropdown.
-        _is_current = (m.ano is None or m.ano == _current_year)
-        if _is_current and m.fonte == "ATIVO" and m.id_externo and m.id_externo not in g["ativo_ids"]:
-            g["ativo_ids"].append(m.id_externo)
-        elif _is_current and m.fonte == "MAGENTO" and m.id_externo and m.id_externo not in g["magento_ids"]:
-            g["magento_ids"].append(m.id_externo)
         if m.sku and m.sku not in g["skus"]:
             g["skus"].append(m.sku)
-        if m.ano:
+
+        # Mapeamentos sem ano valem para TODAS as edições já conhecidas deste
+        # grupo (mesma semântica OR ano IS NULL do get_evento_ids). Como a
+        # ordenação é por ano DESC, quando chegamos numa linha ano=None todas
+        # as edições concretas do grupo já foram vistas.
+        anos_alvo = [m.ano] if m.ano is not None else list(g["anos"])
+        if m.ano is not None:
             g["anos"].add(m.ano)
+        for ano_alvo in anos_alvo:
+            edicao = g["_edicoes"].setdefault(ano_alvo, {"ativo_ids": [], "magento_ids": []})
+            if m.fonte == "ATIVO" and m.id_externo and m.id_externo not in edicao["ativo_ids"]:
+                edicao["ativo_ids"].append(m.id_externo)
+            elif m.fonte == "MAGENTO" and m.id_externo and m.id_externo not in edicao["magento_ids"]:
+                edicao["magento_ids"].append(m.id_externo)
 
     result = []
     for g in grupos.values():
-        g["anos"] = sorted(g["anos"], reverse=True)
+        anos_sorted = sorted(g["anos"], reverse=True)
+        g["anos"] = anos_sorted
+        g["edicoes"] = [
+            {
+                "ano": ano,
+                "ativo_ids": g["_edicoes"].get(ano, {}).get("ativo_ids", []),
+                "magento_ids": g["_edicoes"].get(ano, {}).get("magento_ids", []),
+            }
+            for ano in anos_sorted
+        ]
+        del g["_edicoes"]
         result.append(g)
     result.sort(key=lambda x: x["nome_evento"] or "")
     return result
@@ -675,7 +740,7 @@ def _check_divergencias(
 # Snapshot PostgreSQL (leitura / escrita)
 # ---------------------------------------------------------------------------
 
-def _read_snapshot_raw(db: Session, evento_grupo: str) -> Optional[Tuple[Dict, datetime, float]]:
+def _read_snapshot_raw(db: Session, evento_grupo: str, ano: int) -> Optional[Tuple[Dict, datetime, float]]:
     """
     Lê o snapshot do PostgreSQL independente da idade.
     Retorna (payload_dict, updated_at, age_hours) se existir, None se não existir.
@@ -685,7 +750,10 @@ def _read_snapshot_raw(db: Session, evento_grupo: str) -> Optional[Tuple[Dict, d
         from app.models.vendas_snapshot import DetalheEventosSnapshot
         row = (
             db.query(DetalheEventosSnapshot)
-            .filter(DetalheEventosSnapshot.evento_grupo == evento_grupo)
+            .filter(
+                DetalheEventosSnapshot.evento_grupo == evento_grupo,
+                DetalheEventosSnapshot.ano == ano,
+            )
             .first()
         )
         if row is None:
@@ -698,36 +766,36 @@ def _read_snapshot_raw(db: Session, evento_grupo: str) -> Optional[Tuple[Dict, d
         payload_dict = json.loads(row.payload)
         return payload_dict, updated, age_h
     except Exception as e:
-        logger.warning(f"[DetalheSnap] Erro ao ler snapshot de '{evento_grupo}': {e}")
+        logger.warning(f"[DetalheSnap] Erro ao ler snapshot de '{evento_grupo}'/{ano}: {e}")
         return None
 
 
-def _read_snapshot(db: Session, evento_grupo: str) -> Optional[Tuple[Dict, datetime]]:
+def _read_snapshot(db: Session, evento_grupo: str, ano: int) -> Optional[Tuple[Dict, datetime]]:
     """
-    Lê o snapshot do PostgreSQL para o evento_grupo.
+    Lê o snapshot do PostgreSQL para o evento_grupo/ano.
     Retorna (payload_dict, updated_at) se válido (< SNAPSHOT_MAX_AGE_HOURS), None caso contrário.
     """
-    result = _read_snapshot_raw(db, evento_grupo)
+    result = _read_snapshot_raw(db, evento_grupo, ano)
     if result is None:
         return None
     payload_dict, updated, age_h = result
     if age_h > SNAPSHOT_MAX_AGE_HOURS:
-        logger.debug(f"[DetalheSnap] snapshot de '{evento_grupo}' tem {age_h:.1f}h — ignorando (>{SNAPSHOT_MAX_AGE_HOURS}h)")
+        logger.debug(f"[DetalheSnap] snapshot de '{evento_grupo}'/{ano} tem {age_h:.1f}h — ignorando (>{SNAPSHOT_MAX_AGE_HOURS}h)")
         return None
     return payload_dict, updated
 
 
-def _trigger_background_refresh(evento_grupo: str) -> None:
+def _trigger_background_refresh(evento_grupo: str, ano: int) -> None:
     """
-    Dispara um refresh ao vivo para evento_grupo em background (thread daemon).
-    Não faz nada se já houver um refresh em andamento para o mesmo evento.
+    Dispara um refresh ao vivo para evento_grupo/ano em background (thread daemon).
+    Não faz nada se já houver um refresh em andamento para a mesma edição.
     Cria sua própria sessão de banco — não bloqueia o request atual.
     """
-    cache_key = evento_grupo
+    cache_key = (evento_grupo, ano)
     with _inflight_lock:
         if cache_key in _inflight:
             logger.debug(
-                f"[DetalheSnap SWR] Refresh background ignorado para '{evento_grupo}' "
+                f"[DetalheSnap SWR] Refresh background ignorado para '{evento_grupo}'/{ano} "
                 "— outro já está em andamento"
             )
             return
@@ -736,12 +804,12 @@ def _trigger_background_refresh(evento_grupo: str) -> None:
         from app.core.database import SessionLocal
         db_bg = SessionLocal()
         try:
-            logger.info(f"[DetalheSnap SWR] Iniciando refresh background para '{evento_grupo}'")
-            get_detalhe(db_bg, evento_grupo, force_refresh=True)
-            logger.info(f"[DetalheSnap SWR] Refresh background concluído para '{evento_grupo}'")
+            logger.info(f"[DetalheSnap SWR] Iniciando refresh background para '{evento_grupo}'/{ano}")
+            get_detalhe(db_bg, evento_grupo, ano, force_refresh=True)
+            logger.info(f"[DetalheSnap SWR] Refresh background concluído para '{evento_grupo}'/{ano}")
         except Exception as _e:
             logger.warning(
-                f"[DetalheSnap SWR] Refresh background falhou para '{evento_grupo}': {_e}"
+                f"[DetalheSnap SWR] Refresh background falhou para '{evento_grupo}'/{ano}: {_e}"
             )
         finally:
             try:
@@ -751,7 +819,7 @@ def _trigger_background_refresh(evento_grupo: str) -> None:
 
     t = threading.Thread(
         target=_bg,
-        name=f"detalhe-swr-{evento_grupo}",
+        name=f"detalhe-swr-{evento_grupo}-{ano}",
         daemon=True,
     )
     t.start()
@@ -760,7 +828,7 @@ def _trigger_background_refresh(evento_grupo: str) -> None:
 # Versão da estrutura da query. Quando alterada, o startup descarta todos os
 # snapshots calculados com a versão anterior, garantindo que contagens obsoletas
 # não sejam servidas após deploys que mudam a lógica de contagem.
-DETALHE_QUERY_VERSION = "v3"  # v3: modalidade Ativo via nm_modalidade (join pela categoria) + rateio de desconto de carrinho na receita líquida Magento
+DETALHE_QUERY_VERSION = "v4"  # v4: snapshot agora é por (evento_grupo, ano) em vez de só evento_grupo
 
 
 def maybe_flush_snapshots_on_version_change(db: Session) -> None:
@@ -809,6 +877,7 @@ def maybe_flush_snapshots_on_version_change(db: Session) -> None:
         else:
             db.add(DetalheEventosSnapshot(
                 evento_grupo="__version__",
+                ano=0,
                 payload=version_payload,
                 created_at=now_utc,
                 updated_at=now_utc,
@@ -833,9 +902,9 @@ def maybe_flush_snapshots_on_version_change(db: Session) -> None:
             pass
 
 
-def save_snapshot(db: Session, evento_grupo: str, payload: Dict) -> bool:
+def save_snapshot(db: Session, evento_grupo: str, ano: int, payload: Dict) -> bool:
     """
-    Persiste o payload no snapshot PostgreSQL via UPSERT.
+    Persiste o payload no snapshot PostgreSQL via UPSERT, escopado por (evento_grupo, ano).
     Retorna True em sucesso, False em falha (não lança).
     """
     try:
@@ -845,7 +914,10 @@ def save_snapshot(db: Session, evento_grupo: str, payload: Dict) -> bool:
 
         existing = (
             db.query(DetalheEventosSnapshot)
-            .filter(DetalheEventosSnapshot.evento_grupo == evento_grupo)
+            .filter(
+                DetalheEventosSnapshot.evento_grupo == evento_grupo,
+                DetalheEventosSnapshot.ano == ano,
+            )
             .first()
         )
         if existing:
@@ -854,15 +926,16 @@ def save_snapshot(db: Session, evento_grupo: str, payload: Dict) -> bool:
         else:
             db.add(DetalheEventosSnapshot(
                 evento_grupo=evento_grupo,
+                ano=ano,
                 payload=payload_json,
                 created_at=now_utc,
                 updated_at=now_utc,
             ))
         db.commit()
-        logger.info(f"[DetalheSnap] Snapshot salvo para '{evento_grupo}'")
+        logger.info(f"[DetalheSnap] Snapshot salvo para '{evento_grupo}'/{ano}")
         return True
     except Exception as e:
-        logger.error(f"[DetalheSnap] Erro ao salvar snapshot de '{evento_grupo}': {e}")
+        logger.error(f"[DetalheSnap] Erro ao salvar snapshot de '{evento_grupo}'/{ano}: {e}")
         try:
             db.rollback()
         except Exception:
@@ -877,10 +950,15 @@ def save_snapshot(db: Session, evento_grupo: str, payload: Dict) -> bool:
 def get_detalhe(
     db: Session,
     evento_grupo: Optional[str],
+    ano: Optional[int] = None,
     force_refresh: bool = False,
 ) -> Dict:
     """
-    Retorna o payload completo de detalhamento para o evento_grupo.
+    Retorna o payload completo de detalhamento para a edição (evento_grupo, ano).
+
+    `ano` é obrigatório sempre que `evento_grupo` é informado — cada edição do
+    evento (ex.: 2026 e 2027) tem seu próprio cache, snapshot e dados. Quando
+    evento_grupo é None ("modo global"), ano é ignorado.
 
     Ordem de leitura (padrão SWR — stale-while-revalidate):
     1. Cache em memória (TTL 15min) — bypass se force_refresh.
@@ -901,7 +979,19 @@ def get_detalhe(
     - snapshot_updated_at: ISO string com data/hora do snapshot
     - snapshot_stale: True se o snapshot estava expirado ao ser servido
     """
-    cache_key = evento_grupo or "__all__"
+    if evento_grupo and ano is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="ano é obrigatório quando evento_grupo é informado.")
+
+    ano_fora_da_janela = bool(evento_grupo) and _ano_fora_da_janela_ao_vivo(ano)
+    if ano_fora_da_janela and force_refresh:
+        # Um refresh forçado nunca é honrado fora da janela: a query ao vivo
+        # sempre voltaria 0 para esse ano (ver _ano_fora_da_janela_ao_vivo),
+        # então tratamos como leitura normal (cache/snapshot) em vez de
+        # arriscar sobrescrever um snapshot bom com zero.
+        force_refresh = False
+
+    cache_key = (evento_grupo or "__all__", ano)
 
     if not force_refresh:
         # 1. Cache em memória
@@ -916,7 +1006,7 @@ def get_detalhe(
         # 2. Snapshot PostgreSQL com padrão SWR (stale-while-revalidate).
         #    Apenas para evento único — "__all__" não tem snapshot por chave.
         if evento_grupo:
-            snap_raw = _read_snapshot_raw(db, evento_grupo)
+            snap_raw = _read_snapshot_raw(db, evento_grupo, ano)
             if snap_raw is not None:
                 payload_dict, updated_at, age_h = snap_raw
 
@@ -954,6 +1044,24 @@ def get_detalhe(
                         f"({age_h:.1f}h, atualizado {updated_at.isoformat()})"
                     )
                     return payload_dict
+                elif _ano_fora_da_janela_ao_vivo(ano):
+                    # Edição fora da janela fixa da query ao vivo (ver
+                    # _ano_fora_da_janela_ao_vivo): o snapshot existente é o
+                    # único dado confiável que este ano jamais terá — uma
+                    # query nova sempre voltaria 0 (a janela SQL não enxerga
+                    # esse ano) e corromperia o snapshot bom se disparada.
+                    # Serve como "fresco" (nunca dispara refresh) mesmo além
+                    # de SNAPSHOT_MAX_AGE_HOURS.
+                    payload_dict["snapshot_stale"] = False
+                    payload_dict["fora_da_janela_ao_vivo"] = True
+                    with _cache_lock:
+                        _cache[cache_key] = (time.time(), payload_dict)
+                    logger.info(
+                        f"[DetalheSnap] Snapshot fora da janela ao vivo para "
+                        f"'{evento_grupo}'/{ano} ({age_h:.1f}h) — servindo sem "
+                        "acionar refresh (query ao vivo não cobre este ano)"
+                    )
+                    return payload_dict
                 else:
                     # Snapshot stale: retorna imediatamente + dispara refresh em background.
                     # O usuário vê o dado anterior sem esperar; o refresh atualiza o cache.
@@ -961,12 +1069,40 @@ def get_detalhe(
                     with _cache_lock:
                         _cache[cache_key] = (time.time(), payload_dict)
                     logger.info(
-                        f"[DetalheSnap SWR] Stale snapshot para '{evento_grupo}' "
+                        f"[DetalheSnap SWR] Stale snapshot para '{evento_grupo}'/{ano} "
                         f"({age_h:.1f}h > {SNAPSHOT_MAX_AGE_HOURS}h) — "
                         "servindo dado anterior + refresh em background"
                     )
-                    _trigger_background_refresh(evento_grupo)
+                    _trigger_background_refresh(evento_grupo, ano)
                     return payload_dict
+
+    if ano_fora_da_janela:
+        # Chegou aqui sem cache nem snapshot algum (steps 1-2 não encontraram
+        # nada) para uma edição que a query ao vivo estruturalmente não
+        # cobre. NUNCA executar a query nem persistir o resultado — ela
+        # sempre voltaria 0 independente do volume histórico real, e um
+        # snapshot com 0 seria indistinguível de "sem inscrições" de
+        # verdade. Retorna um payload vazio explícito.
+        logger.warning(
+            f"[DetalheEventos] ano={ano} fora da janela ao vivo "
+            f"({_anos_cobertos_pela_query_ao_vivo()}) para '{evento_grupo}' "
+            "e sem snapshot algum — retornando payload vazio explícito "
+            "(query ao vivo nunca é executada para ano fora da janela)."
+        )
+        return {
+            "evento_grupo": evento_grupo,
+            "ano": ano,
+            "nome_evento": None,
+            "skus": [],
+            "consolidado": [],
+            "por_banco": {"Ativo": [], "Magento": []},
+            "divergencias": [],
+            "erros": {},
+            "totais": {"inscritos": 0, "receita_bruta": 0.0, "receita_liquida": 0.0, "ticket_medio": 0.0, "por_canal": {}},
+            "source": "indisponivel",
+            "snapshot_updated_at": None,
+            "fora_da_janela_ao_vivo": True,
+        }
 
     # 3. Query ao vivo — single-flight guard.
     # Quando force_refresh=True e outro request já está executando as queries
@@ -977,7 +1113,7 @@ def get_detalhe(
         with _inflight_lock:
             if cache_key in _inflight:
                 logger.info(
-                    f"[DetalheEventos] force_refresh bloqueado para '{evento_grupo}' — "
+                    f"[DetalheEventos] force_refresh bloqueado para '{evento_grupo}'/{ano} — "
                     "já há uma consulta ao vivo em andamento; servindo dado em cache (single-flight)"
                 )
                 # Tenta cache em memória primeiro
@@ -993,7 +1129,7 @@ def get_detalhe(
                 from app.core.database import SessionLocal
                 db_snap = SessionLocal()
                 try:
-                    snap_raw = _read_snapshot_raw(db_snap, evento_grupo)
+                    snap_raw = _read_snapshot_raw(db_snap, evento_grupo, ano)
                 finally:
                     db_snap.close()
                 if snap_raw is not None:
@@ -1021,7 +1157,7 @@ def get_detalhe(
         skus: List[str] = []
 
         if evento_grupo:
-            ativo_ids_list, magento_ids_list = get_evento_ids(db, evento_grupo)
+            ativo_ids_list, magento_ids_list = get_evento_ids(db, evento_grupo, ano)
 
             # IMPORTANT: keep empty list as [] — do NOT convert to None.
             # _fetch_ativo/magento(ids=[]) → returns empty rows immediately.
@@ -1096,6 +1232,7 @@ def get_detalhe(
 
         payload = {
             "evento_grupo": evento_grupo,
+            "ano": ano,
             "nome_evento": evento_nome,
             "skus": skus,
             "consolidado": consolidado,
@@ -1115,7 +1252,7 @@ def get_detalhe(
         # Salva no snapshot PostgreSQL (apenas evento único, sem erros graves)
         snap_saved = False
         if evento_grupo and not (error_ativo and error_magento):
-            snap_saved = save_snapshot(db, evento_grupo, payload)
+            snap_saved = save_snapshot(db, evento_grupo, ano, payload)
             if snap_saved:
                 payload["snapshot_updated_at"] = datetime.now(timezone.utc).isoformat()
 
@@ -1167,9 +1304,20 @@ def _calc_totais(consolidado: List[Dict]) -> Dict:
     }
 
 
-def invalidate_cache(evento_grupo: Optional[str] = None) -> None:
+def invalidate_cache(evento_grupo: Optional[str] = None, ano: Optional[int] = None) -> None:
+    """
+    Limpa o cache em memória.
+    - evento_grupo + ano: remove só aquela edição.
+    - só evento_grupo: remove TODAS as edições (anos) conhecidas daquele grupo
+      (usado por invalidações amplas, ex.: mudança de KitConfig, que afeta todas
+      as edições do evento).
+    - nenhum: limpa tudo.
+    """
     with _cache_lock:
-        if evento_grupo:
-            _cache.pop(evento_grupo, None)
+        if evento_grupo and ano is not None:
+            _cache.pop((evento_grupo, ano), None)
+        elif evento_grupo:
+            for key in [k for k in _cache if k[0] == evento_grupo]:
+                _cache.pop(key, None)
         else:
             _cache.clear()

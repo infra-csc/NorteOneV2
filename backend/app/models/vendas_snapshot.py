@@ -61,17 +61,27 @@ class MargemBundleRevSnapshot(Base):
 
 
 class DetalheEventosSnapshot(Base):
-    """Snapshot do payload completo de Detalhamento de Eventos por evento_grupo.
+    """Snapshot do payload completo de Detalhamento de Eventos por (evento_grupo, ano).
 
     Pré-computado pelo job noturno (~03h BRT), eliminando timeouts de Ativo/Magento
     em acessos do usuário. Leitura serve em <1s; fallback ao vivo quando ausente.
+
+    Uma linha por edição (ano) do evento_grupo — permite que edições de anos
+    diferentes (ex.: mesmo evento em 2026 e 2027) tenham snapshots independentes.
+    A linha sentinela "__version__" (usada por maybe_flush_snapshots_on_version_change)
+    usa ano=0.
 
     payload: JSON com {consolidado, por_banco, divergencias, erros, totais, skus}
     """
     __tablename__ = "detalhe_eventos_snapshot"
 
     id = Column(Integer, primary_key=True, index=True)
-    evento_grupo = Column(String(200), nullable=False, unique=True, index=True)
+    evento_grupo = Column(String(200), nullable=False, index=True)
+    ano = Column(Integer, nullable=True)
     payload = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('evento_grupo', 'ano', name='uq_detalhe_eventos_snapshot_grupo_ano'),
+    )

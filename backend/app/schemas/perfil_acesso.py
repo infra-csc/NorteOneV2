@@ -108,6 +108,10 @@ CAMPOS_DASHBOARD = [
     {"key": "dados_financeiros", "label": "Dados Financeiros (Receita, Margem, Ticket)", "tipo": "visibilidade"},
 ]
 
+CAMPOS_MARKETING_DETALHE = [
+    {"key": "dados_financeiros", "label": "Dados Financeiros (Receita, Ticket Médio)", "tipo": "visibilidade"},
+]
+
 
 class PermissaoCampoBase(BaseModel):
     entidade: str

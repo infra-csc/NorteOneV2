@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import { useTheme } from '../../context/ThemeContext';
+import { usePermissions } from '../../context/PermissionContext';
 import {
   detalheEventosService,
   DetalheEventoDisponivel,
@@ -28,6 +29,7 @@ import {
   RotateCcw,
   Check,
   Maximize2,
+  Calendar,
 } from 'lucide-react';
 import {
   BarChart,
@@ -55,6 +57,29 @@ const fmtR = (n: number) =>
 
 const NULL_LABEL = '—';
 const val = (v: string | null | undefined) => v || NULL_LABEL;
+
+// Mesmo critério de "ano padrão" usado no backend (resolve_ano_padrao): ano
+// corrente se cadastrado, senão o mais recente disponível (anos vem desc).
+const resolveAnoPadrao = (anos: number[]): number | null => {
+  if (!anos || anos.length === 0) return null;
+  const anoCorrente = new Date().getFullYear();
+  return anos.includes(anoCorrente) ? anoCorrente : anos[0];
+};
+
+// Espelha a janela fixa das queries ao vivo no backend (ver
+// _ano_fora_da_janela_ao_vivo em detalhe_eventos_service.py): apenas
+// ano corrente e o seguinte têm cobertura real de dados ao vivo. Edições
+// mais antigas nunca devem ser oferecidas como seleção normal — a query ao
+// vivo sempre voltaria 0 para elas, mesmo que o evento tenha acontecido de
+// verdade. Se a edição só tiver anos fora dessa janela (ex.: série sem
+// edição atual/futura cadastrada), mantém todos como fallback em vez de
+// esconder a seleção por completo.
+const anosComCoberturaAoVivo = (anos: number[]): number[] => {
+  if (!anos || anos.length === 0) return [];
+  const anoCorrente = new Date().getFullYear();
+  const filtrados = anos.filter(a => a === anoCorrente || a === anoCorrente + 1);
+  return filtrados.length > 0 ? filtrados : anos;
+};
 
 const CANAL_COLORS: Record<string, string> = {
   Site: '#3b82f6',
@@ -388,9 +413,10 @@ interface TreeRowProps {
   onToggle: (key: string) => void;
   onBankToggle: (key: string) => void;
   totalInscritos: number;
+  canSeeFinancial: boolean;
 }
 
-const TreeRow: React.FC<TreeRowProps> = ({ node, dark, expanded, bankExpanded, onToggle, onBankToggle, totalInscritos }) => {
+const TreeRow: React.FC<TreeRowProps> = ({ node, dark, expanded, bankExpanded, onToggle, onBankToggle, totalInscritos, canSeeFinancial }) => {
   const isOpen = expanded.has(node.key);
   const bankKey = `bank-${node.key}`;
   const isBankOpen = bankExpanded.has(bankKey);
@@ -469,15 +495,19 @@ const TreeRow: React.FC<TreeRowProps> = ({ node, dark, expanded, bankExpanded, o
         <td className={`py-2.5 px-3 text-right text-xs font-medium ${dark ? 'text-slate-500' : 'text-slate-400'} tabular-nums`}>
           {pct.toFixed(1)}%
         </td>
-        <td className={`py-2.5 px-4 text-right text-[13px] font-medium ${dark ? 'text-slate-400' : 'text-slate-600'} tabular-nums`}>
-          {fmtR(node.receita_bruta)}
-        </td>
-        <td className={`py-2.5 px-4 text-right text-[13px] font-bold ${dark ? 'text-emerald-400' : 'text-emerald-600'} tabular-nums`}>
-          {fmtR(node.receita_liquida)}
-        </td>
-        <td className={`py-2.5 px-4 text-right text-[13px] font-semibold ${dark ? 'text-amber-400' : 'text-amber-600'} tabular-nums`}>
-          {fmtR(node.ticket_medio)}
-        </td>
+        {canSeeFinancial && (
+          <>
+            <td className={`py-2.5 px-4 text-right text-[13px] font-medium ${dark ? 'text-slate-400' : 'text-slate-600'} tabular-nums`}>
+              {fmtR(node.receita_bruta)}
+            </td>
+            <td className={`py-2.5 px-4 text-right text-[13px] font-bold ${dark ? 'text-emerald-400' : 'text-emerald-600'} tabular-nums`}>
+              {fmtR(node.receita_liquida)}
+            </td>
+            <td className={`py-2.5 px-4 text-right text-[13px] font-semibold ${dark ? 'text-amber-400' : 'text-amber-600'} tabular-nums`}>
+              {fmtR(node.ticket_medio)}
+            </td>
+          </>
+        )}
       </tr>
 
       {/* Children (non-leaf) — sibling rows keep the shared column grid aligned */}
@@ -491,6 +521,7 @@ const TreeRow: React.FC<TreeRowProps> = ({ node, dark, expanded, bankExpanded, o
           onToggle={onToggle}
           onBankToggle={onBankToggle}
           totalInscritos={totalInscritos}
+          canSeeFinancial={canSeeFinancial}
         />
       ))}
 
@@ -528,15 +559,19 @@ const TreeRow: React.FC<TreeRowProps> = ({ node, dark, expanded, bankExpanded, o
           <td className={`py-2 px-3 text-right text-xs font-medium ${dark ? 'text-slate-500' : 'text-slate-400'} tabular-nums`}>
             {totalInscritos > 0 ? ((bs.inscritos / totalInscritos) * 100).toFixed(1) : '0.0'}%
           </td>
-          <td className={`py-2 px-4 text-right text-xs font-medium ${dark ? 'text-slate-400' : 'text-slate-600'} tabular-nums`}>
-            {fmtR(bs.receita_bruta)}
-          </td>
-          <td className={`py-2 px-4 text-right text-xs font-bold ${dark ? 'text-emerald-400' : 'text-emerald-600'} tabular-nums`}>
-            {fmtR(bs.receita_liquida)}
-          </td>
-          <td className={`py-2 px-4 text-right text-xs font-bold ${dark ? 'text-amber-400' : 'text-amber-600'} tabular-nums`}>
-            {fmtR(bs.ticket_medio)}
-          </td>
+          {canSeeFinancial && (
+            <>
+              <td className={`py-2 px-4 text-right text-xs font-medium ${dark ? 'text-slate-400' : 'text-slate-600'} tabular-nums`}>
+                {fmtR(bs.receita_bruta)}
+              </td>
+              <td className={`py-2 px-4 text-right text-xs font-bold ${dark ? 'text-emerald-400' : 'text-emerald-600'} tabular-nums`}>
+                {fmtR(bs.receita_liquida)}
+              </td>
+              <td className={`py-2 px-4 text-right text-xs font-bold ${dark ? 'text-amber-400' : 'text-amber-600'} tabular-nums`}>
+                {fmtR(bs.ticket_medio)}
+              </td>
+            </>
+          )}
         </tr>
       ))}
     </>
@@ -703,9 +738,12 @@ const MultiSelectFilter: React.FC<MultiSelectFilterProps> = ({ label, values, av
 
 const DetalheEventos: React.FC = () => {
   const { isDark: dark } = useTheme();
+  const { canViewCampo } = usePermissions();
+  const canSeeFinancial = canViewCampo('marketing_detalhe', 'dados_financeiros');
 
   const [eventos, setEventos] = useState<DetalheEventoDisponivel[]>([]);
   const [eventoGrupo, setEventoGrupo] = useState<string>('');
+  const [ano, setAno] = useState<number | null>(null);
   const [payload, setPayload] = useState<DetalheEventoPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingEventos, setLoadingEventos] = useState(true);
@@ -831,8 +869,8 @@ const DetalheEventos: React.FC = () => {
       .finally(() => setLoadingEventos(false));
   }, []);
 
-  const loadDetalhe = useCallback(async (grupo: string, force = false) => {
-    if (!grupo) return;
+  const loadDetalhe = useCallback(async (grupo: string, anoSel: number, force = false) => {
+    if (!grupo || !anoSel) return;
     setLoading(true);
     setIsLiveLoad(force);
     setError(null);
@@ -846,13 +884,13 @@ const DetalheEventos: React.FC = () => {
     const timeoutId = setTimeout(() => controller.abort(), 150_000);
 
     try {
-      const data = await detalheEventosService.getDetalhe(grupo, force, controller.signal);
+      const data = await detalheEventosService.getDetalhe(grupo, anoSel, force, controller.signal);
       setPayload(data);
       const inProgress = !!(data as any)?.refresh_in_progress;
       setRefreshInProgress(inProgress);
       if (inProgress) {
         if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
-        pollTimerRef.current = setTimeout(() => loadDetalhe(grupo, false), 6000);
+        pollTimerRef.current = setTimeout(() => loadDetalhe(grupo, anoSel, false), 6000);
       }
     } catch (e: any) {
       const isAbort = e?.name === 'AbortError' || e?.name === 'CanceledError' || e?.code === 'ERR_CANCELED';
@@ -862,7 +900,7 @@ const DetalheEventos: React.FC = () => {
       } else if (is429) {
         setRefreshInProgress(true);
         if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
-        pollTimerRef.current = setTimeout(() => loadDetalhe(grupo, false), 8000);
+        pollTimerRef.current = setTimeout(() => loadDetalhe(grupo, anoSel, false), 8000);
       } else {
         setError(e?.response?.data?.detail || e.message || 'Erro ao carregar dados');
       }
@@ -874,8 +912,8 @@ const DetalheEventos: React.FC = () => {
   }, [startRefreshCooldown]);
 
   useEffect(() => {
-    if (eventoGrupo) loadDetalhe(eventoGrupo);
-  }, [eventoGrupo, loadDetalhe]);
+    if (eventoGrupo && ano) loadDetalhe(eventoGrupo, ano);
+  }, [eventoGrupo, ano, loadDetalhe]);
 
   useEffect(() => {
     if (!dropdownOpen) return;
@@ -1136,7 +1174,7 @@ const DetalheEventos: React.FC = () => {
     if (!payload) return [];
     return Object.entries(payload.totais.por_canal)
       .filter(([canal]) => filters.canal.length === 0 || filters.canal.includes(canal))
-      .map(([canal, v]) => ({ canal, inscritos: v.inscritos, receita: Math.round(v.receita_liquida) }))
+      .map(([canal, v]) => ({ canal, inscritos: v.inscritos, receita: Math.round(v.receita_liquida || 0) }))
       .sort((a, b) => b.inscritos - a.inscritos);
   }, [payload, filters.canal]);
 
@@ -1375,6 +1413,19 @@ const DetalheEventos: React.FC = () => {
     [eventos, eventoGrupo]
   );
 
+  const selectedEdicao = useMemo(
+    () => selectedEvento?.edicoes.find(e => e.ano === ano),
+    [selectedEvento, ano]
+  );
+
+  const selectEvento = useCallback((grupo: string) => {
+    setEventoGrupo(grupo);
+    const ev = eventos.find(e => e.evento_grupo === grupo);
+    setAno(resolveAnoPadrao(anosComCoberturaAoVivo(ev?.anos ?? [])));
+    setDropdownOpen(false);
+    setSearchEventos('');
+  }, [eventos]);
+
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
@@ -1403,7 +1454,7 @@ const DetalheEventos: React.FC = () => {
             </div>
             <div>
               <h1 className={`text-3xl font-black tracking-tight ${textPrimary}`}>Painel do evento</h1>
-              <p className={`text-[13px] font-medium mt-1 ${textSec}`}>Detalhamento de inscrições por canal, kit, modalidade e mais.</p>
+              <p className={`text-sm mt-1 ${textSec}`}>Detalhamento de inscrições por canal, kit, modalidade e mais.</p>
             </div>
           </div>
         </motion.div>
@@ -1432,7 +1483,7 @@ const DetalheEventos: React.FC = () => {
                   >
                     <span className="truncate">
                       {selectedEvento
-                        ? `${selectedEvento.nome_evento}${selectedEvento.anos.length > 0 ? ` (${selectedEvento.anos[0]})` : ''} · ${selectedEvento.evento_grupo}`
+                        ? `${selectedEvento.nome_evento} · ${selectedEvento.evento_grupo}`
                         : '— Selecionar evento —'}
                     </span>
                     <ChevronDown className={`ml-2 w-4 h-4 flex-shrink-0 transition-transform duration-300 ${dropdownOpen ? 'rotate-180' : ''} ${textSec}`} />
@@ -1469,7 +1520,7 @@ const DetalheEventos: React.FC = () => {
                         <div className="max-h-80 overflow-y-auto scrollbar-thin-custom">
                           <button
                             type="button"
-                            onClick={() => { setEventoGrupo(''); setDropdownOpen(false); }}
+                            onClick={() => { setEventoGrupo(''); setAno(null); setDropdownOpen(false); }}
                             className={`w-full text-left px-5 py-3 text-sm font-medium transition-colors ${
                               !eventoGrupo
                                 ? 'bg-blue-600 text-white'
@@ -1487,7 +1538,7 @@ const DetalheEventos: React.FC = () => {
                               <button
                                 key={e.evento_grupo}
                                 type="button"
-                                onClick={() => { setEventoGrupo(e.evento_grupo); setDropdownOpen(false); }}
+                                onClick={() => selectEvento(e.evento_grupo)}
                                 className={`w-full text-left px-5 py-3 transition-colors border-b last:border-0 ${dark ? 'border-slate-700/50' : 'border-slate-100'} ${
                                   isSelected
                                     ? 'bg-blue-600 text-white'
@@ -1496,10 +1547,17 @@ const DetalheEventos: React.FC = () => {
                               >
                                 <span className={`block font-bold text-sm truncate ${isSelected ? 'text-white' : dark ? 'text-slate-200' : 'text-slate-800'}`}>
                                   {e.nome_evento}
-                                  {e.anos.length > 0 ? ` (${e.anos[0]})` : ''}
                                 </span>
-                                <span className={`block text-xs font-mono mt-0.5 truncate ${isSelected ? 'text-blue-200' : textSec}`}>
-                                  {e.evento_grupo}
+                                <span className={`flex items-center gap-2 mt-0.5 ${isSelected ? 'text-blue-200' : textSec}`}>
+                                  <span className="text-xs font-mono truncate">{e.evento_grupo}</span>
+                                  {e.anos.length > 0 && (
+                                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold flex-shrink-0 ${
+                                      isSelected ? 'bg-blue-700/60 text-blue-100' : dark ? 'bg-slate-700 text-slate-300' : 'bg-slate-100 text-slate-600'
+                                    }`}>
+                                      <Calendar className="w-2.5 h-2.5" />
+                                      {e.anos.length > 1 ? `${e.anos[e.anos.length - 1]}–${e.anos[0]}` : e.anos[0]}
+                                    </span>
+                                  )}
                                 </span>
                               </button>
                             );
@@ -1512,9 +1570,34 @@ const DetalheEventos: React.FC = () => {
               )}
             </div>
 
+            {selectedEvento && selectedEvento.anos.length > 0 && (
+              <div className="flex-shrink-0">
+                <label className={`block text-[11px] font-bold uppercase tracking-wider mb-2 ${textSec}`}>
+                  Edição
+                </label>
+                <div className="flex items-center gap-1.5 flex-wrap max-w-[280px]">
+                  {anosComCoberturaAoVivo(selectedEvento.anos).map(a => (
+                    <button
+                      key={a}
+                      type="button"
+                      onClick={() => setAno(a)}
+                      className={`flex items-center gap-1.5 px-3.5 py-3 rounded-xl text-sm font-bold border transition-all ${
+                        a === ano
+                          ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
+                          : dark ? 'bg-slate-800/50 border-slate-700 text-slate-300 hover:bg-slate-800' : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      <Calendar className="w-3.5 h-3.5" />
+                      {a}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <button
-              onClick={() => eventoGrupo && loadDetalhe(eventoGrupo, true)}
-              disabled={!eventoGrupo || loading || refreshCooldown > 0}
+              onClick={() => eventoGrupo && ano && loadDetalhe(eventoGrupo, ano, true)}
+              disabled={!eventoGrupo || !ano || loading || refreshCooldown > 0}
               className={`flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-bold tracking-wide transition-all shadow-sm ${
                 dark 
                   ? 'bg-blue-600 hover:bg-blue-500 text-white disabled:bg-slate-800 disabled:text-slate-500 disabled:shadow-none' 
@@ -1533,16 +1616,16 @@ const DetalheEventos: React.FC = () => {
                 animate={{ opacity: 1, height: 'auto' }}
                 className={`mt-4 pt-4 border-t ${borderCol} flex flex-wrap gap-4 items-center`}
               >
-                {selectedEvento.ativo_ids.length > 0 && (
+                {selectedEdicao && selectedEdicao.ativo_ids.length > 0 && (
                   <div className="flex items-center gap-2">
                     <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-500">Ativo IDs:</span>
-                    <span className={`text-xs font-mono font-medium ${dark ? 'text-slate-300' : 'text-slate-700'}`}>{selectedEvento.ativo_ids.join(', ')}</span>
+                    <span className={`text-xs font-mono font-medium ${dark ? 'text-slate-300' : 'text-slate-700'}`}>{selectedEdicao.ativo_ids.join(', ')}</span>
                   </div>
                 )}
-                {selectedEvento.magento_ids.length > 0 && (
+                {selectedEdicao && selectedEdicao.magento_ids.length > 0 && (
                   <div className="flex items-center gap-2">
                     <span className="text-[11px] font-bold uppercase tracking-wider text-orange-600 dark:text-orange-500">Magento IDs:</span>
-                    <span className={`text-xs font-mono font-medium ${dark ? 'text-slate-300' : 'text-slate-700'}`}>{selectedEvento.magento_ids.join(', ')}</span>
+                    <span className={`text-xs font-mono font-medium ${dark ? 'text-slate-300' : 'text-slate-700'}`}>{selectedEdicao.magento_ids.join(', ')}</span>
                   </div>
                 )}
                 {payload && !loading && (
@@ -1677,11 +1760,15 @@ const DetalheEventos: React.FC = () => {
             )}
 
             {/* KPI Cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+            <div className={`grid grid-cols-2 gap-4 lg:gap-6 ${canSeeFinancial ? 'lg:grid-cols-4' : 'sm:grid-cols-1 max-w-xs'}`}>
               <KpiCard delay={0.0} label="Total Inscritos" value={fmt((kpiTotais ?? payload.totais).inscritos)} icon={<Users className="w-5 h-5 text-blue-500" />} color="bg-blue-500/20" dark={dark} />
-              <KpiCard delay={0.1} label="Receita Bruta" value={fmtR((kpiTotais ?? payload.totais).receita_bruta)} icon={<DollarSign className="w-5 h-5 text-emerald-500" />} color="bg-emerald-500/20" dark={dark} />
-              <KpiCard delay={0.2} label="Receita Líquida" value={fmtR((kpiTotais ?? payload.totais).receita_liquida)} icon={<TrendingUp className="w-5 h-5 text-indigo-500" />} color="bg-indigo-500/20" dark={dark} />
-              <KpiCard delay={0.3} label="Ticket Médio" value={fmtR((kpiTotais ?? payload.totais).ticket_medio)} sub="Por inscrito (rec. líquida)" icon={<Tag className="w-5 h-5 text-amber-500" />} color="bg-amber-500/20" dark={dark} />
+              {canSeeFinancial && (
+                <>
+                  <KpiCard delay={0.1} label="Receita Bruta" value={fmtR((kpiTotais ?? payload.totais).receita_bruta || 0)} icon={<DollarSign className="w-5 h-5 text-emerald-500" />} color="bg-emerald-500/20" dark={dark} />
+                  <KpiCard delay={0.2} label="Receita Líquida" value={fmtR((kpiTotais ?? payload.totais).receita_liquida || 0)} icon={<TrendingUp className="w-5 h-5 text-indigo-500" />} color="bg-indigo-500/20" dark={dark} />
+                  <KpiCard delay={0.3} label="Ticket Médio" value={fmtR((kpiTotais ?? payload.totais).ticket_medio || 0)} sub="Por inscrito (rec. líquida)" icon={<Tag className="w-5 h-5 text-amber-500" />} color="bg-amber-500/20" dark={dark} />
+                </>
+              )}
             </div>
 
             {/* Canal pills */}
@@ -2036,9 +2123,13 @@ const DetalheEventos: React.FC = () => {
                         </th>
                         <th className="py-4 px-4 text-right">Inscritos</th>
                         <th className="py-4 px-3 text-right">%</th>
-                        <th className="py-4 px-4 text-right">Rec. Bruta</th>
-                        <th className="py-4 px-4 text-right">Rec. Líquida</th>
-                        <th className="py-4 px-4 text-right">Ticket Médio</th>
+                        {canSeeFinancial && (
+                          <>
+                            <th className="py-4 px-4 text-right">Rec. Bruta</th>
+                            <th className="py-4 px-4 text-right">Rec. Líquida</th>
+                            <th className="py-4 px-4 text-right">Ticket Médio</th>
+                          </>
+                        )}
                       </tr>
                     </thead>
                     <tbody>
@@ -2052,6 +2143,7 @@ const DetalheEventos: React.FC = () => {
                           onToggle={handleToggle}
                           onBankToggle={handleBankToggle}
                           totalInscritos={totalInscritos}
+                          canSeeFinancial={canSeeFinancial}
                         />
                       ))}
                     </tbody>
@@ -2060,17 +2152,21 @@ const DetalheEventos: React.FC = () => {
                         <td className="py-4 px-5">TOTAL FILTRADO</td>
                         <td className="py-4 px-4 text-right">{fmt(filteredRows.reduce((s, r) => s + r.inscritos, 0))}</td>
                         <td className="py-4 px-3 text-right text-slate-500">100%</td>
-                        <td className="py-4 px-4 text-right">{fmtR(filteredRows.reduce((s, r) => s + r.receita_bruta, 0))}</td>
-                        <td className={`py-4 px-4 text-right ${dark ? 'text-emerald-400' : 'text-emerald-600'}`}>
-                          {fmtR(filteredRows.reduce((s, r) => s + r.receita_liquida, 0))}
-                        </td>
-                        <td className={`py-4 px-4 text-right ${dark ? 'text-amber-400' : 'text-amber-600'}`}>
-                          {(() => {
-                            const ins = filteredRows.reduce((s, r) => s + r.inscritos, 0);
-                            const liq = filteredRows.reduce((s, r) => s + r.receita_liquida, 0);
-                            return fmtR(ins > 0 ? liq / ins : 0);
-                          })()}
-                        </td>
+                        {canSeeFinancial && (
+                          <>
+                            <td className="py-4 px-4 text-right">{fmtR(filteredRows.reduce((s, r) => s + (r.receita_bruta || 0), 0))}</td>
+                            <td className={`py-4 px-4 text-right ${dark ? 'text-emerald-400' : 'text-emerald-600'}`}>
+                              {fmtR(filteredRows.reduce((s, r) => s + (r.receita_liquida || 0), 0))}
+                            </td>
+                            <td className={`py-4 px-4 text-right ${dark ? 'text-amber-400' : 'text-amber-600'}`}>
+                              {(() => {
+                                const ins = filteredRows.reduce((s, r) => s + r.inscritos, 0);
+                                const liq = filteredRows.reduce((s, r) => s + (r.receita_liquida || 0), 0);
+                                return fmtR(ins > 0 ? liq / ins : 0);
+                              })()}
+                            </td>
+                          </>
+                        )}
                       </tr>
                     </tfoot>
                   </table>
@@ -2087,8 +2183,12 @@ const DetalheEventos: React.FC = () => {
                           </th>
                         ))}
                         <th className="py-4 px-4 text-right">Inscritos</th>
-                        <th className="py-4 px-4 text-right">Rec. Liq.</th>
-                        <th className="py-4 px-4 text-right">Ticket</th>
+                        {canSeeFinancial && (
+                          <>
+                            <th className="py-4 px-4 text-right">Rec. Liq.</th>
+                            <th className="py-4 px-4 text-right">Ticket</th>
+                          </>
+                        )}
                       </tr>
                     </thead>
                     <tbody>
@@ -2102,8 +2202,12 @@ const DetalheEventos: React.FC = () => {
                             return <td key={dim} className={`py-3 px-4 text-xs font-medium ${dark ? 'text-slate-400' : 'text-slate-600'}`}>{val(row[dim])}</td>;
                           })}
                           <td className={`py-3 px-4 text-xs text-right font-black tabular-nums ${dark ? 'text-white' : 'text-slate-900'}`}>{fmt(row.inscritos)}</td>
-                          <td className={`py-3 px-4 text-xs text-right font-bold tabular-nums ${dark ? 'text-emerald-400' : 'text-emerald-600'}`}>{fmtR(row.receita_liquida)}</td>
-                          <td className={`py-3 px-4 text-xs text-right font-bold tabular-nums ${dark ? 'text-amber-400' : 'text-amber-600'}`}>{fmtR(row.ticket_medio)}</td>
+                          {canSeeFinancial && (
+                            <>
+                              <td className={`py-3 px-4 text-xs text-right font-bold tabular-nums ${dark ? 'text-emerald-400' : 'text-emerald-600'}`}>{fmtR(row.receita_liquida || 0)}</td>
+                              <td className={`py-3 px-4 text-xs text-right font-bold tabular-nums ${dark ? 'text-amber-400' : 'text-amber-600'}`}>{fmtR(row.ticket_medio || 0)}</td>
+                            </>
+                          )}
                         </tr>
                       ))}
                     </tbody>

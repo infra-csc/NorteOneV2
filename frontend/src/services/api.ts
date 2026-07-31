@@ -2187,14 +2187,21 @@ export interface SolicitacaoReducao {
 // Detalhamento de Eventos
 // ---------------------------------------------------------------------------
 
+export interface DetalheEventoEdicao {
+  ano: number;
+  ativo_ids: number[];
+  magento_ids: number[];
+}
+
 export interface DetalheEventoDisponivel {
   evento_grupo: string;
   nome_evento: string;
-  ativo_ids: number[];
-  magento_ids: number[];
   anos: number[];
+  edicoes: DetalheEventoEdicao[];
 }
 
+// Campos de receita/ticket vêm ausentes (não zerados) quando o usuário não tem
+// a permissão "Dados Financeiros" — o backend remove a chave inteira.
 export interface DetalheRow {
   canal: string | null;
   kit: string | null;
@@ -2203,9 +2210,9 @@ export interface DetalheRow {
   produtos: string | null;
   tamanho_camiseta: string | null;
   inscritos: number;
-  receita_bruta: number;
-  receita_liquida: number;
-  ticket_medio: number;
+  receita_bruta?: number;
+  receita_liquida?: number;
+  ticket_medio?: number;
   bancos?: string[];
 }
 
@@ -2220,21 +2227,22 @@ export interface DetalheDivergencia {
   consolidado_inscritos: number;
   soma_bancos_inscritos: number;
   diff_inscritos: number;
-  consolidado_receita_liquida: number;
-  soma_bancos_receita_liquida: number;
-  diff_receita_liquida: number;
+  consolidado_receita_liquida?: number;
+  soma_bancos_receita_liquida?: number;
+  diff_receita_liquida?: number;
 }
 
 export interface DetalheTotais {
   inscritos: number;
-  receita_bruta: number;
-  receita_liquida: number;
-  ticket_medio: number;
-  por_canal: Record<string, { inscritos: number; receita_liquida: number }>;
+  receita_bruta?: number;
+  receita_liquida?: number;
+  ticket_medio?: number;
+  por_canal: Record<string, { inscritos: number; receita_liquida?: number }>;
 }
 
 export interface DetalheEventoPayload {
   evento_grupo: string | null;
+  ano?: number | null;
   nome_evento: string | null;
   consolidado: DetalheRow[];
   por_banco: {
@@ -2246,6 +2254,7 @@ export interface DetalheEventoPayload {
   totais: DetalheTotais;
   source?: 'cache' | 'snapshot' | 'live';
   snapshot_updated_at?: string | null;
+  financeiro_oculto?: boolean;
 }
 
 // Preferências de UI por usuário (persistidas no servidor; localStorage é cache)
@@ -2270,11 +2279,12 @@ export const detalheEventosService = {
 
   getDetalhe: async (
     eventoGrupo: string,
+    ano?: number,
     forceRefresh = false,
     signal?: AbortSignal,
   ): Promise<DetalheEventoPayload> => {
     const response = await api.get('/marketing/detalhe-eventos', {
-      params: { evento_grupo: eventoGrupo, force_refresh: forceRefresh },
+      params: { evento_grupo: eventoGrupo, ano, force_refresh: forceRefresh },
       signal,
     });
     return response.data;
