@@ -7,7 +7,8 @@ import {
   Gift, Plus, X, RefreshCw, AlertTriangle, Ticket, FileSpreadsheet,
   CheckCircle2, Clock, Download, Trash2, ChevronDown, ChevronUp,
   LayoutGrid, List as ListIcon, Copy, Check, ClipboardList, FileDown,
-  ToggleLeft, ToggleRight, Filter,
+  ToggleLeft, ToggleRight, Search, ChevronsDown, ChevronsUp,
+  ClipboardCheck,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────
@@ -49,6 +50,12 @@ const fmtDataHora = (iso: string | null | undefined): string => {
   }
 };
 
+const fmtTamanhoArquivo = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
 const extractError = (e: any): string => {
   const detail = e?.response?.data?.detail;
   if (typeof detail === 'string' && detail.trim()) return detail;
@@ -76,7 +83,7 @@ interface FormState {
   saldo: number;
 }
 
-type Aba = 'solicitacoes' | 'geracao';
+type Aba = 'solicitacoes' | 'acompanhamento' | 'geracao';
 type Visualizacao = 'tabela' | 'kanban';
 type KanbanColKey = 'aguardando' | 'gerado' | 'recebida';
 
@@ -346,6 +353,191 @@ const KanbanBoard: React.FC<{ solicitacoes: CortesiaSolicitacaoResponse[] } & Om
   );
 };
 
+// ─────────────────────────────────────────────────────────────
+// Filtro padrão — mesmo componente e mesmo conjunto de campos (busca,
+// evento, área, e opcionalmente tipo/status) em Acompanhamento e Geração de
+// Cupons, para que o usuário aprenda o padrão uma vez e reaproveite nas
+// duas telas.
+// ─────────────────────────────────────────────────────────────
+interface OpcaoFiltro { id: number; nome: string; }
+
+interface FiltroSolicitacoes {
+  busca: string;
+  areaId: number | '';
+  eventoId: number | '';
+  tipo: '' | 'cupom' | 'planilha';
+  status: '' | KanbanColKey;
+}
+
+const FILTRO_VAZIO: FiltroSolicitacoes = { busca: '', areaId: '', eventoId: '', tipo: '', status: '' };
+
+const filtroEstaAtivo = (f: Partial<FiltroSolicitacoes>): boolean =>
+  Boolean(f.busca?.trim() || f.areaId || f.eventoId || f.tipo || f.status);
+
+const opcoesArea = (lista: CortesiaSolicitacaoResponse[]): OpcaoFiltro[] => {
+  const map = new Map<number, string>();
+  for (const s of lista) if (!map.has(s.area_projecao_id)) map.set(s.area_projecao_id, s.area_projecao_nome || `Área ${s.area_projecao_id}`);
+  return Array.from(map, ([id, nome]) => ({ id, nome })).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+};
+
+const opcoesEvento = (lista: CortesiaSolicitacaoResponse[]): OpcaoFiltro[] => {
+  const map = new Map<number, string>();
+  for (const s of lista) if (!map.has(s.evento_id)) map.set(s.evento_id, s.evento_nome || `Evento ${s.evento_id}`);
+  return Array.from(map, ([id, nome]) => ({ id, nome })).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+};
+
+const buscaCasa = (sol: CortesiaSolicitacaoResponse, busca: string): boolean => {
+  const alvo = busca.trim().toLowerCase();
+  if (!alvo) return true;
+  return [sol.evento_nome, sol.area_projecao_nome, sol.solicitado_por_nome, sol.gerado_por_nome, sol.observacao]
+    .some(v => (v || '').toLowerCase().includes(alvo));
+};
+
+// opts.ignorarEvento: Geração de Cupons já usa o campo Evento do filtro para
+// trocar a janela de "Gerados" no backend (histórico completo daquele
+// evento) — reaplicar o mesmo filtro no cliente aí seria redundante, então
+// pendentes filtra por evento e gerados não.
+const aplicarFiltro = (
+  lista: CortesiaSolicitacaoResponse[],
+  filtro: Partial<FiltroSolicitacoes>,
+  opts?: { ignorarEvento?: boolean }
+): CortesiaSolicitacaoResponse[] =>
+  lista.filter(s =>
+    buscaCasa(s, filtro.busca || '') &&
+    (!filtro.areaId || s.area_projecao_id === filtro.areaId) &&
+    (opts?.ignorarEvento || !filtro.eventoId || s.evento_id === filtro.eventoId) &&
+    (!filtro.tipo || s.tipo === filtro.tipo) &&
+    (!filtro.status || colunaDe(s) === filtro.status)
+  );
+
+interface FiltroBarProps {
+  isDark: boolean;
+  busca: string;
+  onBusca: (v: string) => void;
+  buscaPlaceholder?: string;
+  areaId: number | '';
+  onArea: (v: number | '') => void;
+  areaOpcoes: OpcaoFiltro[];
+  eventoId: number | '';
+  onEvento: (v: number | '') => void;
+  eventoOpcoes: OpcaoFiltro[];
+  eventoPlaceholder?: string;
+  status?: '' | KanbanColKey;
+  onStatus?: (v: '' | KanbanColKey) => void;
+  tipo?: '' | 'cupom' | 'planilha';
+  onTipo?: (v: '' | 'cupom' | 'planilha') => void;
+  onLimpar: () => void;
+  resultCount: number;
+  resultLabel?: string;
+}
+
+const FiltroBar: React.FC<FiltroBarProps> = ({
+  isDark, busca, onBusca, buscaPlaceholder, areaId, onArea, areaOpcoes,
+  eventoId, onEvento, eventoOpcoes, eventoPlaceholder, status, onStatus, tipo, onTipo,
+  onLimpar, resultCount, resultLabel,
+}) => {
+  const selectCls = `px-2.5 py-1.5 rounded-lg border text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 ${isDark ? 'bg-gray-900/50 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`;
+  const ativo = filtroEstaAtivo({ busca, areaId, eventoId, tipo, status });
+  return (
+    <div className={`flex flex-wrap items-center gap-2 p-3 rounded-xl border mb-3 ${isDark ? 'border-gray-700 bg-gray-900/30' : 'border-gray-200 bg-gray-50/60'}`}>
+      <div className={`flex items-center gap-1.5 flex-1 min-w-[180px] px-2.5 py-1.5 rounded-lg border ${isDark ? 'bg-gray-900/50 border-gray-600' : 'bg-white border-gray-300'}`}>
+        <Search className={`w-3.5 h-3.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
+        <input
+          type="text"
+          value={busca}
+          onChange={e => onBusca(e.target.value)}
+          placeholder={buscaPlaceholder || 'Buscar por evento, área ou solicitante...'}
+          className={`w-full bg-transparent text-xs focus:outline-none ${isDark ? 'text-gray-200 placeholder:text-gray-600' : 'text-gray-800 placeholder:text-gray-400'}`}
+        />
+      </div>
+      <select value={eventoId} onChange={e => onEvento(e.target.value ? Number(e.target.value) : '')} className={selectCls}>
+        <option value="">{eventoPlaceholder || 'Todos os eventos'}</option>
+        {eventoOpcoes.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+      </select>
+      <select value={areaId} onChange={e => onArea(e.target.value ? Number(e.target.value) : '')} className={selectCls}>
+        <option value="">Todas as áreas</option>
+        {areaOpcoes.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+      </select>
+      {onTipo && (
+        <select value={tipo} onChange={e => onTipo(e.target.value as '' | 'cupom' | 'planilha')} className={selectCls}>
+          <option value="">Cupom e planilha</option>
+          <option value="cupom">Só cupom</option>
+          <option value="planilha">Só planilha</option>
+        </select>
+      )}
+      {onStatus && (
+        <select value={status} onChange={e => onStatus(e.target.value as '' | KanbanColKey)} className={selectCls}>
+          <option value="">Todos os status</option>
+          <option value="aguardando">Aguardando geração</option>
+          <option value="gerado">Gerado</option>
+          <option value="recebida">Recebida</option>
+        </select>
+      )}
+      <span className={`text-[11px] font-medium whitespace-nowrap ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+        {resultCount} {resultLabel || 'resultado(s)'}
+      </span>
+      {ativo && (
+        <button type="button" onClick={onLimpar} className={`text-[11px] font-semibold underline whitespace-nowrap ${isDark ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-gray-800'}`}>
+          Limpar filtros
+        </button>
+      )}
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────
+// Agrupamento por evento (Geração de Cupons) — mesmo espírito do acordeão de
+// "Eventos e saldo por área": cabeçalho com nome/data/contagem, clicável
+// para recolher, várias seções podem ficar abertas ao mesmo tempo.
+// ─────────────────────────────────────────────────────────────
+interface GrupoEvento {
+  evento_id: number;
+  evento_nome: string;
+  evento_data?: string | null;
+  itens: CortesiaSolicitacaoResponse[];
+}
+
+const agruparPorEvento = (lista: CortesiaSolicitacaoResponse[]): GrupoEvento[] => {
+  const ordem: number[] = [];
+  const grupos = new Map<number, GrupoEvento>();
+  for (const sol of lista) {
+    if (!grupos.has(sol.evento_id)) {
+      grupos.set(sol.evento_id, { evento_id: sol.evento_id, evento_nome: sol.evento_nome || `Evento ${sol.evento_id}`, evento_data: sol.evento_data, itens: [] });
+      ordem.push(sol.evento_id);
+    }
+    grupos.get(sol.evento_id)!.itens.push(sol);
+  }
+  return ordem.map(id => grupos.get(id)!);
+};
+
+interface GrupoEventoSectionProps {
+  grupo: GrupoEvento;
+  isDark: boolean;
+  colapsado: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}
+
+const GrupoEventoSection: React.FC<GrupoEventoSectionProps> = ({ grupo, isDark, colapsado, onToggle, children }) => (
+  <div className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+    <button
+      type="button"
+      onClick={onToggle}
+      className={`w-full flex items-center justify-between gap-3 px-3 py-2 text-left transition-colors ${isDark ? 'hover:bg-gray-700/30 bg-gray-800/40' : 'hover:bg-gray-50 bg-gray-50/80'}`}
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        {colapsado ? <ChevronDown className="w-3.5 h-3.5 shrink-0" /> : <ChevronUp className="w-3.5 h-3.5 shrink-0" />}
+        <span className={`text-xs font-bold truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>{grupo.evento_nome}</span>
+        {grupo.evento_data && <span className={`text-[11px] shrink-0 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{fmtData(grupo.evento_data)}</span>}
+      </div>
+      <span className={`shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-white text-gray-500 border border-gray-200'}`}>
+        {grupo.itens.length}
+      </span>
+    </button>
+    {!colapsado && <div className="p-2 space-y-2">{children}</div>}
+  </div>
+);
+
 const SolicitacaoCortesias: React.FC = () => {
   const { isDark } = useTheme();
   const { canView, canCreate, canEdit, canDelete } = usePermissions();
@@ -390,6 +582,38 @@ const SolicitacaoCortesias: React.FC = () => {
   // para o histórico completo daquele evento. Nunca afeta os "Pendentes".
   const [filaEventoId, setFilaEventoId] = useState<number | ''>('');
   const [eventosFila, setEventosFila] = useState<CortesiaEventoFilaOpcao[]>([]);
+
+  // Filtro da aba Acompanhamento (busca + evento + área + tipo + status,
+  // tudo em memória sobre a lista já carregada).
+  const [filtroAcomp, setFiltroAcomp] = useState<FiltroSolicitacoes>(FILTRO_VAZIO);
+  // Filtro da aba Geração de Cupons: busca + área em memória; o campo Evento
+  // reaproveita filaEventoId, que já troca a janela de "Gerados" no backend.
+  const [filtroGeracaoBusca, setFiltroGeracaoBusca] = useState('');
+  const [filtroGeracaoArea, setFiltroGeracaoArea] = useState<number | ''>('');
+  // Chaves "secao-eventoId" recolhidas nos agrupamentos por evento de
+  // Pendentes/Gerados — Set vazio = tudo expandido (padrão).
+  const [gruposColapsados, setGruposColapsados] = useState<Set<string>>(new Set());
+  const toggleGrupo = (chave: string) => {
+    setGruposColapsados(prev => {
+      const next = new Set(prev);
+      if (next.has(chave)) next.delete(chave); else next.add(chave);
+      return next;
+    });
+  };
+  const expandirTodos = (secao: 'pendentes' | 'gerados', grupos: GrupoEvento[]) => {
+    setGruposColapsados(prev => {
+      const next = new Set(prev);
+      grupos.forEach(g => next.delete(`${secao}-${g.evento_id}`));
+      return next;
+    });
+  };
+  const recolherTodos = (secao: 'pendentes' | 'gerados', grupos: GrupoEvento[]) => {
+    setGruposColapsados(prev => {
+      const next = new Set(prev);
+      grupos.forEach(g => next.add(`${secao}-${g.evento_id}`));
+      return next;
+    });
+  };
 
   const [form, setForm] = useState<FormState | null>(null);
   const [tipo, setTipo] = useState<'cupom' | 'planilha'>('cupom');
@@ -637,6 +861,29 @@ const SolicitacaoCortesias: React.FC = () => {
   const pendentesFila = useMemo(() => filaGeracao.filter(s => s.status === 'solicitado'), [filaGeracao]);
   const geradosFila = useMemo(() => filaGeracao.filter(s => s.status === 'gerado'), [filaGeracao]);
 
+  // Acompanhamento: opções do filtro vêm da própria lista carregada e o
+  // resultado filtrado alimenta tanto a Tabela quanto o Kanban.
+  const areaOpcoesAcomp = useMemo(() => opcoesArea(solicitacoes), [solicitacoes]);
+  const eventoOpcoesAcomp = useMemo(() => opcoesEvento(solicitacoes), [solicitacoes]);
+  const solicitacoesFiltradas = useMemo(() => aplicarFiltro(solicitacoes, filtroAcomp), [solicitacoes, filtroAcomp]);
+
+  // Geração de Cupons: mesma busca+área nas duas seções; evento filtra só
+  // Pendentes (Gerados já muda de janela via filaEventoId no backend).
+  const areaOpcoesGeracao = useMemo(() => opcoesArea([...pendentesFila, ...geradosFila]), [pendentesFila, geradosFila]);
+  const eventoOpcoesGeracao = useMemo(() => opcoesEvento([...pendentesFila, ...geradosFila]), [pendentesFila, geradosFila]);
+  const filtroGeracaoAtivo = { busca: filtroGeracaoBusca, areaId: filtroGeracaoArea, eventoId: filaEventoId };
+  const pendentesFiltrados = useMemo(
+    () => aplicarFiltro(pendentesFila, filtroGeracaoAtivo),
+    [pendentesFila, filtroGeracaoBusca, filtroGeracaoArea, filaEventoId]
+  );
+  const geradosFiltrados = useMemo(
+    () => aplicarFiltro(geradosFila, filtroGeracaoAtivo, { ignorarEvento: true }),
+    [geradosFila, filtroGeracaoBusca, filtroGeracaoArea]
+  );
+  const gruposPendentes = useMemo(() => agruparPorEvento(pendentesFiltrados), [pendentesFiltrados]);
+  const gruposGerados = useMemo(() => agruparPorEvento(geradosFiltrados), [geradosFiltrados]);
+  const limparFiltroGeracao = () => { setFiltroGeracaoBusca(''); setFiltroGeracaoArea(''); setFilaEventoId(''); };
+
   if (!podeVisualizar) {
     return (
       <div className="p-6">
@@ -666,6 +913,9 @@ const SolicitacaoCortesias: React.FC = () => {
       <div className={`inline-flex items-center gap-1 p-1 rounded-xl ${isDark ? 'bg-gray-800/50 border border-gray-700/50' : 'bg-gray-100 border border-gray-200'}`}>
         <button type="button" onClick={() => setAba('solicitacoes')} className={abaBtnCls(aba === 'solicitacoes')}>
           <ClipboardList className="w-3.5 h-3.5" /> Solicitações
+        </button>
+        <button type="button" onClick={() => setAba('acompanhamento')} className={abaBtnCls(aba === 'acompanhamento')}>
+          <ClipboardCheck className="w-3.5 h-3.5" /> Acompanhamento
         </button>
         {podeGerarCupom && (
           <button type="button" onClick={() => setAba('geracao')} className={abaBtnCls(aba === 'geracao')}>
@@ -780,40 +1030,64 @@ const SolicitacaoCortesias: React.FC = () => {
               )}
             </div>
           </div>
+        </>
+      )}
 
-          {/* Histórico de solicitações */}
-          <div className={cardCls}>
-            <div className={`flex items-center justify-between p-4 border-b ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`}>
-              <h2 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Solicitações</h2>
-              <div className="flex items-center gap-1.5">
-                <div className={`flex items-center gap-0.5 p-0.5 rounded-lg ${isDark ? 'bg-gray-900/50' : 'bg-gray-100'}`}>
-                  <button type="button" onClick={() => setVisualizacao('tabela')} className={viewBtnCls(visualizacao === 'tabela')}>
-                    <ListIcon className="w-3.5 h-3.5" /> Tabela
-                  </button>
-                  <button type="button" onClick={() => setVisualizacao('kanban')} className={viewBtnCls(visualizacao === 'kanban')}>
-                    <LayoutGrid className="w-3.5 h-3.5" /> Kanban
-                  </button>
-                </div>
-                <button
-                  onClick={carregarSolicitacoes}
-                  className={`p-2 rounded-lg transition-colors ${isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}
-                  title="Atualizar"
-                >
-                  <RefreshCw className={`w-4 h-4 ${loadingSolic ? 'animate-spin' : ''}`} />
+      {aba === 'acompanhamento' && (
+        <div className={cardCls}>
+          <div className={`flex items-center justify-between p-4 border-b ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`}>
+            <h2 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Solicitações</h2>
+            <div className="flex items-center gap-1.5">
+              <div className={`flex items-center gap-0.5 p-0.5 rounded-lg ${isDark ? 'bg-gray-900/50' : 'bg-gray-100'}`}>
+                <button type="button" onClick={() => setVisualizacao('tabela')} className={viewBtnCls(visualizacao === 'tabela')}>
+                  <ListIcon className="w-3.5 h-3.5" /> Tabela
+                </button>
+                <button type="button" onClick={() => setVisualizacao('kanban')} className={viewBtnCls(visualizacao === 'kanban')}>
+                  <LayoutGrid className="w-3.5 h-3.5" /> Kanban
                 </button>
               </div>
+              <button
+                onClick={carregarSolicitacoes}
+                className={`p-2 rounded-lg transition-colors ${isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}
+                title="Atualizar"
+              >
+                <RefreshCw className={`w-4 h-4 ${loadingSolic ? 'animate-spin' : ''}`} />
+              </button>
             </div>
-            <div className="p-4">
-              {errorSolic && (
-                <div className={`flex items-center gap-2 p-3 mb-3 rounded-xl text-sm ${isDark ? 'bg-red-500/10 text-red-400' : 'bg-red-50 text-red-600'}`}>
-                  <AlertTriangle className="w-4 h-4 shrink-0" /> {errorSolic}
-                </div>
-              )}
-              {loadingSolic ? (
-                <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Carregando...</p>
-              ) : solicitacoes.length === 0 ? (
-                <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Nenhuma solicitação registrada ainda.</p>
-              ) : visualizacao === 'tabela' ? (
+          </div>
+          <div className="p-4">
+            {errorSolic && (
+              <div className={`flex items-center gap-2 p-3 mb-3 rounded-xl text-sm ${isDark ? 'bg-red-500/10 text-red-400' : 'bg-red-50 text-red-600'}`}>
+                <AlertTriangle className="w-4 h-4 shrink-0" /> {errorSolic}
+              </div>
+            )}
+            {!loadingSolic && solicitacoes.length > 0 && (
+              <FiltroBar
+                isDark={isDark}
+                busca={filtroAcomp.busca}
+                onBusca={v => setFiltroAcomp(f => ({ ...f, busca: v }))}
+                areaId={filtroAcomp.areaId}
+                onArea={v => setFiltroAcomp(f => ({ ...f, areaId: v }))}
+                areaOpcoes={areaOpcoesAcomp}
+                eventoId={filtroAcomp.eventoId}
+                onEvento={v => setFiltroAcomp(f => ({ ...f, eventoId: v }))}
+                eventoOpcoes={eventoOpcoesAcomp}
+                tipo={filtroAcomp.tipo}
+                onTipo={v => setFiltroAcomp(f => ({ ...f, tipo: v }))}
+                status={filtroAcomp.status}
+                onStatus={v => setFiltroAcomp(f => ({ ...f, status: v }))}
+                onLimpar={() => setFiltroAcomp(FILTRO_VAZIO)}
+                resultCount={solicitacoesFiltradas.length}
+                resultLabel="solicitação(ões)"
+              />
+            )}
+            {loadingSolic ? (
+              <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Carregando...</p>
+            ) : solicitacoes.length === 0 ? (
+              <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Nenhuma solicitação registrada ainda.</p>
+            ) : solicitacoesFiltradas.length === 0 ? (
+              <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Nenhuma solicitação encontrada para estes filtros.</p>
+            ) : visualizacao === 'tabela' ? (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
@@ -829,7 +1103,7 @@ const SolicitacaoCortesias: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {solicitacoes.map(sol => (
+                      {solicitacoesFiltradas.map(sol => (
                         <tr key={sol.id} className={`border-t ${isDark ? 'border-gray-700/50' : 'border-gray-100'}`}>
                           <td className={`px-3 py-2 ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{sol.evento_nome}</td>
                           <td className={`px-3 py-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{sol.area_projecao_nome}</td>
@@ -908,7 +1182,7 @@ const SolicitacaoCortesias: React.FC = () => {
                 </div>
               ) : (
                 <KanbanBoard
-                  solicitacoes={solicitacoes}
+                  solicitacoes={solicitacoesFiltradas}
                   isDark={isDark}
                   podeGerarCupom={podeGerarCupom}
                   podeCancelar={podeCancelar}
@@ -922,16 +1196,14 @@ const SolicitacaoCortesias: React.FC = () => {
               )}
             </div>
           </div>
-        </>
       )}
-
       {aba === 'geracao' && podeGerarCupom && (
         <div className={cardCls}>
           <div className={`flex items-center justify-between p-4 border-b ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`}>
             <div>
               <h2 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Fila de Geração de Cupons</h2>
               <p className={`text-xs mt-0.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                Pendentes de todas as áreas, sempre completos. Gerados dos últimos {FILA_GERADOS_JANELA_DIAS} dias por padrão — filtre por evento para ver o histórico completo.
+                Pendentes de todas as áreas, sempre completos. Gerados dos últimos {FILA_GERADOS_JANELA_DIAS} dias por padrão — selecione um evento no filtro para ver o histórico completo.
               </p>
             </div>
             <div className="flex items-center gap-1.5">
@@ -958,37 +1230,76 @@ const SolicitacaoCortesias: React.FC = () => {
                 <AlertTriangle className="w-4 h-4 shrink-0" /> {errorFila}
               </div>
             )}
+            {!loadingFila && (pendentesFila.length > 0 || geradosFila.length > 0) && (
+              <FiltroBar
+                isDark={isDark}
+                busca={filtroGeracaoBusca}
+                onBusca={setFiltroGeracaoBusca}
+                areaId={filtroGeracaoArea}
+                onArea={setFiltroGeracaoArea}
+                areaOpcoes={areaOpcoesGeracao}
+                eventoId={filaEventoId}
+                onEvento={setFilaEventoId}
+                eventoOpcoes={eventoOpcoesGeracao}
+                eventoPlaceholder={`Últimos ${FILA_GERADOS_JANELA_DIAS} dias (gerados)`}
+                onLimpar={limparFiltroGeracao}
+                resultCount={pendentesFiltrados.length + geradosFiltrados.length}
+                resultLabel="na fila"
+              />
+            )}
             {loadingFila ? (
               <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Carregando...</p>
             ) : (
               <>
                 <section>
-                  <h3 className={`text-xs font-bold uppercase tracking-wide mb-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                    Pendentes <span className={isDark ? 'text-gray-600' : 'text-gray-400'}>({pendentesFila.length})</span>
-                  </h3>
+                  <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
+                    <h3 className={`text-xs font-bold uppercase tracking-wide ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                      Pendentes <span className={isDark ? 'text-gray-600' : 'text-gray-400'}>({pendentesFiltrados.length})</span>
+                    </h3>
+                    {gruposPendentes.length > 1 && (
+                      <div className="flex items-center gap-3">
+                        <button type="button" onClick={() => expandirTodos('pendentes', gruposPendentes)} className={`inline-flex items-center gap-1 text-[11px] font-semibold ${isDark ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-gray-800'}`}>
+                          <ChevronsDown className="w-3 h-3" /> Expandir todos
+                        </button>
+                        <button type="button" onClick={() => recolherTodos('pendentes', gruposPendentes)} className={`inline-flex items-center gap-1 text-[11px] font-semibold ${isDark ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-gray-800'}`}>
+                          <ChevronsUp className="w-3 h-3" /> Recolher todos
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   {pendentesFila.length === 0 ? (
                     <p className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhuma solicitação aguardando geração.</p>
+                  ) : pendentesFiltrados.length === 0 ? (
+                    <p className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhum pendente encontrado para estes filtros.</p>
                   ) : (
                     <div className="space-y-2">
-                      {pendentesFila.map(sol => (
-                        <div key={sol.id} className={`flex items-center justify-between gap-3 rounded-xl border p-3 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
-                          <div className="min-w-0">
-                            <p className={`text-sm font-semibold truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                              {sol.evento_nome} <span className={isDark ? 'text-gray-500' : 'text-gray-400'}>—</span> {sol.area_projecao_nome}
-                            </p>
-                            <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                              {sol.quantidade} cortesias · solicitado por {sol.solicitado_por_nome || '—'} em {fmtDataHora(sol.created_at)}
-                            </p>
-                            {sol.observacao && <p className={`text-xs italic mt-0.5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{sol.observacao}</p>}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => abrirGerar(sol)}
-                            className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${isDark ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'}`}
-                          >
-                            Marcar gerado
-                          </button>
-                        </div>
+                      {gruposPendentes.map(grupo => (
+                        <GrupoEventoSection
+                          key={grupo.evento_id}
+                          grupo={grupo}
+                          isDark={isDark}
+                          colapsado={gruposColapsados.has(`pendentes-${grupo.evento_id}`)}
+                          onToggle={() => toggleGrupo(`pendentes-${grupo.evento_id}`)}
+                        >
+                          {grupo.itens.map(sol => (
+                            <div key={sol.id} className={`flex items-center justify-between gap-3 rounded-xl border p-3 ${isDark ? 'border-gray-700 bg-gray-800/30' : 'border-gray-200 bg-white'}`}>
+                              <div className="min-w-0">
+                                <p className={`text-sm font-semibold truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>{sol.area_projecao_nome}</p>
+                                <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                  {sol.quantidade} cortesias · solicitado por {sol.solicitado_por_nome || '—'} em {fmtDataHora(sol.created_at)}
+                                </p>
+                                {sol.observacao && <p className={`text-xs italic mt-0.5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{sol.observacao}</p>}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => abrirGerar(sol)}
+                                className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${isDark ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'}`}
+                              >
+                                Marcar gerado
+                              </button>
+                            </div>
+                          ))}
+                        </GrupoEventoSection>
                       ))}
                     </div>
                   )}
@@ -996,52 +1307,57 @@ const SolicitacaoCortesias: React.FC = () => {
                 <section>
                   <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
                     <h3 className={`text-xs font-bold uppercase tracking-wide ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                      Gerados <span className={isDark ? 'text-gray-600' : 'text-gray-400'}>({geradosFila.length})</span>
+                      Gerados <span className={isDark ? 'text-gray-600' : 'text-gray-400'}>({geradosFiltrados.length})</span>
                     </h3>
-                    <div className="flex items-center gap-1.5">
-                      <Filter className={`w-3.5 h-3.5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
-                      <select
-                        value={filaEventoId}
-                        onChange={e => setFilaEventoId(e.target.value ? Number(e.target.value) : '')}
-                        className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 ${isDark ? 'bg-gray-900/50 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
-                      >
-                        <option value="">Últimos {FILA_GERADOS_JANELA_DIAS} dias</option>
-                        {eventosFila.map(ev => (
-                          <option key={ev.evento_id} value={ev.evento_id}>
-                            {ev.evento_nome}{ev.evento_data ? ` — ${fmtData(ev.evento_data)}` : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    {gruposGerados.length > 1 && (
+                      <div className="flex items-center gap-3">
+                        <button type="button" onClick={() => expandirTodos('gerados', gruposGerados)} className={`inline-flex items-center gap-1 text-[11px] font-semibold ${isDark ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-gray-800'}`}>
+                          <ChevronsDown className="w-3 h-3" /> Expandir todos
+                        </button>
+                        <button type="button" onClick={() => recolherTodos('gerados', gruposGerados)} className={`inline-flex items-center gap-1 text-[11px] font-semibold ${isDark ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-gray-800'}`}>
+                          <ChevronsUp className="w-3 h-3" /> Recolher todos
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <p className={`text-xs mb-2 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
                     {filaEventoId
                       ? 'Histórico completo de cupons gerados para o evento selecionado.'
-                      : `Mostrando apenas os gerados nos últimos ${FILA_GERADOS_JANELA_DIAS} dias. Selecione um evento para buscar códigos mais antigos.`}
+                      : `Mostrando apenas os gerados nos últimos ${FILA_GERADOS_JANELA_DIAS} dias. Selecione um evento no filtro para buscar códigos mais antigos.`}
                   </p>
                   {geradosFila.length === 0 ? (
                     <p className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
                       {filaEventoId ? 'Nenhum cupom gerado para este evento.' : `Nenhum cupom gerado nos últimos ${FILA_GERADOS_JANELA_DIAS} dias.`}
                     </p>
+                  ) : geradosFiltrados.length === 0 ? (
+                    <p className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhum gerado encontrado para estes filtros.</p>
                   ) : (
                     <div className="space-y-3">
-                      {geradosFila.map(sol => (
-                        <div key={sol.id} className={`rounded-xl border p-3 space-y-2 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
-                          <div className="flex items-center justify-between gap-3">
-                            <p className={`text-sm font-semibold truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                              {sol.evento_nome} <span className={isDark ? 'text-gray-500' : 'text-gray-400'}>—</span> {sol.area_projecao_nome}
-                            </p>
-                            <span className={`shrink-0 text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{fmtDataHora(sol.gerado_em)} · {sol.gerado_por_nome || '—'}</span>
-                          </div>
-                          <CodigosList
-                            codigos={codigosDe(sol)}
-                            isDark={isDark}
-                            variant="full"
-                            detalhes={sol.codigos_detalhes}
-                            onToggleUsado={item => toggleUsado(sol, item)}
-                            togglingId={togglingCodigoId}
-                          />
-                        </div>
+                      {gruposGerados.map(grupo => (
+                        <GrupoEventoSection
+                          key={grupo.evento_id}
+                          grupo={grupo}
+                          isDark={isDark}
+                          colapsado={gruposColapsados.has(`gerados-${grupo.evento_id}`)}
+                          onToggle={() => toggleGrupo(`gerados-${grupo.evento_id}`)}
+                        >
+                          {grupo.itens.map(sol => (
+                            <div key={sol.id} className={`rounded-xl border p-3 space-y-2 ${isDark ? 'border-gray-700 bg-gray-800/30' : 'border-gray-200 bg-white'}`}>
+                              <div className="flex items-center justify-between gap-3">
+                                <p className={`text-sm font-semibold truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>{sol.area_projecao_nome}</p>
+                                <span className={`shrink-0 text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{fmtDataHora(sol.gerado_em)} · {sol.gerado_por_nome || '—'}</span>
+                              </div>
+                              <CodigosList
+                                codigos={codigosDe(sol)}
+                                isDark={isDark}
+                                variant="full"
+                                detalhes={sol.codigos_detalhes}
+                                onToggleUsado={item => toggleUsado(sol, item)}
+                                togglingId={togglingCodigoId}
+                              />
+                            </div>
+                          ))}
+                        </GrupoEventoSection>
                       ))}
                     </div>
                   )}
@@ -1129,12 +1445,35 @@ const SolicitacaoCortesias: React.FC = () => {
               {tipo === 'planilha' && (
                 <div>
                   <label className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Arquivo (.xlsx, .xls ou .csv)</label>
-                  <input
-                    type="file"
-                    accept=".xlsx,.xls,.csv"
-                    onChange={e => setArquivo(e.target.files?.[0] || null)}
-                    className={`w-full text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}
-                  />
+                  {arquivo ? (
+                    <div className={`mt-1 flex items-center justify-between gap-2 p-2.5 rounded-lg border ${isDark ? 'border-gray-600 bg-gray-900/50' : 'border-gray-300 bg-gray-50'}`}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <FileSpreadsheet className={`w-4 h-4 shrink-0 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`} />
+                        <div className="min-w-0">
+                          <p className={`text-xs font-semibold truncate ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{arquivo.name}</p>
+                          <p className={`text-[11px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{fmtTamanhoArquivo(arquivo.size)} · anexado, pronto para enviar</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setArquivo(null)}
+                        title="Remover arquivo"
+                        className={`p-1 rounded-lg shrink-0 transition-colors ${isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-200 text-gray-500'}`}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls,.csv"
+                      onChange={e => setArquivo(e.target.files?.[0] || null)}
+                      className={`w-full text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}
+                    />
+                  )}
+                  <p className={`text-[11px] mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                    Depois de enviada, a planilha fica disponível para baixar na aba Acompanhamento.
+                  </p>
                 </div>
               )}
 

@@ -56,3 +56,5 @@
 - [On-demand kit breakdown pattern](on-demand-kit-breakdown-pattern.md) — nova dimensão (kit/categoria) ausente no snapshot: endpoint próprio + range explícito curto (<=31d) + cache TTL leve; ano sempre opcional, resolvido via _resolve_evento_ano_efetivo.
 - [Redução no Corte 2 exige aprovação](reducao-corte2-aprovacao.md) — só DIMINUIR quantidade total em corte de ajuste vira chamado; área aprovadora é global; novo chamado mesmo evento/área auto-cancela o anterior; aprovação revalida snapshot (409 se desatualizado).
 - [E2E testing against live backend](e2e-testing-live-backend.md) — scripts dentro de backend/ disparam reload do uvicorn (deadlock falso-positivo); envios de e-mail em teste são reais, não mockados.
+- [Blob download error body](axios-blob-error-body.md) — erro de request com responseType:'blob' chega como Blob, não JSON; extractError(e.response.data.detail) sempre undefined sem parse no interceptor.
+- [tsc clean ≠ JSX balanced](tsc-clean-jsx-imbalance.md) — "Unterminated regexp literal" do SWC/esbuild com tsc limpo não é cache velho; rode esbuild isolado p/ confirmar e conte profundidade de tags por linha.

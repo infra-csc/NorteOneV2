@@ -17,7 +17,18 @@ api.interceptors.request.use((config) => {
 
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    // Requisições com responseType: 'blob' (downloads de arquivo/CSV) também
+    // recebem o corpo de erro (403/404/409/429...) como Blob — sem isso,
+    // error.response.data.detail nunca é lido e quem chamou só vê a mensagem
+    // genérica de fallback, mesmo quando o backend explica o motivo exato.
+    if (error.response?.data instanceof Blob && error.response.data.type?.includes('json')) {
+      try {
+        error.response.data = JSON.parse(await error.response.data.text());
+      } catch {
+        // corpo não era JSON válido — segue com o Blob original
+      }
+    }
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
