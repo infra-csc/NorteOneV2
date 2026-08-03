@@ -1,0 +1,92 @@
+SELECT
+    CONVERT_TZ(NOW(), '+00:00', '-03:00')                                           AS 'Data extração',
+    'Ativo'                                                                         AS 'Banco',
+    b.id_evento                                                                     AS 'id_evento',
+    b.ds_evento                                                                     AS 'evento',
+    h.ds_categoria                                                                  AS 'Kit',
+    ''                                                                              AS 'Categoria',
+    m.ds_modalidade                                                                 AS 'Distância',
+    CASE
+        WHEN a.nr_preco = 0 
+             OR a.nr_desconto_individual = a.nr_preco              THEN 'Cortesia'
+        WHEN cupom.en_cupom_classificacao = 'Grupos'               THEN 'Grupos/B2B'
+        WHEN h.ds_categoria LIKE '%Grup%'                          THEN 'Grupos/B2B'
+        ELSE                                                            'Site'
+    END                                                                             AS 'canal',
+    COUNT(DISTINCT a.id_pedido_evento)                                              AS 'inscritos',
+    -- Receita bruta zerada para cortesias
+    SUM(
+        CASE
+            WHEN a.nr_preco = 0 
+                 OR a.nr_desconto_individual = a.nr_preco          THEN 0
+            ELSE a.nr_preco
+        END
+    )                                                                               AS 'receita_bruta',
+    -- Receita líquida zerada para cortesias
+    SUM(
+        CASE
+            WHEN a.nr_preco = 0 
+                 OR a.nr_desconto_individual = a.nr_preco          THEN 0
+            ELSE
+                IF(a.nr_preco - IF (a.nr_desconto_individual IS NULL, 0, a.nr_desconto_individual) 
+                   - IF (h.vl_kit IS NULL, 0, h.vl_kit) < 0, 0,
+                   a.nr_preco - IF (a.nr_desconto_individual IS NULL, 0, a.nr_desconto_individual) 
+                   - IF (h.vl_kit IS NULL, 0, h.vl_kit))
+        END
+    )                                                                               AS 'receita_liquida',
+    -- Ticket médio
+    SUM(
+        CASE
+            WHEN a.nr_preco = 0 
+                 OR a.nr_desconto_individual = a.nr_preco          THEN 0
+            ELSE
+                IF(a.nr_preco - IF (a.nr_desconto_individual IS NULL, 0, a.nr_desconto_individual) 
+                   - IF (h.vl_kit IS NULL, 0, h.vl_kit) < 0, 0,
+                   a.nr_preco - IF (a.nr_desconto_individual IS NULL, 0, a.nr_desconto_individual) 
+                   - IF (h.vl_kit IS NULL, 0, h.vl_kit))
+        END
+    ) / NULLIF(COUNT(DISTINCT a.id_pedido_evento), 0)              AS 'ticket_medio'
+FROM sa_evento AS b
+INNER JOIN sa_pedido_evento AS a
+    ON a.id_evento = b.id_evento
+INNER JOIN sa_pedido AS c
+    ON c.id_pedido = a.id_pedido
+    AND c.id_pedido_status IN (2) -- 2 = PAGO
+LEFT JOIN sa_modalidade_categoria AS h
+    ON h.id_categoria = a.id_categoria
+LEFT JOIN sa_evento_modalidade AS m
+    ON m.id_modalidade = a.id_modalidade
+    AND m.id_evento = b.id_evento
+LEFT JOIN (
+    SELECT
+        e.id_cupom_desconto_item,
+        f.en_cupom_classificacao
+    FROM sa_cupom_desconto_item AS e
+    INNER JOIN sa_cupom_desconto AS f
+        ON f.id_cupom_desconto = e.id_cupom_desconto
+) AS cupom
+    ON cupom.id_cupom_desconto_item = a.id_cupom_individual
+WHERE
+    b.dt_evento BETWEEN MAKEDATE(YEAR(CURDATE()) - 1, 1)
+                    AND MAKEDATE(YEAR(CURDATE()) + 1, 1) - INTERVAL 1 DAY
+    AND (b.id_campanha_salesforce IS NULL
+         OR b.id_campanha_salesforce NOT LIKE '701d0000000%')
+GROUP BY
+    b.id_evento,
+    b.ds_evento,
+    m.id_modalidade,
+    m.ds_modalidade,
+    h.id_categoria,
+    h.ds_categoria,
+    CASE
+        WHEN a.nr_preco = 0 
+             OR a.nr_desconto_individual = a.nr_preco              THEN 'Cortesia'
+        WHEN cupom.en_cupom_classificacao = 'Grupos'               THEN 'Grupos/B2B'
+        WHEN h.ds_categoria LIKE '%Grup%'                          THEN 'Grupos/B2B'
+        ELSE                                                            'Site'
+    END
+HAVING canal = 'Site'
+ORDER BY
+    b.id_evento,
+    canal,
+    inscritos DESC
