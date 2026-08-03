@@ -505,6 +505,7 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
         _fetch_magento_kits_cached,
         fetch_ativo_kits_indexed,
         _normalize_kit_name,
+        _ativo_synthetic_id,
     )
 
     all_configs = db.query(KitConfig).filter(
@@ -794,20 +795,95 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
 
         ativo_kits_index = fetch_ativo_kits_indexed()  # marketing usa só o índice — não precisa do flag
 
+        # Kits "path direto" (Ativo-only, configurados sem CadastroKitProduto —
+        # ver kit_config._ativo_synthetic_id) não têm entrada em kp_by_id.
+        # Agrupa o índice ao vivo por id_evento para permitir achar, por
+        # varredura, qual variante gera o mesmo bundle_entity_id sintético
+        # salvo (o hash id_evento+nome_kit não é reversível analiticamente,
+        # mas o conjunto de kits vivos por evento é pequeno).
+        index_by_eid: dict = {}
+        for (eid, _norm_kit), variants in ativo_kits_index.items():
+            index_by_eid.setdefault(eid, []).append(variants)
+
+        # projeto_id para configs sem CadastroKitProduto: mesmo padrão de 2
+        # caminhos usado acima para Magento (direto via id_evento_magento,
+        # fallback via SkuMapping), partindo do SkuMapping fonte=ATIVO.
+        orphan_eids: set = set()
+        for cfg in ativo_configs:
+            if kp_by_id.get(-cfg.bundle_entity_id) is not None:
+                continue
+            try:
+                orphan_eids.add(int(cfg.id_evento))
+            except (TypeError, ValueError):
+                pass
+
+        orphan_eid_to_projeto: dict = {}
+        if orphan_eids:
+            try:
+                cad_direto_a = db.query(
+                    CadastroEvento.id_evento_magento,
+                    CadastroEvento.projeto_id,
+                ).filter(
+                    CadastroEvento.id_evento_magento.in_(orphan_eids),
+                    CadastroEvento.projeto_id.isnot(None),
+                ).all()
+                for cad in cad_direto_a:
+                    orphan_eid_to_projeto[cad.id_evento_magento] = cad.projeto_id
+            except Exception as _e:
+                logger.warning(f"[ticket_atual] Erro no path direto CadastroEvento (Ativo): {_e}")
+
+            remaining_eids = [e for e in orphan_eids if e not in orphan_eid_to_projeto]
+            if remaining_eids:
+                ativo_sms = db.query(SkuMapping.id_externo, SkuMapping.sku).filter(
+                    SkuMapping.fonte == 'ATIVO',
+                    SkuMapping.id_externo.in_(remaining_eids),
+                ).all()
+                eid_to_sku = {sm.id_externo: sm.sku for sm in ativo_sms if sm.sku}
+                matched_skus = list(eid_to_sku.values())
+                if matched_skus:
+                    cad_rows_a = db.query(CadastroEvento.projeto_id, CadastroEvento.sku).filter(
+                        CadastroEvento.sku.in_(matched_skus),
+                        CadastroEvento.projeto_id.isnot(None),
+                    ).all()
+                    sku_to_projeto = {c.sku: c.projeto_id for c in cad_rows_a}
+                    for eid in remaining_eids:
+                        sku = eid_to_sku.get(eid)
+                        pid = sku_to_projeto.get(sku) if sku else None
+                        if pid:
+                            orphan_eid_to_projeto[eid] = pid
+
         # bundle_data sintético para reusar _resolve_ticket_for_event.
         # Para Ativo não temos status_kit, então tratamos como sempre 'ativo'.
         bundle_data_ativo: dict = {}
+        orphan_projeto_by_bundle: dict = {}
         for cfg in ativo_configs:
-            kp = kp_by_id.get(-cfg.bundle_entity_id)
-            if not kp:
-                continue
             try:
                 evt_id_int = int(cfg.id_evento) if cfg.id_evento is not None else None
             except (TypeError, ValueError):
                 evt_id_int = None
             if evt_id_int is None:
                 continue
-            variants = ativo_kits_index.get((evt_id_int, _normalize_kit_name(kp.kit)), [])
+
+            kp = kp_by_id.get(-cfg.bundle_entity_id)
+            if kp:
+                variants = ativo_kits_index.get((evt_id_int, _normalize_kit_name(kp.kit)), [])
+                nome_kit_resolvido = kp.kit
+            else:
+                # Path direto: acha, entre os kits ao vivo desse evento, qual
+                # reproduz o mesmo ID sintético gravado em bundle_entity_id.
+                variants = []
+                nome_kit_resolvido = None
+                for cand_variants in index_by_eid.get(evt_id_int, []):
+                    kit_display = cand_variants[0].get("kit_display") or ""
+                    if kit_display and _ativo_synthetic_id(evt_id_int, kit_display) == cfg.bundle_entity_id:
+                        variants = cand_variants
+                        nome_kit_resolvido = kit_display
+                        break
+                if variants:
+                    pid = orphan_eid_to_projeto.get(evt_id_int)
+                    if pid:
+                        orphan_projeto_by_bundle[cfg.bundle_entity_id] = pid
+
             if not variants:
                 continue
             # Múltiplas categorias (combo): pega o menor special_price (= mais
@@ -822,7 +898,7 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
             bundle_data_ativo[cfg.bundle_entity_id] = {
                 "sp_base": min(sp_values),
                 "status_kit": "ativo",
-                "nome_kit": kp.kit,
+                "nome_kit": nome_kit_resolvido,
             }
 
         basico_a, promo_principal_a, promo_a = _bucket_configs_by_evento(ativo_configs)
@@ -839,8 +915,25 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
             if ticket is not None:
                 evento_tickets_ativo[evt_key] = ticket
 
-        # Mapeia evt_key (id_evento Ativo) → projeto_id via cfg → kp → cadastro.
-        # Aplica precedência Magento: pula se o projeto já tem ticket do Magento.
+        # Diagnóstico: Básico "path direto" (sem CadastroKitProduto) configurado
+        # mas sem preço resolvido — ajuda a distinguir "variante ao vivo some do
+        # Ativo" de um bug de resolução. Restrito a este caso (não aos básicos
+        # com CadastroKitProduto) para não reintroduzir ruído de gaps
+        # pré-existentes e não relacionados a esta correção.
+        for evt_key, cfg in basico_a.items():
+            if evt_key not in evento_tickets_ativo and kp_by_id.get(-cfg.bundle_entity_id) is None:
+                bd = bundle_data_ativo.get(cfg.bundle_entity_id, {})
+                logger.warning(
+                    f"[ticket_atual] Básico Ativo (path direto) sem preço: "
+                    f"bundle={cfg.bundle_entity_id}, id_evento={evt_key}, "
+                    f"sp_base={bd.get('sp_base')}, "
+                    f"projeto_resolvido={orphan_projeto_by_bundle.get(cfg.bundle_entity_id)}"
+                )
+
+        # Mapeia evt_key (id_evento Ativo) → projeto_id via cfg → kp → cadastro,
+        # com fallback (id_evento_magento / SkuMapping ATIVO) para kits "path
+        # direto" sem CadastroKitProduto. Aplica precedência Magento: pula se
+        # o projeto já tem ticket do Magento.
         cfg_by_evt_key: dict = {}
         for cfg in ativo_configs:
             cfg_by_evt_key.setdefault(str(cfg.id_evento), []).append(cfg)
@@ -848,9 +941,10 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
         for evt_key, ticket_data in evento_tickets_ativo.items():
             for cfg in cfg_by_evt_key.get(evt_key, []):
                 kp = kp_by_id.get(-cfg.bundle_entity_id)
-                if not kp:
-                    continue
-                pid = cadastro_to_projeto.get(kp.cadastro_id)
+                if kp:
+                    pid = cadastro_to_projeto.get(kp.cadastro_id)
+                else:
+                    pid = orphan_projeto_by_bundle.get(cfg.bundle_entity_id)
                 if not pid:
                     continue
                 if pid in magento_projeto_tickets:
