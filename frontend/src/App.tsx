@@ -42,7 +42,6 @@ const SkuMappings = lazyWithRetry(() => import('./pages/admin/SkuMappings'));
 const PerfisAcesso = lazyWithRetry(() => import('./pages/admin/PerfisAcesso'));
 const MonitoramentoUsuarios = lazyWithRetry(() => import('./pages/admin/MonitoramentoUsuarios'));
 const KitConfig = lazyWithRetry(() => import('./pages/admin/KitConfig'));
-const ModalidadeAliases = lazyWithRetry(() => import('./pages/admin/ModalidadeAliases'));
 const SaudeSistema = lazyWithRetry(() => import('./pages/admin/SaudeSistema'));
 const CotacoesImportacao = lazyWithRetry(() => import('./pages/cotacoes/CotacoesImportacao'));
 const ManualSistema = lazyWithRetry(() => import('./pages/manual/ManualSistema'));
@@ -115,7 +114,6 @@ function App() {
               <Route path="/admin/usuarios" element={<PermissionRoute module="admin_usuarios"><Layout><Usuarios /></Layout></PermissionRoute>} />
               <Route path="/admin/sku-mappings" element={<PermissionRoute module="admin_sku_mappings"><Layout><SkuMappings /></Layout></PermissionRoute>} />
               <Route path="/admin/kit-config" element={<PermissionRoute module="admin_kit_config"><Layout><KitConfig /></Layout></PermissionRoute>} />
-              <Route path="/admin/modalidade-aliases" element={<PermissionRoute module="admin_sku_mappings"><Layout><ModalidadeAliases /></Layout></PermissionRoute>} />
               <Route path="/admin/centros-custo" element={<PermissionRoute module="admin_centros_custo"><Layout><CentrosCusto /></Layout></PermissionRoute>} />
               <Route path="/admin/perfis-acesso" element={<PermissionRoute module="admin_perfis_acesso"><Layout><PerfisAcesso /></Layout></PermissionRoute>} />
               <Route path="/admin/monitoramento" element={<PermissionRoute module="admin_monitoramento"><Layout><MonitoramentoUsuarios /></Layout></PermissionRoute>} />

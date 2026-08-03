@@ -63,3 +63,4 @@
 - [Native resize vs footer corner](native-resize-corner-overlap.md) — `resize-x`/`resize-y` + `overflow-auto` cria grip nativo no canto inferior direito; se um botão (ex. Salvar) mora lá, o clique é engolido pelo grip — "clico e não faz nada" sem erro.
 - [Backend-only verification gap](backend-only-verification-gap.md) — chamar funções de backend direto "prova" a lógica mas não testa onClick/disabled/CSS do frontend; log sem nenhuma request durante a tentativa do usuário aponta bug no frontend, não no backend.
 - [Prod running stale code](prod-deploy-staleness-diagnosis.md) — bug relatado que contradiz trace/teste correto no dev pode ser deploy desatualizado (VM não auto-atualiza); confirmar via grep na bundle JS publicada + logs de deployment por string/tag exclusiva do fix.
+- [Overlapping config tables](overlapping-config-tables.md) — 2 telas alimentando 1 pipeline: decidir qual é autoritativa por contagem de linhas em dev+prod, nunca por destaque no código/UI.

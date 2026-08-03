@@ -1907,6 +1907,10 @@ def _run_column_migrations():
             # e alarga a coluna (era VARCHAR(10), só cabia os códigos fixos).
             "ALTER TABLE analises_diarias DROP CONSTRAINT IF EXISTS check_ponto_critico",
             "ALTER TABLE analises_diarias ALTER COLUMN ponto_critico TYPE VARCHAR(255)",
+            # Configuração Modalidade (tela + tabela modalidade_alias) foi descontinuada:
+            # nunca teve uso real (0 linhas em prod/dev) e duplicava a normalização de
+            # modalidade já coberta por Padrões de Dimensão (detalhe_dimensao_alias).
+            "DROP TABLE IF EXISTS modalidade_alias",
         ]
         migrations.extend(cupom_auto_migrations)
         for sql in migrations:

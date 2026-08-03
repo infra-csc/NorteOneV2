@@ -221,13 +221,3 @@ class MarketingSettings(Base):
     key = Column(String(100), unique=True, nullable=False, index=True)
     value = Column(JSON, nullable=False, default=dict)
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
-
-
-class ModalidadeAlias(Base):
-    __tablename__ = "modalidade_alias"
-
-    id = Column(Integer, primary_key=True, index=True)
-    raw_value = Column(String(255), unique=True, nullable=False, index=True)
-    canonical_value = Column(String(255), nullable=False)
-    created_at = Column(DateTime, default=func.now())
-    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
