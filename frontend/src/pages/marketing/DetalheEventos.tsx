@@ -1452,12 +1452,15 @@ const DetalheEventos: React.FC = () => {
           animate={{ opacity: 1, y: 0 }}
           className="mb-8 flex items-center justify-between"
         >
-          <div className="flex items-center gap-4">
-            <div className="p-3.5 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 shadow-xl shadow-blue-900/20 ring-1 ring-white/10">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 shadow-lg shadow-blue-500/30">
               <Table2 className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className={`text-3xl font-black tracking-tight ${textPrimary}`}>Painel do evento</h1>
+              <h1 className={`text-3xl font-black tracking-tight ${textPrimary}`}>
+                Painel
+                <span className="bg-gradient-to-r from-blue-400 via-indigo-500 to-purple-500 bg-clip-text text-transparent"> do evento</span>
+              </h1>
               <p className={`text-sm mt-1 ${textSec}`}>Detalhamento de inscrições por canal, kit, modalidade e mais.</p>
             </div>
           </div>

@@ -898,12 +898,14 @@ const SolicitacaoCortesias: React.FC = () => {
   return (
     <div className="p-4 md:p-6 space-y-5">
       <div className="flex items-center gap-3">
-        <div className={`flex items-center justify-center w-10 h-10 rounded-xl ${isDark ? 'bg-emerald-500/20' : 'bg-emerald-100'}`}>
-          <Gift className={`w-5 h-5 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`} />
+        <div className="p-2 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 shadow-lg shadow-emerald-500/30">
+          <Gift className="w-6 h-6 text-white" />
         </div>
         <div>
-          <h1 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Cortesias</h1>
-          <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+          <h1 className={`text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-gray-900'}`}>
+            <span className="bg-gradient-to-r from-emerald-400 via-teal-500 to-cyan-500 bg-clip-text text-transparent">Cortesias</span>
+          </h1>
+          <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
             Registre pedidos de cupom ou planilha do cliente, dentro do saldo projetado da sua área.
           </p>
         </div>
