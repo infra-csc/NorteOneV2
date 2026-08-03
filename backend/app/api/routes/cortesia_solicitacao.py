@@ -275,6 +275,69 @@ def _calcular_saldo(db: Session, evento_id: int, area_projecao_id: int) -> tuple
     return projetado, solicitado, projetado - solicitado
 
 
+def _calcular_saldos_bulk(
+    db: Session, evento_ids: list[int], area_ids: list[int]
+) -> dict[tuple[int, int], tuple[int, int, int]]:
+    """Versão em lote de `_calcular_saldo`: calcula o saldo de TODAS as
+    combinações evento×área com apenas 2 consultas agregadas (uma soma de
+    projetado, uma de solicitado, ambas agrupadas por evento e área), em vez
+    de 2 consultas para CADA combinação individual. Usada pelas rotas de
+    leitura (`/eventos` e `/saldo`), que precisam do saldo de muitos eventos
+    e/ou áreas de uma vez — o cálculo ponto-a-ponto usado na validação de
+    escrita (`_calcular_saldo`) continua igual, pois lá é sempre uma única
+    combinação por requisição.
+
+    Combinações sem nenhuma linha em nenhuma das duas tabelas simplesmente
+    não aparecem no dict retornado; quem chamar deve tratar o "não encontrado"
+    como (0, 0, 0), igual ao COALESCE(SUM(...), 0) da versão ponto-a-ponto.
+    """
+    if not evento_ids or not area_ids:
+        return {}
+
+    projetado_map: dict[tuple[int, int], int] = {
+        (evento_id, area_projecao_id): int(total or 0)
+        for evento_id, area_projecao_id, total in (
+            db.query(
+                ProjecaoInscritos.evento_id,
+                ProjecaoInscritos.area_projecao_id,
+                func.sum(ProjecaoInscritos.quantidade),
+            )
+            .filter(
+                ProjecaoInscritos.evento_id.in_(evento_ids),
+                ProjecaoInscritos.area_projecao_id.in_(area_ids),
+                ProjecaoInscritos.deleted_at.is_(None),
+            )
+            .group_by(ProjecaoInscritos.evento_id, ProjecaoInscritos.area_projecao_id)
+            .all()
+        )
+    }
+
+    solicitado_map: dict[tuple[int, int], int] = {
+        (evento_id, area_projecao_id): int(total or 0)
+        for evento_id, area_projecao_id, total in (
+            db.query(
+                CortesiaSolicitacao.evento_id,
+                CortesiaSolicitacao.area_projecao_id,
+                func.sum(CortesiaSolicitacao.quantidade),
+            )
+            .filter(
+                CortesiaSolicitacao.evento_id.in_(evento_ids),
+                CortesiaSolicitacao.area_projecao_id.in_(area_ids),
+                CortesiaSolicitacao.deleted_at.is_(None),
+            )
+            .group_by(CortesiaSolicitacao.evento_id, CortesiaSolicitacao.area_projecao_id)
+            .all()
+        )
+    }
+
+    saldos: dict[tuple[int, int], tuple[int, int, int]] = {}
+    for key in set(projetado_map) | set(solicitado_map):
+        projetado = projetado_map.get(key, 0)
+        solicitado = solicitado_map.get(key, 0)
+        saldos[key] = (projetado, solicitado, projetado - solicitado)
+    return saldos
+
+
 def _serialize(sol: CortesiaSolicitacao) -> CortesiaSolicitacaoResponse:
     codigos_detalhes = [
         CupomCodigoItem(
@@ -352,11 +415,13 @@ def list_eventos_saldo(
     if not areas:
         return []
 
+    saldos = _calcular_saldos_bulk(db, [ev.id for ev in eventos], [area.id for area in areas])
+
     result = []
     for ev in eventos:
         area_items = []
         for area in areas:
-            projetado, solicitado, saldo = _calcular_saldo(db, ev.id, area.id)
+            projetado, solicitado, saldo = saldos.get((ev.id, area.id), (0, 0, 0))
             if projetado == 0 and solicitado == 0:
                 continue
             area_items.append(SaldoAreaItem(
@@ -395,9 +460,10 @@ def get_saldo_evento(
             .order_by(AreaProjecao.nome)
             .all()
         )
+    saldos = _calcular_saldos_bulk(db, [evento_id], [area.id for area in areas])
     result = []
     for area in areas:
-        projetado, solicitado, saldo = _calcular_saldo(db, evento_id, area.id)
+        projetado, solicitado, saldo = saldos.get((evento_id, area.id), (0, 0, 0))
         result.append(SaldoAreaItem(
             area_projecao_id=area.id,
             area_projecao_nome=area.nome,
