@@ -46,7 +46,7 @@ const menuItems = [
 ];
 
 const projecaoInscritosItem = { path: '/projecao-inscritos', icon: BarChart3, label: 'Projeção Inscritos', modulo: 'projecao_inscritos' };
-const solicitacaoCortesiasItem = { path: '/cadastros/solicitacao-cortesias', icon: Gift, label: 'Solicitação de Cortesias', modulo: 'cortesia_solicitacao' };
+const solicitacaoCortesiasItem = { path: '/cadastros/solicitacao-cortesias', icon: Gift, label: 'Cortesias', modulo: 'cortesia_solicitacao' };
 
 const cotacaoItems = [
   { path: '/cotacoes', icon: Plane, label: 'Cotação & Importação', modulo: 'cotacoes_importacao' },

@@ -902,7 +902,7 @@ const SolicitacaoCortesias: React.FC = () => {
           <Gift className={`w-5 h-5 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`} />
         </div>
         <div>
-          <h1 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Solicitação de Cortesias</h1>
+          <h1 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Cortesias</h1>
           <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
             Registre pedidos de cupom ou planilha do cliente, dentro do saldo projetado da sua área.
           </p>
