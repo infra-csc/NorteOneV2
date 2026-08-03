@@ -40,3 +40,25 @@ that a new regression existed.
 rule this out first when the report could plausibly be about the deployed
 app (mobile session, "the site", non-dev language) — it's cheaper than
 re-auditing already-verified logic.
+
+## Fixing the query is not the same as fixing already-persisted data
+
+A query/logic fix only changes what *future* reads compute. Any snapshot
+table (`EventoDetailSnapshot`, daily/margin snapshots, etc.) already holding
+rows computed by the *old* logic stays wrong until something explicitly
+recomputes and re-persists it — publishing the fix alone does not retroactively
+correct rows already sitting in the production database. Two ways that
+happens in this project: the nightly scheduled batch re-touches "active"
+(not-yet-concluded) entities automatically, or an admin manually triggers the
+per-entity recompute endpoint (e.g. `recalcular-snapshot` / `consolidar-evento`)
+through the live app's own authenticated UI. Neither is something the agent
+should improvise around by writing directly to `PROD_DATABASE_URL` from a
+standalone script — that bypasses the deployed process's in-memory caches
+(TTL/SWR layers) which would keep serving the old value regardless, and
+skips the concurrency/slot guards the endpoints use to avoid colliding with
+real admin usage.
+
+**How to apply:** after shipping a fix that corrects previously-miscomputed
+values, tell the user explicitly that already-cached/persisted rows need one
+of the two paths above — don't assume the fix is "fully live" just because
+it's published and don't try to correct prod rows out-of-band.

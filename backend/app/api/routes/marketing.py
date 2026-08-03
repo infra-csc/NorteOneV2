@@ -4680,10 +4680,10 @@ FROM (
         b.id_evento,
         h.ds_categoria,
         CASE
-            WHEN a.nr_preco = 0                    THEN 'Cortesia'
-            WHEN h.ds_categoria LIKE '%%Grup%%'    THEN 'Grupos/B2B'
-            WHEN h.ds_categoria LIKE '%%ortesia%%' THEN 'Cortesia'
-            ELSE                                        'Site'
+            WHEN a.nr_preco = 0 OR a.nr_desconto_individual >= a.nr_preco THEN 'Cortesia'
+            WHEN h.ds_categoria LIKE '%%Grup%%'                           THEN 'Grupos/B2B'
+            WHEN h.ds_categoria LIKE '%%ortesia%%'                        THEN 'Cortesia'
+            ELSE                                                               'Site'
         END                                            AS canal,
         COUNT(DISTINCT a.id_pedido_evento)             AS qtd,
         SUM(GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0), 0)) AS receita_liquida
@@ -4720,10 +4720,11 @@ FROM (
     GROUP BY
         b.id_evento,
         h.ds_categoria,
-        CASE 
-            WHEN a.nr_preco = 0               THEN 'Cortesia'
-            WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
-            ELSE                                   'Site'
+        CASE
+            WHEN a.nr_preco = 0 OR a.nr_desconto_individual >= a.nr_preco THEN 'Cortesia'
+            WHEN h.ds_categoria LIKE '%%Grup%%'                           THEN 'Grupos/B2B'
+            WHEN h.ds_categoria LIKE '%%ortesia%%'                        THEN 'Cortesia'
+            ELSE                                                               'Site'
         END
 ) AS sub
 WHERE sub.canal = 'Site'
@@ -5273,7 +5274,7 @@ SELECT /*+ MAX_EXECUTION_TIME(60000) */
     m.nm_modalidade                                                                 AS distancia,
     h.ds_categoria                                                                  AS kit,
     CASE
-        WHEN a.nr_preco = 0                                                                             THEN 'Cortesia'
+        WHEN a.nr_preco = 0 OR a.nr_desconto_individual >= a.nr_preco                                    THEN 'Cortesia'
         WHEN cupom.en_cupom_classificacao = 'Grupos'                                                    THEN 'Grupos/B2B'
         WHEN h.ds_categoria LIKE '%%Grup%%'                                                             THEN 'Grupos/B2B'
         ELSE                                                                                                  'Site'
@@ -5307,7 +5308,7 @@ GROUP BY
     h.id_categoria,
     h.ds_categoria,
     CASE
-        WHEN a.nr_preco = 0                                                                             THEN 'Cortesia'
+        WHEN a.nr_preco = 0 OR a.nr_desconto_individual >= a.nr_preco                                    THEN 'Cortesia'
         WHEN cupom.en_cupom_classificacao = 'Grupos'                                                    THEN 'Grupos/B2B'
         WHEN h.ds_categoria LIKE '%%Grup%%'                                                             THEN 'Grupos/B2B'
         ELSE                                                                                                  'Site'
@@ -8552,10 +8553,14 @@ SELECT /*+ MAX_EXECUTION_TIME(90000) */
     COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL
               OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados'))
         AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%GRUPOS%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
+        AND a.nr_preco > 0
+        AND (a.nr_desconto_individual IS NULL OR a.nr_desconto_individual < a.nr_preco)
         AND c.nr_total > 0 THEN 1 END) AS qtd,
     SUM(CASE WHEN (f.en_cupom_classificacao IS NULL
               OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados'))
         AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%GRUPOS%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
+        AND a.nr_preco > 0
+        AND (a.nr_desconto_individual IS NULL OR a.nr_desconto_individual < a.nr_preco)
         AND c.nr_total > 0 THEN 
         GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0), 0)
     ELSE 0 END) AS receita
@@ -8751,10 +8756,14 @@ SELECT /*+ MAX_EXECUTION_TIME(90000) */
     COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL
               OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados'))
         AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%GRUPOS%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
+        AND a.nr_preco > 0
+        AND (a.nr_desconto_individual IS NULL OR a.nr_desconto_individual < a.nr_preco)
         AND c.nr_total > 0 THEN 1 END) AS qtd,
     SUM(CASE WHEN (f.en_cupom_classificacao IS NULL
               OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados'))
         AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%GRUPOS%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
+        AND a.nr_preco > 0
+        AND (a.nr_desconto_individual IS NULL OR a.nr_desconto_individual < a.nr_preco)
         AND c.nr_total > 0 THEN 
         GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0), 0)
     ELSE 0 END) AS receita
@@ -8881,6 +8890,7 @@ WHERE
     b.id_evento IN :id_eventos
     AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
     AND a.nr_preco > 0
+    AND (a.nr_desconto_individual IS NULL OR a.nr_desconto_individual < a.nr_preco)
     AND (cupom.en_cupom_classificacao IS NULL OR cupom.en_cupom_classificacao <> 'Grupos')
     AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
     AND c.dt_pedido < CURDATE() + INTERVAL 1 DAY
@@ -9036,6 +9046,7 @@ WHERE
     b.id_evento IN :id_eventos
     AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
     AND a.nr_preco > 0
+    AND (a.nr_desconto_individual IS NULL OR a.nr_desconto_individual < a.nr_preco)
     AND (cupom.en_cupom_classificacao IS NULL OR cupom.en_cupom_classificacao <> 'Grupos')
     AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
     AND c.dt_pedido < CURDATE() + INTERVAL 1 DAY
@@ -9094,6 +9105,7 @@ WHERE
     b.id_evento IN :id_eventos
     AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
     AND a.nr_preco > 0
+    AND (a.nr_desconto_individual IS NULL OR a.nr_desconto_individual < a.nr_preco)
     AND (cupom.en_cupom_classificacao IS NULL OR cupom.en_cupom_classificacao <> 'Grupos')
     AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
     AND c.dt_pedido >= :data_inicio
@@ -9143,6 +9155,7 @@ WHERE
     b.id_evento IN :id_eventos
     AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
     AND a.nr_preco > 0
+    AND (a.nr_desconto_individual IS NULL OR a.nr_desconto_individual < a.nr_preco)
     AND (cupom.en_cupom_classificacao IS NULL OR cupom.en_cupom_classificacao <> 'Grupos')
     AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
     AND c.dt_pedido >= CURDATE()
@@ -9263,6 +9276,7 @@ WHERE
     b.id_evento IN :id_eventos
     AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
     AND a.nr_preco > 0
+    AND (a.nr_desconto_individual IS NULL OR a.nr_desconto_individual < a.nr_preco)
     AND (cupom.en_cupom_classificacao IS NULL OR cupom.en_cupom_classificacao <> 'Grupos')
     AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
     AND c.dt_pedido >= CURDATE()
@@ -9838,6 +9852,8 @@ SELECT /*+ MAX_EXECUTION_TIME(90000) */
     COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL
               OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados'))
         AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%GRUPOS%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
+        AND a.nr_preco > 0
+        AND (a.nr_desconto_individual IS NULL OR a.nr_desconto_individual < a.nr_preco)
         AND c.nr_total > 0 THEN 1 END) AS qtd
 FROM sa_pedido_evento AS a
 INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
@@ -9874,6 +9890,8 @@ SELECT /*+ MAX_EXECUTION_TIME(90000) */
     COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL
               OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados'))
         AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%GRUPOS%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
+        AND a.nr_preco > 0
+        AND (a.nr_desconto_individual IS NULL OR a.nr_desconto_individual < a.nr_preco)
         AND c.nr_total > 0 THEN 1 END) AS qtd
 FROM sa_pedido_evento AS a
 INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
@@ -16575,7 +16593,7 @@ def diagnostico_inscricoes(
 
     canal_case = """
         CASE
-            WHEN a.nr_preco = 0 THEN 'Cortesia'
+            WHEN a.nr_preco = 0 OR a.nr_desconto_individual >= a.nr_preco THEN 'Cortesia'
             WHEN cupom.en_cupom_classificacao IN ('Funcionário','Cortesia Faturada','Coligados') THEN 'Cortesia'
             WHEN cupom.en_cupom_classificacao = 'Grupos' THEN 'Grupos/B2B'
             WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'

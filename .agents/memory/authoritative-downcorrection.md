@@ -42,3 +42,20 @@ leitura parcial ⇒ preserva piso + aviso ao usuário. Auto-heal noturno
 **NÃO confundir:** o `EXCLUDED` direto (não GREATEST) para `qtd_inscricoes` de
 bundles MAPEADOS em `_persist_batch` é PRÉ-EXISTENTE (fix de cross-event
 contamination), não faz parte dessa correção e não deve virar GREATEST.
+
+## Escopo da guarda de 95%: é sobre MARGEM (dinheiro), não sobre contagem
+
+A guarda de `save_persisted_detail` (`is_completed=True` E nova margem <95%
+da existente → preserva snapshot antigo) compara `_extract_margem_total`
+(receita/margem em R$), não headcount. Uma correção que apenas RECLASSIFICA
+registros entre canais (ex.: Site→Cortesia por cupom de desconto integral)
+sem mudar o total monetário — porque a linha já contribuía R$0 de receita
+líquida em ambas as classificações — passa pela guarda inalterada mesmo em
+evento concluído, sem precisar de `bypass_completed_guard`. Só reclassificações
+que também MOVEM dinheiro (>5% de queda na margem) esbarram na guarda.
+
+**Como aplicar:** antes de assumir que uma correção de contagem/canal precisa
+do caminho de correção autoritativa (slot global + bypass), confirme se ela
+de fato reduz `_extract_margem_total`; se o impacto monetário é ~0, um
+recompute normal (endpoint `recalcular-snapshot` / `consolidar-evento`) já
+grava o valor corrigido.
