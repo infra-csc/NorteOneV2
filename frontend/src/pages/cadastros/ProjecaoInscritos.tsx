@@ -867,6 +867,13 @@ const ProjecaoInscritos: React.FC = () => {
   const [formClientes, setFormClientes] = useState<ClienteItem[]>([{ nome_cliente: '', quantidade: '' }]);
   const [formTemKit, setFormTemKit] = useState(false);
   const [formKits, setFormKits] = useState<KitItem[]>(buildKitsPadrao());
+  // Texto "em digitação" dos campos de Projeção Ajuste (delta). O valor exibido nesses
+  // campos é derivado (total - convicta), então um estado local é necessário para não
+  // perder um "-" isolado digitado: sem isso, qualquer re-render reaplica o delta já
+  // commitado e apaga o sinal antes do usuário terminar de digitar o número negativo.
+  const [ajusteDraft, setAjusteDraft] = useState<string | null>(null);
+  const [kitAjusteDraft, setKitAjusteDraft] = useState<Record<number, string>>({});
+  const [clienteAjusteDraft, setClienteAjusteDraft] = useState<Record<number, string>>({});
   const [camisetaAvulsaInfo, setCamisetaAvulsaInfo] = useState<{ corte1_congelado: boolean; teto: number }>({ corte1_congelado: false, teto: 0 });
   const [editCorte2, setEditCorte2] = useState(false);
   const [corte1Dist, setCorte1Dist] = useState<{ evento_id: number; area_projecao_id: number; quantidade: number; kits: { nome_kit: string; quantidade: number }[]; clientes: { nome_cliente: string; quantidade: number }[]; fonte: string } | null>(null);
@@ -2399,6 +2406,9 @@ const ProjecaoInscritos: React.FC = () => {
 
   const removeCliente = (idx: number) => {
     setFormClientes(prev => prev.filter((_, i) => i !== idx));
+    // Remover uma linha desloca os índices das demais; descarta qualquer texto de
+    // Ajuste "em digitação" (ainda não commitado) para não exibi-lo na linha errada.
+    setClienteAjusteDraft({});
   };
 
   const updateCliente = (idx: number, field: keyof ClienteItem, value: string) => {
@@ -2411,6 +2421,8 @@ const ProjecaoInscritos: React.FC = () => {
 
   const removeKit = (idx: number) => {
     setFormKits(prev => prev.filter((_, i) => i !== idx));
+    // Mesmo motivo de removeCliente: índices deslocam, descarta drafts em digitação.
+    setKitAjusteDraft({});
   };
 
   const updateKit = (idx: number, field: keyof KitItem, value: string) => {
@@ -5687,14 +5699,16 @@ const ProjecaoInscritos: React.FC = () => {
                         <input
                           type="text"
                           inputMode="numeric"
-                          value={formatMilhar(formAjusteDelta)}
+                          value={ajusteDraft !== null ? formatMilhar(ajusteDraft) : formatMilhar(formAjusteDelta)}
                           onChange={e => {
                             const stripped = stripMilhar(e.target.value);
+                            setAjusteDraft(stripped);
                             if (stripped === '' || stripped === '-') return;
                             const parsed = parseInt(stripped, 10);
                             if (isNaN(parsed)) return;
                             setFormQuantidade(String(Math.max(1, c1Qty + parsed)));
                           }}
+                          onBlur={() => setAjusteDraft(null)}
                           placeholder="0"
                           className={`flex-1 min-w-0 py-2 text-sm text-center bg-transparent border-0 focus:outline-none focus:ring-0 placeholder-gray-500 ${formAjusteNegativo ? (isDark ? 'text-red-300' : 'text-red-600') : (isDark ? 'text-white' : 'text-gray-900')}`}
                         />
@@ -5825,14 +5839,21 @@ const ProjecaoInscritos: React.FC = () => {
                                 <input
                                   type="text"
                                   inputMode="numeric"
-                                  value={formatMilhar(kc2)}
+                                  value={formatMilhar(kitAjusteDraft[idx] ?? kc2)}
                                   onChange={e => {
                                     const stripped = stripMilhar(e.target.value);
+                                    setKitAjusteDraft(prev => ({ ...prev, [idx]: stripped }));
                                     if (stripped === '' || stripped === '-') return;
                                     const parsed = parseInt(stripped, 10);
                                     if (isNaN(parsed)) return;
                                     updateKit(idx, 'quantidade', String(Math.max(0, kc1 + parsed)));
                                   }}
+                                  onBlur={() => setKitAjusteDraft(prev => {
+                                    if (!(idx in prev)) return prev;
+                                    const next = { ...prev };
+                                    delete next[idx];
+                                    return next;
+                                  })}
                                   placeholder="0"
                                   className={`flex-1 min-w-0 py-2 text-xs text-center bg-transparent border-0 focus:outline-none focus:ring-0 placeholder-gray-500 ${kc2 < 0 ? (isDark ? 'text-red-300' : 'text-red-600') : (isDark ? 'text-white' : 'text-gray-900')}`}
                                 />
@@ -5956,14 +5977,21 @@ const ProjecaoInscritos: React.FC = () => {
                               <input
                                 type="text"
                                 inputMode="numeric"
-                                value={formatMilhar(cc2)}
+                                value={formatMilhar(clienteAjusteDraft[idx] ?? cc2)}
                                 onChange={e => {
                                   const stripped = stripMilhar(e.target.value);
+                                  setClienteAjusteDraft(prev => ({ ...prev, [idx]: stripped }));
                                   if (stripped === '' || stripped === '-') return;
                                   const parsed = parseInt(stripped, 10);
                                   if (isNaN(parsed)) return;
                                   updateCliente(idx, 'quantidade', String(Math.max(0, cc1 + parsed)));
                                 }}
+                                onBlur={() => setClienteAjusteDraft(prev => {
+                                  if (!(idx in prev)) return prev;
+                                  const next = { ...prev };
+                                  delete next[idx];
+                                  return next;
+                                })}
                                 placeholder="0"
                                 className={`w-full px-2 py-1.5 rounded-lg border text-sm text-center focus:outline-none focus:ring-2 ${cc2 < 0 ? (isDark ? 'bg-red-500/10 border-red-500/30 text-red-300 focus:ring-red-500' : 'bg-red-50 border-red-200 text-red-600 focus:ring-red-500') : (isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500 focus:ring-blue-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400 focus:ring-blue-500')}`}
                               />
