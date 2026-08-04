@@ -67,3 +67,4 @@
 - [Widen visibility vs backend scope](widen-visibility-vs-backend-scope.md) — soltar só o gate de render no frontend não basta; se o GET ainda filtra por área do caller, card aparece mas vem vazio.
 - [Interceptor synthesized errors](interceptor-synthesized-error-response.md) — shared axios interceptor that builds a new Error per status code must copy error.response/config, or a later unrelated feature reusing that code loses response.data.detail silently.
 - [Derived-delta input draft buffer](derived-delta-input-draft-buffer.md) — a text input showing total-minus-baseline (not the raw typed text) needs a local draft-text state, or typing "-" gets wiped by unrelated re-renders.
+- [Projeção list vs mutation response](projecao-list-vs-mutation-response.md) — new derived/advisory row fields only need populating in the list endpoint; create/update responses are discarded (frontend always refetches via loadData()).

@@ -359,8 +359,24 @@ def list_projecoes(
     )
     projecoes = query.order_by(CadastroEvento.data_evento.desc(), AreaProjecao.nome).all()
 
+    # Task #241: uma projeção com chamado de redução pendente pode mudar de
+    # valor quando o chamado for decidido — sinaliza isso na listagem para
+    # que o usuário não seja pego de surpresa.
+    pendentes_por_projecao = {}
+    if projecoes:
+        pendentes_rows = db.query(
+            ProjecaoReducaoSolicitacao.projecao_id,
+            ProjecaoReducaoSolicitacao.id,
+            ProjecaoReducaoSolicitacao.quantidade_proposta,
+        ).filter(
+            ProjecaoReducaoSolicitacao.status == "pendente",
+            ProjecaoReducaoSolicitacao.projecao_id.in_([p.id for p in projecoes]),
+        ).all()
+        pendentes_por_projecao = {row.projecao_id: row for row in pendentes_rows}
+
     result = []
     for p in projecoes:
+        pendente = pendentes_por_projecao.get(p.id)
         result.append(ProjecaoInscritosResponse(
             id=p.id,
             evento_id=p.evento_id,
@@ -390,6 +406,8 @@ def list_projecoes(
             fora_prazo_trava=p.fora_prazo_trava,
             fora_prazo_em=p.fora_prazo_em,
             fora_prazo_por_nome=p.fora_prazo_usuario.nome if p.fora_prazo_usuario else None,
+            chamado_pendente_id=pendente.id if pendente else None,
+            chamado_pendente_quantidade_proposta=pendente.quantidade_proposta if pendente else None,
         ))
     return result
 

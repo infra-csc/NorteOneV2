@@ -206,6 +206,8 @@ interface Projecao {
   fora_prazo_trava: string | null;
   fora_prazo_em: string | null;
   fora_prazo_por_nome: string | null;
+  chamado_pendente_id?: number | null;
+  chamado_pendente_quantidade_proposta?: number | null;
 }
 
 interface HistoricoItem {
@@ -970,6 +972,48 @@ const ProjecaoInscritos: React.FC = () => {
   const [motivoRejeicaoDraft, setMotivoRejeicaoDraft] = useState('');
   // Admin sempre pode decidir (fallback), independente da área aprovadora configurada.
   const isAprovadorReducao = isAdmin || (aprovadoraConfig.area_projecao_id != null && myAreaIds.has(aprovadoraConfig.area_projecao_id));
+
+  // ── Filtros da aba Aprovações (Task #241) ──
+  const [filtroAprovStatus, setFiltroAprovStatus] = useState('');
+  const [filtroAprovEventoIds, setFiltroAprovEventoIds] = useState<string[]>([]);
+  const [filtroAprovAreaIds, setFiltroAprovAreaIds] = useState<string[]>([]);
+  const [filtroAprovDe, setFiltroAprovDe] = useState('');
+  const [filtroAprovAte, setFiltroAprovAte] = useState('');
+
+  const filtroAprovOpcoesEvento = useMemo(() => {
+    const map = new Map<number, string>();
+    [...solicitacoesPendentes, ...minhasSolicitacoesReducao].forEach(s => {
+      if (!map.has(s.evento_id)) map.set(s.evento_id, s.evento_nome || `Evento #${s.evento_id}`);
+    });
+    return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+  }, [solicitacoesPendentes, minhasSolicitacoesReducao]);
+
+  const filtroAprovOpcoesArea = useMemo(() => {
+    const map = new Map<number, string>();
+    [...solicitacoesPendentes, ...minhasSolicitacoesReducao].forEach(s => {
+      if (!map.has(s.area_projecao_id)) map.set(s.area_projecao_id, s.area_projecao_nome || `Área #${s.area_projecao_id}`);
+    });
+    return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+  }, [solicitacoesPendentes, minhasSolicitacoesReducao]);
+
+  const aprovFiltrosAtivos = !!(filtroAprovStatus || filtroAprovEventoIds.length > 0 || filtroAprovAreaIds.length > 0 || filtroAprovDe || filtroAprovAte);
+
+  const solicitacoesPendentesFiltradas = useMemo(() => solicitacoesPendentes.filter(sol => {
+    if (filtroAprovEventoIds.length > 0 && !filtroAprovEventoIds.includes(String(sol.evento_id))) return false;
+    if (filtroAprovAreaIds.length > 0 && !filtroAprovAreaIds.includes(String(sol.area_projecao_id))) return false;
+    if (filtroAprovDe && (!sol.solicitado_em || sol.solicitado_em.slice(0, 10) < filtroAprovDe)) return false;
+    if (filtroAprovAte && (!sol.solicitado_em || sol.solicitado_em.slice(0, 10) > filtroAprovAte)) return false;
+    return true;
+  }), [solicitacoesPendentes, filtroAprovEventoIds, filtroAprovAreaIds, filtroAprovDe, filtroAprovAte]);
+
+  const minhasSolicitacoesFiltradas = useMemo(() => minhasSolicitacoesReducao.filter(sol => {
+    if (filtroAprovStatus && sol.status !== filtroAprovStatus) return false;
+    if (filtroAprovEventoIds.length > 0 && !filtroAprovEventoIds.includes(String(sol.evento_id))) return false;
+    if (filtroAprovAreaIds.length > 0 && !filtroAprovAreaIds.includes(String(sol.area_projecao_id))) return false;
+    if (filtroAprovDe && (!sol.solicitado_em || sol.solicitado_em.slice(0, 10) < filtroAprovDe)) return false;
+    if (filtroAprovAte && (!sol.solicitado_em || sol.solicitado_em.slice(0, 10) > filtroAprovAte)) return false;
+    return true;
+  }), [minhasSolicitacoesReducao, filtroAprovStatus, filtroAprovEventoIds, filtroAprovAreaIds, filtroAprovDe, filtroAprovAte]);
 
   const [notifDraft, setNotifDraft] = useState<{ ativo: boolean; hora: string }>({ ativo: false, hora: '8' });
   const [savingNotif, setSavingNotif] = useState(false);
@@ -3652,6 +3696,15 @@ const ProjecaoInscritos: React.FC = () => {
                                       Fora do prazo
                                     </span>
                                   )}
+                                  {p.chamado_pendente_id != null && (
+                                    <span
+                                      title={`Chamado #${p.chamado_pendente_id} pendente: solicitação de redução para ${formatNumber(p.chamado_pendente_quantidade_proposta ?? 0)}, aguardando aprovação. O valor pode mudar.`}
+                                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase tracking-wide ${isDark ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40' : 'bg-blue-100 text-blue-700 border border-blue-300'}`}
+                                    >
+                                      <Clock className="w-3 h-3 flex-shrink-0" />
+                                      Chamado pendente
+                                    </span>
+                                  )}
                                 </div>
                               </td>
                               <td className={`px-4 py-3 text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
@@ -4213,6 +4266,69 @@ const ProjecaoInscritos: React.FC = () => {
 
         {activeTab === 'aprovacoes' && (
           <div className="space-y-6">
+            {/* Filtros (Task #241) */}
+            <div className={`flex flex-wrap items-center gap-3 p-4 rounded-2xl ${isDark ? 'bg-gray-800/30 border border-gray-700/50' : 'bg-white/50 border border-gray-200'}`}>
+              <Filter className={`w-4 h-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+              <div className="relative">
+                <select
+                  value={filtroAprovStatus}
+                  onChange={e => setFiltroAprovStatus(e.target.value)}
+                  title="Filtra 'Minhas solicitações' (a fila de pendentes já é só status pendente)"
+                  className={`${selectClass} pr-8 appearance-none cursor-pointer`}
+                >
+                  <option value="">Todos os status</option>
+                  <option value="pendente">Pendente</option>
+                  <option value="aprovado">Aprovado</option>
+                  <option value="rejeitado">Rejeitado</option>
+                  <option value="cancelado">Cancelado (substituído)</option>
+                </select>
+                <ChevronDown className={`pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+              </div>
+              <MultiSelectDropdown
+                options={filtroAprovOpcoesEvento.map(([id, nome]) => ({ value: String(id), label: nome }))}
+                selected={filtroAprovEventoIds}
+                onChange={setFiltroAprovEventoIds}
+                placeholder="Todos os eventos"
+                isDark={isDark}
+              />
+              <MultiSelectDropdown
+                options={filtroAprovOpcoesArea.map(([id, nome]) => ({ value: String(id), label: nome }))}
+                selected={filtroAprovAreaIds}
+                onChange={setFiltroAprovAreaIds}
+                placeholder="Todas as áreas"
+                isDark={isDark}
+              />
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="date"
+                  value={filtroAprovDe}
+                  onChange={e => setFiltroAprovDe(e.target.value)}
+                  title="Solicitado de"
+                  className={selectClass}
+                />
+                <span className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>até</span>
+                <input
+                  type="date"
+                  value={filtroAprovAte}
+                  onChange={e => setFiltroAprovAte(e.target.value)}
+                  title="Solicitado até"
+                  className={selectClass}
+                />
+              </div>
+              {aprovFiltrosAtivos && (
+                <button
+                  type="button"
+                  onClick={() => { setFiltroAprovStatus(''); setFiltroAprovEventoIds([]); setFiltroAprovAreaIds([]); setFiltroAprovDe(''); setFiltroAprovAte(''); }}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all hover:scale-105 ${
+                    isDark ? 'bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/30' : 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'
+                  }`}
+                >
+                  <X className="w-3.5 h-3.5" />
+                  Limpar filtros
+                </button>
+              )}
+            </div>
+
             {isAprovadorReducao && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between flex-wrap gap-3">
@@ -4240,9 +4356,14 @@ const ProjecaoInscritos: React.FC = () => {
                     <Check className="w-5 h-5 flex-shrink-0" />
                     Nenhum chamado pendente no momento.
                   </div>
+                ) : solicitacoesPendentesFiltradas.length === 0 ? (
+                  <div className={`flex items-center gap-3 px-5 py-4 rounded-2xl border text-sm ${isDark ? 'bg-gray-800/50 border-gray-700/50 text-gray-400' : 'bg-white border-gray-200 text-gray-500'}`}>
+                    <Filter className="w-4 h-4 flex-shrink-0" />
+                    Nenhum chamado pendente corresponde aos filtros selecionados.
+                  </div>
                 ) : (
                   <div className="space-y-3">
-                    {solicitacoesPendentes.map(sol => (
+                    {solicitacoesPendentesFiltradas.map(sol => (
                       <div key={sol.id} className={cardClass}>
                         <div className="flex items-start justify-between gap-4 flex-wrap">
                           <div className="min-w-0 space-y-1">
@@ -4306,6 +4427,11 @@ const ProjecaoInscritos: React.FC = () => {
                 <div className={`flex items-center gap-3 px-5 py-4 rounded-2xl border text-sm ${isDark ? 'bg-gray-800/50 border-gray-700/50 text-gray-400' : 'bg-white border-gray-200 text-gray-500'}`}>
                   Você ainda não abriu nenhum chamado de redução.
                 </div>
+              ) : minhasSolicitacoesFiltradas.length === 0 ? (
+                <div className={`flex items-center gap-3 px-5 py-4 rounded-2xl border text-sm ${isDark ? 'bg-gray-800/50 border-gray-700/50 text-gray-400' : 'bg-white border-gray-200 text-gray-500'}`}>
+                  <Filter className="w-4 h-4 flex-shrink-0" />
+                  Nenhuma solicitação corresponde aos filtros selecionados.
+                </div>
               ) : (
                 <div className={`rounded-2xl border overflow-hidden ${isDark ? 'bg-gray-800/50 border-gray-700/50' : 'bg-white border-gray-200'}`}>
                   <div className="overflow-x-auto">
@@ -4316,11 +4442,12 @@ const ProjecaoInscritos: React.FC = () => {
                           <th className="px-4 py-2.5">Área</th>
                           <th className="px-4 py-2.5 text-right">Qtd.</th>
                           <th className="px-4 py-2.5">Status</th>
+                          <th className="px-4 py-2.5">Observações</th>
                           <th className="px-4 py-2.5">Quando</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {minhasSolicitacoesReducao.map(sol => {
+                        {minhasSolicitacoesFiltradas.map(sol => {
                           const statusStyle = sol.status === 'pendente'
                             ? (isDark ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-100 text-amber-700')
                             : sol.status === 'aprovado'
@@ -4339,8 +4466,22 @@ const ProjecaoInscritos: React.FC = () => {
                                 <span className={`inline-flex px-2 py-0.5 rounded-lg text-xs font-semibold capitalize ${statusStyle}`}>
                                   {_STATUS_SOLICITACAO_LABEL_FRONT[sol.status] || sol.status}
                                 </span>
-                                {sol.status === 'rejeitado' && sol.motivo_rejeicao && (
-                                  <p className={`mt-1 text-xs italic ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>"{sol.motivo_rejeicao}"</p>
+                              </td>
+                              <td className={`px-4 py-2.5 max-w-xs text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                {!sol.motivo && !sol.decidido_por_nome ? '—' : (
+                                  <div className="space-y-1">
+                                    {sol.motivo && (
+                                      <p title={sol.motivo}>
+                                        <span className="font-semibold not-italic">Solicitante:</span> <span className="italic">"{sol.motivo}"</span>
+                                      </p>
+                                    )}
+                                    {sol.decidido_por_nome && (
+                                      <p title={sol.decidido_em ? new Date(sol.decidido_em).toLocaleString('pt-BR') : undefined}>
+                                        <span className="font-semibold">{sol.status === 'rejeitado' ? 'Rejeitado' : sol.status === 'aprovado' ? 'Aprovado' : 'Decidido'} por:</span> {sol.decidido_por_nome}
+                                        {sol.motivo_rejeicao && <> — <span className="italic">"{sol.motivo_rejeicao}"</span></>}
+                                      </p>
+                                    )}
+                                  </div>
                                 )}
                               </td>
                               <td className={`px-4 py-2.5 text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
@@ -5685,6 +5826,14 @@ const ProjecaoInscritos: React.FC = () => {
                   </div>
                 );
               })()}
+              {editingProjecao.chamado_pendente_id != null && (
+                <div className={`flex items-start gap-2.5 p-3 rounded-xl border text-xs ${isDark ? 'bg-blue-500/10 border-blue-500/40 text-blue-300' : 'bg-blue-50 border-blue-300 text-blue-800'}`}>
+                  <Clock className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold">Chamado pendente:</span> existe uma solicitação de redução para <span className="font-semibold">{formatNumber(editingProjecao.chamado_pendente_quantidade_proposta ?? 0)}</span> aguardando aprovação. Este valor pode mudar quando o chamado for decidido.
+                  </div>
+                </div>
+              )}
               {emCorte2 ? (
                 <div>
                   <div className="flex items-center justify-between mb-1">

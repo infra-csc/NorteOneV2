@@ -128,6 +128,11 @@ class ProjecaoInscritosResponse(BaseModel):
     fora_prazo_trava: Optional[str] = None
     fora_prazo_em: Optional[datetime] = None
     fora_prazo_por_nome: Optional[str] = None
+    # Chamado de redução pendente (Task #241): se preenchido, existe uma
+    # solicitação de redução aguardando decisão para esta projeção — o valor
+    # pode mudar quando o chamado for aprovado ou rejeitado.
+    chamado_pendente_id: Optional[int] = None
+    chamado_pendente_quantidade_proposta: Optional[int] = None
 
     class Config:
         from_attributes = True

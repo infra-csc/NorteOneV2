@@ -39,3 +39,18 @@ emails to two real employee inboxes with no way to intercept or undo it.
 scripts outside `backend/`/`frontend/`, and if the feature under test
 triggers email/SMS/webhook notifications, disclose to the user afterward
 that real sends happened rather than assuming they were suppressed.
+
+3. **For read-only verification of list/response-shape logic (not the
+   auth-gating itself), skip minting a JWT/UserSession entirely.** Import the
+   route module from a `/tmp/` script and call the route function directly
+   with an explicit `db` session and any real `Usuario` row (e.g.
+   `db.query(Usuario).first()`) for `current_user` — many endpoints only
+   reference `current_user` via the `Depends(require_permission(...))`
+   default, never inside the function body, so a mismatched permission
+   profile doesn't matter for this kind of test. This is faster and lower-risk
+   than a full HTTP round-trip when what you're checking is "does the new
+   field/query populate correctly", not "is this endpoint properly gated". For
+   a one-off scenario with no existing matching row (e.g. testing a new
+   pending-request indicator), insert a throwaway row via the ORM directly
+   (bypassing the real endpoint's business logic, so no side-effect emails
+   fire), assert against a fresh call, then delete it in a `finally` block.
