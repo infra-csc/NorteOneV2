@@ -3411,7 +3411,7 @@ const ProjecaoInscritos: React.FC = () => {
             )}
 
             {(() => {
-              const myCustomAreas = areas.filter(a => a.usa_cutoff_customizado && (isAdmin || myAreaIds.has(a.id)));
+              const myCustomAreas = areas.filter(a => a.usa_cutoff_customizado);
               if (myCustomAreas.length === 0) return null;
               return (
                 <div className={`rounded-2xl p-4 ${isDark ? 'bg-orange-500/5 border border-orange-500/20' : 'bg-orange-50/60 border border-orange-200'}`}>
@@ -3430,6 +3430,7 @@ const ProjecaoInscritos: React.FC = () => {
                       {myCustomAreas.map(area => {
                         const draft = cutoffDraft[area.id] || { d1: '', d2: '', saida: '', obs1: '' };
                         const existing = eventoCutoffs.find(c => c.area_projecao_id === area.id);
+                        const canEditThisArea = isAdmin || myAreaIds.has(area.id);
                         return (
                           <div
                             key={area.id}
@@ -3437,7 +3438,14 @@ const ProjecaoInscritos: React.FC = () => {
                           >
                             <div className="flex-1 min-w-[140px]">
                               <div className={`text-xs font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Área</div>
-                              <div className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{area.nome}</div>
+                              <div className="flex items-center gap-1.5">
+                                <div className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{area.nome}</div>
+                                {!canEditThisArea && (
+                                  <span className={`text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500'}`}>
+                                    Somente leitura
+                                  </span>
+                                )}
+                              </div>
                               {existing?.updated_at && (
                                 <div className={`text-[11px] mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
                                   Atualizado por {existing.updated_by_nome || 'usuário'} em {formatDateTime(existing.updated_at)}
@@ -3450,7 +3458,7 @@ const ProjecaoInscritos: React.FC = () => {
                                 <ObservacaoPopover
                                   areaId={area.id}
                                   value={draft.obs1}
-                                  canEdit={isAdmin || canEditProjecao}
+                                  canEdit={isAdmin || (canEditProjecao && myAreaIds.has(area.id))}
                                   isDark={isDark}
                                   onChange={(areaId, val) => setCutoffDraft(prev => ({ ...prev, [areaId]: { ...(prev[areaId] || { d1: '', d2: '', saida: '', obs1: '' }), obs1: val } }))}
                                   onSave={() => saveEventoCutoff(selectedEvento.id, area.id)}
@@ -3459,8 +3467,9 @@ const ProjecaoInscritos: React.FC = () => {
                                 <input
                                   type="date"
                                   value={draft.d1}
+                                  disabled={!canEditThisArea}
                                   onChange={e => setCutoffDraft(prev => ({ ...prev, [area.id]: { ...(prev[area.id] || { d1: '', d2: '', saida: '', obs1: '' }), d1: e.target.value } }))}
-                                  className={`px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:ring-2 focus:ring-orange-500`}
+                                  className={`px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:focus:ring-0`}
                                 />
                               </div>
                             </div>
@@ -3469,21 +3478,24 @@ const ProjecaoInscritos: React.FC = () => {
                               <input
                                 type="date"
                                 value={draft.saida}
+                                disabled={!canEditThisArea}
                                 onChange={e => setCutoffDraft(prev => ({ ...prev, [area.id]: { ...(prev[area.id] || { d1: '', d2: '', saida: '', obs1: '' }), saida: e.target.value } }))}
-                                className={`px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:ring-2 focus:ring-orange-500`}
+                                className={`px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:focus:ring-0`}
                               />
                             </div>
-                            <button
-                              onClick={() => saveEventoCutoff(selectedEvento.id, area.id)}
-                              disabled={savingCutoffAreaId === area.id}
-                              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
-                                savingCutoffAreaId === area.id
-                                  ? 'opacity-60 cursor-wait bg-orange-500/40 text-white'
-                                  : 'bg-gradient-to-r from-orange-500 to-amber-500 text-white hover:shadow-lg'
-                              }`}
-                            >
-                              {savingCutoffAreaId === area.id ? 'Salvando...' : 'Salvar'}
-                            </button>
+                            {canEditThisArea && (
+                              <button
+                                onClick={() => saveEventoCutoff(selectedEvento.id, area.id)}
+                                disabled={savingCutoffAreaId === area.id}
+                                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+                                  savingCutoffAreaId === area.id
+                                    ? 'opacity-60 cursor-wait bg-orange-500/40 text-white'
+                                    : 'bg-gradient-to-r from-orange-500 to-amber-500 text-white hover:shadow-lg'
+                                }`}
+                              >
+                                {savingCutoffAreaId === area.id ? 'Salvando...' : 'Salvar'}
+                              </button>
+                            )}
                           </div>
                         );
                       })}
