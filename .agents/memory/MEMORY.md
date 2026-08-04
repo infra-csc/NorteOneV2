@@ -65,3 +65,4 @@
 - [Prod running stale code](prod-deploy-staleness-diagnosis.md) — bug relatado que contradiz trace/teste correto no dev pode ser deploy desatualizado (VM não auto-atualiza); confirmar via grep na bundle JS publicada + logs de deployment por string/tag exclusiva do fix.
 - [Overlapping config tables](overlapping-config-tables.md) — 2 telas alimentando 1 pipeline: decidir qual é autoritativa por contagem de linhas em dev+prod, nunca por destaque no código/UI.
 - [Widen visibility vs backend scope](widen-visibility-vs-backend-scope.md) — soltar só o gate de render no frontend não basta; se o GET ainda filtra por área do caller, card aparece mas vem vazio.
+- [Interceptor synthesized errors](interceptor-synthesized-error-response.md) — shared axios interceptor that builds a new Error per status code must copy error.response/config, or a later unrelated feature reusing that code loses response.data.detail silently.

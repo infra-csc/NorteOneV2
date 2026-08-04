@@ -63,8 +63,18 @@ api.interceptors.response.use(
     }
     if (error.response?.status === 409) {
       const msg = error.response.data?.message ?? 'Operação já em andamento. Aguarde o término e tente novamente.';
-      const enriched = new Error(msg) as Error & { isBusy: boolean };
+      const enriched = new Error(msg) as Error & {
+        isBusy: boolean;
+        response?: typeof error.response;
+        config?: typeof error.config;
+      };
       enriched.isBusy = true;
+      // Preserva a resposta original para que handlers específicos (ex.: chamado
+      // de aprovação de redução de projeção, detail.code de outros fluxos) que
+      // dependem de response.data.detail continuem funcionando — sem isso, todo
+      // 409 estruturado da aplicação virava um erro genérico de "já em andamento".
+      enriched.response = error.response;
+      enriched.config = error.config;
       return Promise.reject(enriched);
     }
     return Promise.reject(error);
