@@ -2833,6 +2833,12 @@ const ProjecaoInscritos: React.FC = () => {
   const emCorte2 = editCorte2 && corte1DistReady;
   const editGateBlocked = corteLoading || corte1DistError || (editCorte2 && !corte1DistReady);
   const c1Qty = corte1DistReady ? (corte1Dist?.quantidade ?? 0) : 0;
+  // Delta do total atual do formulário em relação à Projeção Convicta (Corte 1).
+  // Pode ser negativo: no Corte de Ajuste é permitido reduzir o total abaixo da
+  // Convicta (a redução em si já passa pelo fluxo de aprovação em handleUpdate).
+  const formQtyAtual = parseInt(formQuantidade) || 0;
+  const formAjusteDelta = formQtyAtual - c1Qty;
+  const formAjusteNegativo = formAjusteDelta < 0;
   const c1KitMap = new Map<string, number>();
   if (corte1DistReady) {
     (corte1Dist?.kits ?? []).forEach(k => c1KitMap.set(k.nome_kit, (c1KitMap.get(k.nome_kit) ?? 0) + k.quantidade));
@@ -5670,33 +5676,43 @@ const ProjecaoInscritos: React.FC = () => {
                       <div className={`px-3 py-2 rounded-lg border text-sm ${c2BoxRead}`}>{formatNumber(c1Qty)}</div>
                     </div>
                     <div>
-                      <div className={`text-[10px] uppercase tracking-wider mb-1 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>Projeção Ajuste</div>
-                      <div className={`flex items-center rounded-lg border overflow-hidden ${isDark ? 'bg-gray-800/50 border-gray-600' : 'bg-white border-gray-300'} focus-within:ring-2 focus-within:ring-blue-500`}>
+                      <div className={`text-[10px] uppercase tracking-wider mb-1 ${formAjusteNegativo ? (isDark ? 'text-red-400' : 'text-red-600') : (isDark ? 'text-blue-400' : 'text-blue-600')}`}>Projeção Ajuste</div>
+                      <div className={`flex items-center rounded-lg border overflow-hidden focus-within:ring-2 ${formAjusteNegativo ? (isDark ? 'bg-red-500/10 border-red-500/30 focus-within:ring-red-500' : 'bg-red-50 border-red-200 focus-within:ring-red-500') : (isDark ? 'bg-gray-800/50 border-gray-600 focus-within:ring-blue-500' : 'bg-white border-gray-300 focus-within:ring-blue-500')}`}>
                         <button
                           type="button"
-                          onClick={() => { const c2 = Math.max(0, ((parseInt(formQuantidade) || 0) - c1Qty) - 1); setFormQuantidade(String(c1Qty + c2)); }}
-                          className={`px-2 py-2 text-sm font-bold shrink-0 select-none transition-colors ${isDark ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-600 hover:bg-gray-100'}`}
+                          onClick={() => setFormQuantidade(String(Math.max(1, formQtyAtual - 1)))}
+                          disabled={formQtyAtual <= 1}
+                          className={`px-2 py-2 text-sm font-bold shrink-0 select-none transition-colors disabled:opacity-30 ${isDark ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-600 hover:bg-gray-100'}`}
                         >−</button>
                         <input
                           type="text"
                           inputMode="numeric"
-                          value={formatMilhar(Math.max(0, (parseInt(formQuantidade) || 0) - c1Qty))}
-                          onChange={e => { const c2 = Math.max(0, parseInt(stripMilhar(e.target.value)) || 0); setFormQuantidade(String(c1Qty + c2)); }}
+                          value={formatMilhar(formAjusteDelta)}
+                          onChange={e => {
+                            const stripped = stripMilhar(e.target.value);
+                            if (stripped === '' || stripped === '-') return;
+                            const parsed = parseInt(stripped, 10);
+                            if (isNaN(parsed)) return;
+                            setFormQuantidade(String(Math.max(1, c1Qty + parsed)));
+                          }}
                           placeholder="0"
-                          className={`flex-1 min-w-0 py-2 text-sm text-center bg-transparent border-0 focus:outline-none focus:ring-0 ${isDark ? 'text-white placeholder-gray-500' : 'text-gray-900 placeholder-gray-400'}`}
+                          className={`flex-1 min-w-0 py-2 text-sm text-center bg-transparent border-0 focus:outline-none focus:ring-0 placeholder-gray-500 ${formAjusteNegativo ? (isDark ? 'text-red-300' : 'text-red-600') : (isDark ? 'text-white' : 'text-gray-900')}`}
                         />
                         <button
                           type="button"
-                          onClick={() => { const c2 = Math.max(0, ((parseInt(formQuantidade) || 0) - c1Qty)) + 1; setFormQuantidade(String(c1Qty + c2)); }}
+                          onClick={() => setFormQuantidade(String(formQtyAtual + 1))}
                           className={`px-2 py-2 text-sm font-bold shrink-0 select-none transition-colors ${isDark ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-600 hover:bg-gray-100'}`}
                         >+</button>
                       </div>
                     </div>
                     <div>
-                      <div className={`text-[10px] uppercase tracking-wider mb-1 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>Total</div>
-                      <div className={`px-3 py-2 rounded-lg border text-sm font-bold ${isDark ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>{formatNumber(parseInt(formQuantidade) || 0)}</div>
+                      <div className={`text-[10px] uppercase tracking-wider mb-1 ${formAjusteNegativo ? (isDark ? 'text-amber-400' : 'text-amber-600') : (isDark ? 'text-emerald-400' : 'text-emerald-600')}`}>Total</div>
+                      <div className={`px-3 py-2 rounded-lg border text-sm font-bold ${formAjusteNegativo ? (isDark ? 'bg-amber-500/10 border-amber-500/30 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-700') : (isDark ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700')}`}>{formatNumber(formQtyAtual)}</div>
                     </div>
                   </div>
+                  {formAjusteNegativo && (
+                    <p className={`mt-1.5 text-[11px] ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>Abaixo da Projeção Convicta — ao salvar, a redução vai gerar um chamado de aprovação para a área responsável.</p>
+                  )}
                   {corte1Dist?.fonte === 'aproximado' && (
                     <p className={`mt-1.5 text-[11px] ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>Corte 1 aproximado (evento sem foto registrada — usando valores atuais).</p>
                   )}
@@ -5799,28 +5815,35 @@ const ProjecaoInscritos: React.FC = () => {
                                 >+</button>
                               </div>
                             ) : (
-                              <div className={`w-24 flex items-center rounded-lg border overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 ${isDark ? 'bg-gray-800/50 border-gray-600' : 'bg-white border-gray-300'}`}>
+                              <div className={`w-24 flex items-center rounded-lg border overflow-hidden focus-within:ring-2 ${kc2 < 0 ? (isDark ? 'bg-red-500/10 border-red-500/30 focus-within:ring-red-500' : 'bg-red-50 border-red-200 focus-within:ring-red-500') : (isDark ? 'bg-gray-800/50 border-gray-600 focus-within:ring-blue-500' : 'bg-white border-gray-300 focus-within:ring-blue-500')}`}>
                                 <button
                                   type="button"
-                                  onClick={() => { const c2 = Math.max(0, kc2 - 1); updateKit(idx, 'quantidade', String(kc1 + c2)); }}
-                                  className={`px-1.5 py-2 text-sm font-bold shrink-0 select-none transition-colors ${isDark ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-600 hover:bg-gray-100'}`}
+                                  onClick={() => updateKit(idx, 'quantidade', String(Math.max(0, ktotal - 1)))}
+                                  disabled={ktotal <= 0}
+                                  className={`px-1.5 py-2 text-sm font-bold shrink-0 select-none transition-colors disabled:opacity-30 ${isDark ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-600 hover:bg-gray-100'}`}
                                 >−</button>
                                 <input
                                   type="text"
                                   inputMode="numeric"
-                                  value={formatMilhar(Math.max(0, kc2))}
-                                  onChange={e => { const c2 = Math.max(0, parseInt(stripMilhar(e.target.value)) || 0); updateKit(idx, 'quantidade', String(kc1 + c2)); }}
+                                  value={formatMilhar(kc2)}
+                                  onChange={e => {
+                                    const stripped = stripMilhar(e.target.value);
+                                    if (stripped === '' || stripped === '-') return;
+                                    const parsed = parseInt(stripped, 10);
+                                    if (isNaN(parsed)) return;
+                                    updateKit(idx, 'quantidade', String(Math.max(0, kc1 + parsed)));
+                                  }}
                                   placeholder="0"
-                                  className={`flex-1 min-w-0 py-2 text-xs text-center bg-transparent border-0 focus:outline-none focus:ring-0 ${isDark ? 'text-white placeholder-gray-500' : 'text-gray-900 placeholder-gray-400'}`}
+                                  className={`flex-1 min-w-0 py-2 text-xs text-center bg-transparent border-0 focus:outline-none focus:ring-0 placeholder-gray-500 ${kc2 < 0 ? (isDark ? 'text-red-300' : 'text-red-600') : (isDark ? 'text-white' : 'text-gray-900')}`}
                                 />
                                 <button
                                   type="button"
-                                  onClick={() => { const c2 = Math.max(0, kc2) + 1; updateKit(idx, 'quantidade', String(kc1 + c2)); }}
+                                  onClick={() => updateKit(idx, 'quantidade', String(ktotal + 1))}
                                   className={`px-1.5 py-2 text-sm font-bold shrink-0 select-none transition-colors ${isDark ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-600 hover:bg-gray-100'}`}
                                 >+</button>
                               </div>
                             )}
-                            <div className={`w-14 px-2 py-2 rounded-lg border text-sm text-center font-bold ${isDark ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>{ktotal}</div>
+                            <div className={`w-14 px-2 py-2 rounded-lg border text-sm text-center font-bold ${kc2 < 0 ? (isDark ? 'bg-amber-500/10 border-amber-500/30 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-700') : (isDark ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700')}`}>{ktotal}</div>
                           </div>
                         );
                       })}
@@ -5929,20 +5952,25 @@ const ProjecaoInscritos: React.FC = () => {
                               <div className={`px-2 py-1.5 rounded-lg border text-sm text-center ${c2BoxRead}`}>{cc1}</div>
                             </div>
                             <div>
-                              <div className={`text-[10px] uppercase tracking-wider mb-0.5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>Projeção Ajuste</div>
+                              <div className={`text-[10px] uppercase tracking-wider mb-0.5 ${cc2 < 0 ? (isDark ? 'text-red-400' : 'text-red-600') : (isDark ? 'text-blue-400' : 'text-blue-600')}`}>Projeção Ajuste</div>
                               <input
                                 type="text"
                                 inputMode="numeric"
-                                value={formatMilhar(Math.max(0, cc2))}
-                                onChange={e => { const c2 = Math.max(0, parseInt(stripMilhar(e.target.value)) || 0); updateCliente(idx, 'quantidade', String(cc1 + c2)); }}
+                                value={formatMilhar(cc2)}
+                                onChange={e => {
+                                  const stripped = stripMilhar(e.target.value);
+                                  if (stripped === '' || stripped === '-') return;
+                                  const parsed = parseInt(stripped, 10);
+                                  if (isNaN(parsed)) return;
+                                  updateCliente(idx, 'quantidade', String(Math.max(0, cc1 + parsed)));
+                                }}
                                 placeholder="0"
-                                min={0}
-                                className={`w-full px-2 py-1.5 rounded-lg border text-sm text-center ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                                className={`w-full px-2 py-1.5 rounded-lg border text-sm text-center focus:outline-none focus:ring-2 ${cc2 < 0 ? (isDark ? 'bg-red-500/10 border-red-500/30 text-red-300 focus:ring-red-500' : 'bg-red-50 border-red-200 text-red-600 focus:ring-red-500') : (isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500 focus:ring-blue-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400 focus:ring-blue-500')}`}
                               />
                             </div>
                             <div>
-                              <div className={`text-[10px] uppercase tracking-wider mb-0.5 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>Total</div>
-                              <div className={`px-2 py-1.5 rounded-lg border text-sm text-center font-bold ${isDark ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>{ctotal}</div>
+                              <div className={`text-[10px] uppercase tracking-wider mb-0.5 ${cc2 < 0 ? (isDark ? 'text-amber-400' : 'text-amber-600') : (isDark ? 'text-emerald-400' : 'text-emerald-600')}`}>Total</div>
+                              <div className={`px-2 py-1.5 rounded-lg border text-sm text-center font-bold ${cc2 < 0 ? (isDark ? 'bg-amber-500/10 border-amber-500/30 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-700') : (isDark ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700')}`}>{ctotal}</div>
                             </div>
                           </div>
                         </div>
