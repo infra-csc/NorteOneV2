@@ -3410,8 +3410,9 @@ def list_cutoffs_por_evento(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
 ):
-    """Retorna os cortes customizados de um evento, restritos às áreas que
-    o usuário tem permissão de visualizar (admin vê todas)."""
+    """Retorna os cortes customizados de um evento. Visível para qualquer
+    usuário com acesso de visualização à Projeção, para todas as áreas
+    (a edição continua restrita por área/admin em /cutoff-evento-area PUT)."""
     evento = db.query(CadastroEvento).filter(
         CadastroEvento.id == evento_id,
         CadastroEvento.deleted_at.is_(None),
@@ -3419,24 +3420,15 @@ def list_cutoffs_por_evento(
     if not evento:
         raise HTTPException(status_code=404, detail="Evento não encontrado")
 
-    if is_user_admin(current_user):
-        area_ids = None
-    else:
-        area_ids = _get_user_area_ids(db, current_user.id)
-        if not area_ids:
-            return []
-
-    q = (
+    rows = (
         db.query(ProjecaoCutoffEventoArea)
         .options(
             joinedload(ProjecaoCutoffEventoArea.area),
             joinedload(ProjecaoCutoffEventoArea.editor),
         )
         .filter(ProjecaoCutoffEventoArea.evento_id == evento_id)
+        .all()
     )
-    if area_ids is not None:
-        q = q.filter(ProjecaoCutoffEventoArea.area_projecao_id.in_(area_ids))
-    rows = q.all()
     result = []
     for r in rows:
         result.append(CutoffEventoAreaResponse(
