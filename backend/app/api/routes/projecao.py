@@ -444,16 +444,46 @@ def _auto_lock_ativo(db: Session, evento: CadastroEvento) -> bool:
     return False
 
 
-def _detectar_trava_ativa(db: Session, evento: Optional[CadastroEvento]) -> Optional[str]:
+def _projecao_ja_existia_no_corte1(db: Session, projecao: ProjecaoInscritos) -> bool:
+    """True quando esta projeção (esta área, neste evento) já existia ANTES do
+    Corte 1 congelar — sinal de que ela está no fluxo normal do Corte de
+    Ajuste (Corte 2), não numa inclusão nova pós-congelamento (Task #240).
+
+    Compara `created_at` da projeção com `congelado_corte_1_em` do evento; se
+    o Corte 1 nunca congelou (ou a projeção não tem created_at, caso legado),
+    não há como afirmar que já existia — retorna False (mantém o
+    comportamento anterior, mais conservador)."""
+    snap = db.query(ProjecaoCorteSnapshot).filter(
+        ProjecaoCorteSnapshot.evento_id == projecao.evento_id
+    ).first()
+    if snap is None or snap.congelado_corte_1_em is None:
+        return False
+    return projecao.created_at is not None and projecao.created_at < snap.congelado_corte_1_em
+
+
+def _detectar_trava_ativa(
+    db: Session,
+    evento: Optional[CadastroEvento],
+    projecao: Optional[ProjecaoInscritos] = None,
+) -> Optional[str]:
     """Trava vigente para fins de auditoria 'fora do prazo' (Task #126).
 
     Retorna 'corte_2' | 'corte_1' | 'auto_lock' | None, nessa ordem de
     prioridade. Aplica-se a todos os usuários (inclusive admins). A trava
     manual por projeção (locked_at) NÃO passa por aqui — continua sendo
-    bloqueio duro (423) nos endpoints."""
+    bloqueio duro (423) nos endpoints.
+
+    Quando `projecao` é informada (edição/exclusão/aprovação de uma projeção
+    já existente) e ela já existia antes do Corte 1 congelar, o Corte 1
+    sozinho NÃO conta como trava: é um ajuste esperado do Corte de Ajuste
+    (Corte 2), não uma inclusão fora do prazo (Task #240). Corte 2 congelado e
+    a trava automática continuam valendo normalmente — só o Corte 1 isolado é
+    perdoado, e só para quem já estava lá antes dele congelar."""
     if not evento:
         return None
     trava = _corte_trava_ativa(db, evento.id)
+    if trava == 'corte_1' and projecao is not None and _projecao_ja_existia_no_corte1(db, projecao):
+        trava = None
     if trava:
         return trava
     if _auto_lock_ativo(db, evento):
@@ -1748,7 +1778,7 @@ def aprovar_solicitacao_reducao(
     _validate_distribuicao_sums(sol.quantidade_proposta, clientes_propostos, kits_propostos)
     _validate_camiseta_avulsa_teto(db, projecao.evento_id, projecao.area_projecao_id, kits_propostos)
 
-    trava_ativa = _detectar_trava_ativa(db, projecao.evento)
+    trava_ativa = _detectar_trava_ativa(db, projecao.evento, projecao)
     _aplicar_mudancas_projecao(
         db, projecao,
         quantidade=sol.quantidade_proposta,
@@ -1849,8 +1879,10 @@ def update_projecao(
     _check_area_permission(db, current_user, projecao.area_projecao_id)
 
     # Task #126: travas de prazo (corte congelado / D-N) não bloqueiam mais a
-    # edição — a operação é permitida e marcada como fora do prazo.
-    trava_ativa = _detectar_trava_ativa(db, projecao.evento)
+    # edição — a operação é permitida e marcada como fora do prazo. Task #240:
+    # Corte 1 sozinho não conta como trava se esta área já existia antes dele
+    # congelar (ajuste legítimo do Corte de Ajuste).
+    trava_ativa = _detectar_trava_ativa(db, projecao.evento, projecao)
 
     if data.quantidade is None or data.quantidade <= 0:
         raise HTTPException(status_code=400, detail="Quantidade deve ser maior que zero.")
@@ -2029,8 +2061,12 @@ def delete_projecao(
     ).filter(ProjecaoInscritos.id == projecao_id).first()
     # Task #126: travas de prazo não bloqueiam mais a exclusão — a operação é
     # permitida e marcada como fora do prazo (histórico + resumo na projeção).
+    # Task #240: Corte 1 sozinho não conta como trava se esta área já existia
+    # antes dele congelar.
     trava_ativa = _detectar_trava_ativa(
-        db, projecao_com_evento.evento if projecao_com_evento else None
+        db,
+        projecao_com_evento.evento if projecao_com_evento else None,
+        projecao_com_evento,
     )
 
     _record_history(db, projecao.id, "DELECAO", current_user.id,

@@ -5660,9 +5660,17 @@ const ProjecaoInscritos: React.FC = () => {
                 const corte2Frozen = !!(snap?.congelado_corte_2_em) && !snap?.reaberto_manual_corte_2;
                 const corte1Frozen = !!(snap?.congelado_corte_1_em) && !snap?.reaberto_manual_corte_1;
                 const autoLocked = autoLockedEventoIds.has(evId);
+                // Task #240: área que já existia antes do Corte 1 congelar está em
+                // ajuste legítimo do Corte de Ajuste (Corte 2) — Corte 1 sozinho não
+                // conta como fora do prazo pra ela, só uma inclusão nova pós-
+                // congelamento deve avisar. Mesma regra do backend (_detectar_trava_ativa).
+                const areaJaExistiaNoCorte1 = !!(
+                  corte1Frozen && snap?.congelado_corte_1_em && editingProjecao.created_at &&
+                  new Date(editingProjecao.created_at).getTime() < new Date(snap.congelado_corte_1_em).getTime()
+                );
                 const label = corte2Frozen
                   ? 'Corte 2 congelado'
-                  : corte1Frozen
+                  : (corte1Frozen && !areaJaExistiaNoCorte1)
                     ? 'Corte 1 congelado'
                     : autoLocked
                       ? `Trava automática D-${autoLockConfig.dias_antes_evento}`
