@@ -27,7 +27,9 @@ const MultiSelectDropdown: React.FC<{
   isDark: boolean;
 }> = ({ options, selected, onChange, placeholder, isDark }) => {
   const [open, setOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   const ref = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -37,6 +39,12 @@ const MultiSelectDropdown: React.FC<{
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  useEffect(() => {
+    if (!open) { setSearchTerm(''); return; }
+    const id = window.setTimeout(() => searchInputRef.current?.focus(), 0);
+    return () => window.clearTimeout(id);
+  }, [open]);
+
   const toggle = (val: string) => {
     onChange(
       selected.includes(val)
@@ -44,6 +52,14 @@ const MultiSelectDropdown: React.FC<{
         : [...selected, val]
     );
   };
+
+  const normalize = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+  const filteredOptions = useMemo(() => {
+    const term = normalize(searchTerm.trim());
+    if (!term) return options;
+    return options.filter(o => normalize(o.label).includes(term));
+  }, [options, searchTerm]);
 
   const displayLabel = selected.length === 0
     ? placeholder
@@ -56,6 +72,7 @@ const MultiSelectDropdown: React.FC<{
       <button
         type="button"
         onClick={() => setOpen(!open)}
+        title={selected.length === 1 ? displayLabel : undefined}
         className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm min-w-[150px] text-left transition-all ${
           isDark
             ? 'bg-gray-800/50 border-gray-600 text-white hover:border-gray-500'
@@ -66,44 +83,75 @@ const MultiSelectDropdown: React.FC<{
         <ChevronDown className={`w-3.5 h-3.5 shrink-0 transition-transform ${open ? 'rotate-180' : ''} ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
       </button>
       {open && (
-        <div className={`absolute z-50 mt-1 w-full min-w-[200px] max-h-64 overflow-y-auto rounded-xl border shadow-xl ${
+        <div className={`absolute z-50 mt-1 w-max min-w-[260px] max-w-[340px] rounded-xl border shadow-xl ${
           isDark ? 'bg-gray-800 border-gray-600' : 'bg-white border-gray-200'
         }`}>
-          {selected.length > 0 && (
-            <button
-              type="button"
-              onClick={() => onChange([])}
-              className={`w-full px-3 py-2 text-xs font-semibold text-left border-b transition-colors ${
-                isDark ? 'text-red-400 hover:bg-gray-700/50 border-gray-700' : 'text-red-500 hover:bg-red-50 border-gray-100'
-              }`}
-            >
-              Limpar seleção
-            </button>
-          )}
-          {options.map(opt => {
-            const isSelected = selected.includes(opt.value);
-            return (
+          <div className={`p-2 border-b ${isDark ? 'border-gray-700' : 'border-gray-100'}`}>
+            <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg border ${
+              isDark ? 'bg-gray-900/50 border-gray-600' : 'bg-gray-50 border-gray-200'
+            }`}>
+              <Search className={`w-3.5 h-3.5 shrink-0 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                placeholder="Buscar..."
+                className={`flex-1 min-w-0 bg-transparent text-sm outline-none ${isDark ? 'text-white placeholder-gray-500' : 'text-gray-900 placeholder-gray-400'}`}
+              />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => { setSearchTerm(''); searchInputRef.current?.focus(); }}
+                  className={`shrink-0 ${isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600'}`}
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="max-h-56 overflow-y-auto">
+            {selected.length > 0 && (
               <button
-                key={opt.value}
                 type="button"
-                onClick={() => toggle(opt.value)}
-                className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors ${
-                  isSelected
-                    ? isDark ? 'bg-violet-500/20 text-violet-300' : 'bg-violet-50 text-violet-700'
-                    : isDark ? 'text-gray-300 hover:bg-gray-700/50' : 'text-gray-700 hover:bg-gray-50'
+                onClick={() => onChange([])}
+                className={`w-full px-3 py-2 text-xs font-semibold text-left border-b transition-colors ${
+                  isDark ? 'text-red-400 hover:bg-gray-700/50 border-gray-700' : 'text-red-500 hover:bg-red-50 border-gray-100'
                 }`}
               >
-                <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
-                  isSelected
-                    ? 'bg-violet-500 border-violet-500'
-                    : isDark ? 'border-gray-500' : 'border-gray-300'
-                }`}>
-                  {isSelected && <Check className="w-3 h-3 text-white" />}
-                </div>
-                <span className="truncate">{opt.label}</span>
+                Limpar seleção
               </button>
-            );
-          })}
+            )}
+            {filteredOptions.length === 0 ? (
+              <p className={`px-3 py-4 text-xs text-center ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                Nenhum resultado para "{searchTerm.trim()}"
+              </p>
+            ) : filteredOptions.map(opt => {
+              const isSelected = selected.includes(opt.value);
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => toggle(opt.value)}
+                  title={opt.label}
+                  className={`w-full flex items-start gap-2 px-3 py-2 text-sm text-left transition-colors ${
+                    isSelected
+                      ? isDark ? 'bg-violet-500/20 text-violet-300' : 'bg-violet-50 text-violet-700'
+                      : isDark ? 'text-gray-300 hover:bg-gray-700/50' : 'text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <div className={`w-4 h-4 mt-0.5 rounded border flex items-center justify-center shrink-0 ${
+                    isSelected
+                      ? 'bg-violet-500 border-violet-500'
+                      : isDark ? 'border-gray-500' : 'border-gray-300'
+                  }`}>
+                    {isSelected && <Check className="w-3 h-3 text-white" />}
+                  </div>
+                  <span className="break-words leading-snug">{opt.label}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
