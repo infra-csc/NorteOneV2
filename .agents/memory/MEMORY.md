@@ -70,3 +70,4 @@
 - [Derived-delta input draft buffer](derived-delta-input-draft-buffer.md) — a text input showing total-minus-baseline (not the raw typed text) needs a local draft-text state, or typing "-" gets wiped by unrelated re-renders.
 - [Projeção list vs mutation response](projecao-list-vs-mutation-response.md) — new derived/advisory row fields only need populating in the list endpoint; create/update responses are discarded (frontend always refetches via loadData()).
 - [CSV export double-BOM](csv-export-double-bom.md) — never prefix '\ufeff' AND encode with utf-8-sig on the same content — doubles the BOM, corrupts the first CSV header cell.
+- [Fallback por banco em leitura ao vivo](snapshot-fallback-per-banco.md) — 1 banco falha ao vivo → completa com snapshot daquele banco (nunca zera); snapshot persistido nunca guarda erro/fallback transitório; get_curva_comparativa ainda vulnerável.

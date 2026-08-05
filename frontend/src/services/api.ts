@@ -2316,6 +2316,10 @@ export interface DetalheEventoPayload {
   };
   divergencias: DetalheDivergencia[];
   erros: Record<string, string>;
+  /** Bancos cujo erro ao vivo foi coberto usando o snapshot mais recente
+   *  como fallback; valor = ISO da data/hora daquele snapshot. Presente só
+   *  na resposta ao vivo que originou o fallback (não persiste no snapshot). */
+  fallback_bancos?: Record<string, string>;
   totais: DetalheTotais;
   source?: 'cache' | 'snapshot' | 'live';
   snapshot_updated_at?: string | null;

@@ -188,6 +188,14 @@ const CanalBadge: React.FC<{ canal: string | null }> = ({ canal }) => {
   );
 };
 
+/** "há Xh Ym" / "há Ym" relativo a agora, a partir de um ISO timestamp. */
+const formatRelativeAge = (iso: string): string => {
+  const diff = Date.now() - new Date(iso).getTime();
+  const hours = Math.floor(diff / 3600000);
+  const mins = Math.floor((diff % 3600000) / 60000);
+  return hours > 0 ? `há ${hours}h${mins > 0 ? `${mins}m` : ''}` : `há ${mins}m`;
+};
+
 const BancoBadge: React.FC<{ banco: string }> = ({ banco }) => {
   const cls =
     banco === 'Ativo'
@@ -209,10 +217,7 @@ const SnapshotBadge: React.FC<{
   if (!source) return null;
 
   if (source === 'snapshot' && snapshotUpdatedAt) {
-    const diff = Date.now() - new Date(snapshotUpdatedAt).getTime();
-    const hours = Math.floor(diff / 3600000);
-    const mins = Math.floor((diff % 3600000) / 60000);
-    const label = hours > 0 ? `há ${hours}h${mins > 0 ? `${mins}m` : ''}` : `há ${mins}m`;
+    const label = formatRelativeAge(snapshotUpdatedAt);
     const frozenNote = foraJanela ? ' · Histórico (frozen)' : '';
     const titleText = foraJanela
       ? `Dados históricos capturados ${label}. Snapshot frozen — o job noturno não o recomputa. Clique em "Atualizar" para forçar um recálculo histórico.`
@@ -1744,17 +1749,43 @@ const DetalheEventos: React.FC = () => {
             animate={{ opacity: 1, y: 0 }}
             className="space-y-8"
           >
-            {Object.keys(payload.erros).length > 0 && (
-              <div className={`flex items-start gap-3 rounded-2xl border p-4 shadow-sm ${dark ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
-                <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-bold">Atenção: erros ao buscar dados de alguns bancos</p>
-                  {Object.entries(payload.erros).map(([banco, msg]) => (
-                    <p key={banco} className="text-xs font-medium mt-1 opacity-90">{banco}: {msg}</p>
-                  ))}
+            {Object.keys(payload.erros).length > 0 && (() => {
+              const errosEntries = Object.entries(payload.erros);
+              // Quando TODO banco que falhou ao vivo foi coberto pelo snapshot
+              // mais recente, os totais exibidos já estão completos — o aviso
+              // não precisa soar como uma falha, só informar a origem dos dados.
+              const todosCompletadosPorSnapshot = errosEntries.every(
+                ([banco]) => !!payload.fallback_bancos?.[banco]
+              );
+              return (
+                <div className={`flex items-start gap-3 rounded-2xl border p-4 shadow-sm ${
+                  todosCompletadosPorSnapshot
+                    ? (dark ? 'bg-blue-500/10 border-blue-500/20 text-blue-400' : 'bg-blue-50 border-blue-200 text-blue-700')
+                    : (dark ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' : 'bg-amber-50 border-amber-200 text-amber-700')
+                }`}>
+                  {todosCompletadosPorSnapshot
+                    ? <Database className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                    : <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />}
+                  <div>
+                    <p className="text-sm font-bold">
+                      {todosCompletadosPorSnapshot
+                        ? 'Parte dos dados foi completada com o snapshot mais recente'
+                        : 'Atenção: erros ao buscar dados de alguns bancos'}
+                    </p>
+                    {errosEntries.map(([banco, msg]) => {
+                      const fallbackTs = payload.fallback_bancos?.[banco];
+                      return (
+                        <p key={banco} className="text-xs font-medium mt-1 opacity-90">
+                          {fallbackTs
+                            ? `${banco}: conexão instável no momento da consulta (${msg}) — usando snapshot de ${formatRelativeAge(fallbackTs)}`
+                            : `${banco}: ${msg}`}
+                        </p>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {payload.divergencias.length > 0 && (
               <div className={`flex items-start gap-3 rounded-2xl border p-4 shadow-sm ${dark ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-red-50 border-red-200 text-red-700'}`}>

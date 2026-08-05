@@ -761,6 +761,28 @@ def _read_snapshot(db: Session, evento_grupo: str, ano: int) -> Optional[Tuple[D
     return payload_dict, updated
 
 
+def _fallback_rows_from_snapshot(
+    db: Session, evento_grupo: str, ano: int, banco: str
+) -> Tuple[Optional[List[Dict]], Optional[datetime]]:
+    """
+    Busca as linhas de UM banco (Ativo ou Magento) no snapshot mais recente
+    salvo para (evento_grupo, ano), independente da idade.
+
+    Usado para preencher a lacuna quando a busca AO VIVO desse banco falha
+    mas a do outro banco funciona — em vez de tratar a contribuição do banco
+    falho como zero, reaproveita o último dado bom conhecido daquele banco.
+
+    Retorna (rows, snapshot_updated_at). Ambos None se não existir nenhum
+    snapshot para essa edição (nada disponível para usar como fallback).
+    """
+    snap_raw = _read_snapshot_raw(db, evento_grupo, ano)
+    if snap_raw is None:
+        return None, None
+    payload_dict, updated_at, _age_h = snap_raw
+    rows = (payload_dict.get("por_banco") or {}).get(banco) or []
+    return rows, updated_at
+
+
 def _trigger_background_refresh(evento_grupo: str, ano: int) -> None:
     """
     Dispara um refresh ao vivo para evento_grupo/ano em background (thread daemon).
@@ -1168,6 +1190,35 @@ def get_detalhe(
             rows_ativo, error_ativo = fut_ativo.result()
             rows_magento, error_magento = fut_magento.result()
 
+        # Fallback por banco: quando só UM dos dois bancos falha ao vivo,
+        # preenche a lacuna com o snapshot mais recente salvo para esta
+        # edição, em vez de tratar a contribuição do banco falho como zero.
+        # Quando os DOIS falham, mantém o comportamento atual — não há
+        # nenhum lado "bom" ao vivo para validar contra o fallback, e o
+        # payload inteiro já não será persistido (ver guard de save abaixo).
+        fallback_bancos: Dict[str, str] = {}
+        if evento_grupo and (error_ativo or error_magento) and not (error_ativo and error_magento):
+            if error_ativo and rows_ativo is None:
+                fb_rows, fb_updated = _fallback_rows_from_snapshot(db, evento_grupo, ano, "Ativo")
+                if fb_rows is not None and fb_updated is not None:
+                    rows_ativo = fb_rows
+                    fallback_bancos["Ativo"] = fb_updated.isoformat()
+                    logger.info(
+                        f"[DetalheEventos] Ativo falhou ao vivo ('{error_ativo}') para "
+                        f"'{evento_grupo}'/{ano} — completando com snapshot de "
+                        f"{fb_updated.isoformat()} ({len(fb_rows)} linhas)"
+                    )
+            if error_magento and rows_magento is None:
+                fb_rows, fb_updated = _fallback_rows_from_snapshot(db, evento_grupo, ano, "Magento")
+                if fb_rows is not None and fb_updated is not None:
+                    rows_magento = fb_rows
+                    fallback_bancos["Magento"] = fb_updated.isoformat()
+                    logger.info(
+                        f"[DetalheEventos] Magento falhou ao vivo ('{error_magento}') para "
+                        f"'{evento_grupo}'/{ano} — completando com snapshot de "
+                        f"{fb_updated.isoformat()} ({len(fb_rows)} linhas)"
+                    )
+
         # Tag each row with its canonical_grupo before consolidating
         _tag_canonical_grupo(rows_ativo or [], canonical_map, evento_grupo)
         _tag_canonical_grupo(rows_magento or [], canonical_map, evento_grupo)
@@ -1206,15 +1257,31 @@ def get_detalhe(
             "erros": {
                 k: v for k, v in [("Ativo", error_ativo), ("Magento", error_magento)] if v
             },
+            "fallback_bancos": fallback_bancos,
             "totais": _calc_totais(consolidado),
             "source": "live",
             "snapshot_updated_at": None,
         }
 
-        # Salva no snapshot PostgreSQL (apenas evento único, sem erros graves)
+        # Salva no snapshot PostgreSQL (apenas evento único). NUNCA persiste uma
+        # versão em que um banco falhou sem fallback disponível — isso
+        # sobrescreveria um snapshot bom com dados incompletos. Quando o
+        # fallback (acima) preencheu a lacuna, salva a versão já complementada,
+        # mas sem os campos de erro/fallback transitórios: eles valem só para
+        # esta resposta ao vivo, não devem "grudar" indefinidamente no registro
+        # persistido já que os dados em si ficaram completos.
+        ativo_sem_dado = bool(error_ativo) and "Ativo" not in fallback_bancos
+        magento_sem_dado = bool(error_magento) and "Magento" not in fallback_bancos
+
         snap_saved = False
-        if evento_grupo and not (error_ativo and error_magento):
-            snap_saved = save_snapshot(db, evento_grupo, ano, payload)
+        if evento_grupo and not ativo_sem_dado and not magento_sem_dado:
+            if fallback_bancos:
+                snapshot_payload = dict(payload)
+                snapshot_payload["erros"] = {}
+                snapshot_payload["fallback_bancos"] = {}
+                snap_saved = save_snapshot(db, evento_grupo, ano, snapshot_payload)
+            else:
+                snap_saved = save_snapshot(db, evento_grupo, ano, payload)
             if snap_saved:
                 payload["snapshot_updated_at"] = datetime.now(timezone.utc).isoformat()
 
@@ -1228,6 +1295,7 @@ def get_detalhe(
             f"consolidado={len(consolidado)} linhas "
             f"magento_rows={magento_rows} "
             f"erros={list(payload['erros'].keys()) or 'nenhum'} "
+            f"fallback={list(fallback_bancos.keys()) or 'nenhum'} "
             f"snapshot={'salvo' if snap_saved else 'não salvo'}"
         )
 
