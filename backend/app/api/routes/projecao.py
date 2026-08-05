@@ -254,10 +254,15 @@ def create_area(
     existing = db.query(AreaProjecao).filter(AreaProjecao.nome == nome).first()
     if existing:
         raise HTTPException(status_code=400, detail="Já existe uma área com este nome")
-    sigla = _normalizar_sigla(data.sigla)
-    sigla_existente = db.query(AreaProjecao).filter(func.upper(AreaProjecao.sigla) == sigla).first()
-    if sigla_existente:
-        raise HTTPException(status_code=400, detail=f"A sigla '{sigla}' já está em uso pela área '{sigla_existente.nome}'")
+    # Sigla não é mais coletada pela tela de "Áreas e Usuários" — a tela de
+    # criação de área não pede mais esse campo. Mantido opcional aqui (em vez
+    # de removido do schema/model) só para não quebrar nenhum outro chamador
+    # que ainda envie um valor; quando ausente, a área fica sem sigla.
+    sigla = _normalizar_sigla(data.sigla) if (data.sigla or "").strip() else None
+    if sigla:
+        sigla_existente = db.query(AreaProjecao).filter(func.upper(AreaProjecao.sigla) == sigla).first()
+        if sigla_existente:
+            raise HTTPException(status_code=400, detail=f"A sigla '{sigla}' já está em uso pela área '{sigla_existente.nome}'")
     area = AreaProjecao(nome=nome, sigla=sigla)
     db.add(area)
     db.commit()

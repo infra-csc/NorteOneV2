@@ -1952,12 +1952,8 @@ export const projecaoService = {
     const response = await api.get('/projecao/areas/detail');
     return response.data;
   },
-  createArea: async (nome: string, sigla: string) => {
-    const response = await api.post('/projecao/areas', { nome, sigla });
-    return response.data;
-  },
-  updateAreaSigla: async (areaId: number, sigla: string) => {
-    const response = await api.put(`/projecao/areas/${areaId}/sigla`, { sigla });
+  createArea: async (nome: string) => {
+    const response = await api.post('/projecao/areas', { nome });
     return response.data;
   },
   atribuirUsuarios: async (data: { area_projecao_id: number; usuario_ids: number[] }) => {

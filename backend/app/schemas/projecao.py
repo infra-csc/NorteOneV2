@@ -36,7 +36,7 @@ class AreaProjecaoDetailResponse(AreaProjecaoResponse):
 
 class AreaProjecaoCreate(BaseModel):
     nome: str
-    sigla: str
+    sigla: Optional[str] = None
 
 
 class AreaSiglaUpdate(BaseModel):
