@@ -4014,6 +4014,14 @@ const ProjecaoInscritos: React.FC = () => {
                                             const congelaEmTxt = (corte === 1 && c.corte_data_envio)
                                               ? formatDate(c.corte_data_envio)
                                               : `D-${dias ?? '?'}`;
+                                            // Data de corte já atingida (hoje >= data_corte_1) mas ainda não
+                                            // congelado: normalmente é o período de carência (poucos minutos
+                                            // após a última edição da projeção) segurando o congelamento
+                                            // automático. Mostrar "Congela em <data passada>" ficaria
+                                            // enganoso (parece promessa futura); usa um rótulo específico.
+                                            const dataCorteAtingida = corte === 1
+                                              && !!c.corte_data_envio
+                                              && new Date(`${c.corte_data_envio}T00:00:00`) <= new Date();
                                             return (
                                               <div key={corte} className="flex items-center gap-2 flex-wrap">
                                                 <span className={`inline-flex items-center gap-1 w-[76px] text-[10px] font-bold uppercase tracking-wider ${frozen ? (isDark ? 'text-violet-300' : 'text-violet-700') : (isDark ? 'text-gray-400' : 'text-gray-500')}`}>
@@ -4029,6 +4037,14 @@ const ProjecaoInscritos: React.FC = () => {
                                                   <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold ${isDark ? 'bg-sky-500/15 text-sky-300' : 'bg-sky-100 text-sky-700'}`}>
                                                     <LockOpen className="w-2.5 h-2.5" />
                                                     Reaberto · congele manualmente
+                                                  </span>
+                                                ) : c.corte_ativo && dataCorteAtingida ? (
+                                                  <span
+                                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold ${isDark ? 'bg-amber-500/15 text-amber-300' : 'bg-amber-100 text-amber-700'}`}
+                                                    title={`Data de corte (${congelaEmTxt}) já foi atingida. O congelamento é aplicado automaticamente em até alguns minutos após a última edição da projeção deste evento.`}
+                                                  >
+                                                    <Clock className="w-2.5 h-2.5 animate-pulse" />
+                                                    Data atingida · congelando…
                                                   </span>
                                                 ) : c.corte_ativo ? (
                                                   <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold ${isDark ? 'bg-amber-500/15 text-amber-300' : 'bg-amber-100 text-amber-700'}`}>
