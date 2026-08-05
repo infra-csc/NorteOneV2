@@ -1,12 +1,13 @@
 """Solicitação de Cortesias — tela nova e independente da tela atual de
 Cortesias (proxy do app externo). Os responsáveis de cada área "abrem um
-chamado" pedindo cortesias para um evento (cupom a gerar manualmente depois,
-ou planilha do cliente com a lista de participantes), respeitando como
-trava a quantidade total projetada da área (projecao_inscritos.quantidade).
+chamado" pedindo cortesias para um evento (cupom cujo código é criado
+manualmente no Magento depois, ou planilha do cliente com a lista de
+participantes), respeitando como trava a quantidade total projetada da área
+(projecao_inscritos.quantidade).
 
 Sem etapa de aprovação: a validação do saldo já é suficiente para registrar
 a solicitação. Um usuário com uma permissão distinta (pode_editar do mesmo
-módulo) marca solicitações de cupom como geradas, preenchendo o código.
+módulo) aplica o código de cupom, já criado no Magento, em cada solicitação.
 """
 
 import csv
@@ -56,7 +57,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/cortesia-solicitacao", tags=["Solicitação de Cortesias"])
 
 # Módulo próprio de permissão (Perfil de Acesso): visualizar/criar solicitações
-# é o fluxo do responsável de área; editar é reservado a quem gera os cupons.
+# é o fluxo do responsável de área; editar é reservado a quem aplica os códigos de cupom.
 CORTESIA_SOLICITACAO_PERMISSION = "cortesia_solicitacao"
 
 # Sem um evento_id explícito, cupons já gerados há mais de
@@ -407,10 +408,11 @@ def fila_geracao_cupons(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission(CORTESIA_SOLICITACAO_PERMISSION, "pode_editar")),
 ):
-    """Fila dedicada de quem gera os cupons: todas as solicitações do tipo
-    cupom, sem recorte por área — a mesma regra de acesso que já vale hoje
-    para marcar uma solicitação como gerada (pode_editar do módulo, não
-    depende de vínculo com a área). O frontend separa pendentes x gerados.
+    """Fila dedicada de quem aplica os códigos de cupom: todas as
+    solicitações do tipo cupom, sem recorte por área — a mesma regra de
+    acesso que já vale hoje para aplicar o código de uma solicitação
+    (pode_editar do módulo, não depende de vínculo com a área). O frontend
+    separa pendentes x gerados.
 
     Pendentes: sempre completos, nunca filtrados por evento nem pela janela
     — é fila de trabalho, um pedido esquecido não pode sumir da lista.
@@ -715,9 +717,9 @@ def _aplicar_codigos_cupom(
     independente dos demais, na importação em lote). Lança ``HTTPException``
     com o motivo da rejeição; nada é persistido quando ela é lançada."""
     if sol.tipo != TIPO_CUPOM:
-        raise HTTPException(status_code=400, detail="Somente solicitações do tipo cupom podem ser marcadas como geradas")
+        raise HTTPException(status_code=400, detail="Somente solicitações do tipo cupom podem receber um código de cupom")
     if sol.status == STATUS_GERADO:
-        raise HTTPException(status_code=400, detail="Esta solicitação já foi marcada como gerada")
+        raise HTTPException(status_code=400, detail="Esta solicitação já tem um código de cupom cadastrado")
 
     codigos = [c.strip() for c in (codigos_brutos or []) if c and c.strip()]
     if not codigos:
@@ -822,7 +824,7 @@ def toggle_codigo_usado(
     current_user: Usuario = Depends(require_permission(CORTESIA_SOLICITACAO_PERMISSION, "pode_editar")),
 ):
     """Alterna o status de uso de um código individual (usado ↔ não usado).
-    Restrito a quem tem permissão de edição do módulo (mesmo papel que gera cupons)."""
+    Restrito a quem tem permissão de edição do módulo (mesmo papel que aplica os códigos de cupom)."""
     sol = db.query(CortesiaSolicitacao).filter(
         CortesiaSolicitacao.id == solicitacao_id,
         CortesiaSolicitacao.deleted_at.is_(None),
@@ -869,7 +871,7 @@ def exportar_cupons(
     current_user: Usuario = Depends(require_permission(CORTESIA_SOLICITACAO_PERMISSION, "pode_editar")),
 ):
     """CSV com um código de cupom por linha, dos lotes já gerados — mesma
-    regra de acesso e mesmo recorte (sem filtro de área) da fila de geração.
+    regra de acesso e mesmo recorte (sem filtro de área) da fila de cupons.
     Sem janela por padrão (ação explícita e pontual, não carregamento de
     tela); use evento_id/area_projecao_id para restringir uma exportação."""
     query = (
@@ -901,7 +903,7 @@ def exportar_cupons(
     writer = csv.writer(output, delimiter=';')
     writer.writerow([
         'Evento', 'Data Evento', 'Área', 'Quantidade do Lote', 'Código',
-        'Solicitado por', 'Gerado por', 'Gerado em',
+        'Solicitado por', 'Aplicado por', 'Aplicado em',
     ])
     for sol in rows:
         base = [
@@ -929,12 +931,12 @@ def exportar_cupons(
     return StreamingResponse(
         io.BytesIO(content.encode('utf-8-sig')),
         media_type='text/csv',
-        headers={'Content-Disposition': 'attachment; filename=cupons_gerados.csv'},
+        headers={'Content-Disposition': 'attachment; filename=cupons_aplicados.csv'},
     )
 
 
 def _pendentes_cupom_com_nomes(db: Session) -> list[CortesiaSolicitacao]:
-    """Solicitações de cupom ainda pendentes de geração, com evento/área
+    """Solicitações de cupom ainda aguardando código, com evento/área
     pré-carregados — usado tanto pelo modelo de importação quanto pelo
     casamento de linhas na importação em lote."""
     return (
@@ -966,7 +968,7 @@ def baixar_modelo_importacao_cupons(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission(CORTESIA_SOLICITACAO_PERMISSION, "pode_editar")),
 ):
-    """.txt modelo com uma linha por cortesia ainda pendente de geração —
+    """.txt modelo com uma linha por cortesia ainda aguardando código —
     evento e área já preenchidos exatamente como o importador espera, só
     falta colar o código gerado no Magento no final de cada linha. Elimina
     o maior risco de erro do formato manual: digitar o nome do evento/área
@@ -979,7 +981,7 @@ def baixar_modelo_importacao_cupons(
         "EVENTO;AREA;CODIGO",
     ]
     if not pendentes:
-        linhas.append("# Nenhuma solicitação de cupom pendente de geração no momento.")
+        linhas.append("# Nenhuma solicitação de cupom aguardando código no momento.")
     for sol in pendentes:
         evento_nome = sol.evento.nome if sol.evento else f"Evento {sol.evento_id}"
         area_nome = sol.area_projecao.nome if sol.area_projecao else f"Área {sol.area_projecao_id}"
@@ -1129,7 +1131,7 @@ async def importar_cupons(
         if len(candidatos_ids) > 1:
             motivo = (
                 f"Existem {len(candidatos_ids)} solicitações pendentes para evento '{evento_label}' e área '{area_label}' "
-                "— ambíguo para importar em lote. Aplique pela fila individualmente (\"Marcar gerado\")."
+                "— ambíguo para importar em lote. Aplique pela fila individualmente (\"Colar código\")."
             )
             for item in linhas_grupo:
                 resultados.append(ImportarCupomLinhaResultado(linha=item["linha"], texto=item["texto"], aplicado=False, mensagem=motivo))
@@ -1142,7 +1144,7 @@ async def importar_cupons(
             .first()
         )
         if not sol or sol.status == STATUS_GERADO:
-            motivo = "Esta solicitação foi gerada ou cancelada por outra ação enquanto o arquivo era processado."
+            motivo = "Esta solicitação recebeu um código ou foi cancelada por outra ação enquanto o arquivo era processado."
             for item in linhas_grupo:
                 resultados.append(ImportarCupomLinhaResultado(linha=item["linha"], texto=item["texto"], aplicado=False, mensagem=motivo))
             continue

@@ -16,13 +16,14 @@ import {
 //
 // Tela nova e independente da "Cortesias por Evento" (que só espelha o app
 // externo, somente-leitura). Aqui o responsável de cada área abre uma
-// solicitação de cortesias para um evento — cupom a ser gerado manualmente
-// depois, ou planilha do cliente com a lista de participantes — respeitando
-// como trava o saldo (projetado na Projeção de Inscritos - já solicitado).
+// solicitação de cortesias para um evento — cupom cujo código é criado
+// manualmente no Magento depois, ou planilha do cliente com a lista de
+// participantes — respeitando como trava o saldo (projetado na Projeção de
+// Inscritos - já solicitado).
 // Sem etapa de aprovação: a checagem de saldo já é a única trava.
 //
 // Duas abas: "Solicitações" (quem pede — tabela ou Kanban, à escolha do
-// usuário) e "Geração de Cupons" (quem gera os códigos — fila dedicada, sem
+// usuário) e "Aplicar Cupons" (quem aplica os códigos — fila dedicada, sem
 // recorte por área, com exportação em CSV). A segunda só aparece para quem
 // tem a permissão de editar (pode_editar) deste módulo.
 // ─────────────────────────────────────────────────────────────
@@ -88,8 +89,8 @@ type Visualizacao = 'tabela' | 'kanban';
 type KanbanColKey = 'aguardando' | 'gerado' | 'recebida';
 
 const KANBAN_COLUNAS: { key: KanbanColKey; titulo: string }[] = [
-  { key: 'aguardando', titulo: 'Aguardando geração' },
-  { key: 'gerado', titulo: 'Gerado' },
+  { key: 'aguardando', titulo: 'Aguardando código' },
+  { key: 'gerado', titulo: 'Aplicado' },
   { key: 'recebida', titulo: 'Recebida' },
 ];
 
@@ -98,9 +99,9 @@ const colunaDe = (sol: CortesiaSolicitacaoResponse): KanbanColKey => {
   return sol.status === 'gerado' ? 'gerado' : 'aguardando';
 };
 
-// Lista de códigos reutilizada na tabela, no Kanban e na aba de geração.
+// Lista de códigos reutilizada na tabela, no Kanban e na aba de cupons.
 // "compact": poucos chips + copiar tudo (linha/card de uma solicitação).
-// "full": lista completa rolável, com copiar por código e toggle de uso (aba de geração).
+// "full": lista completa rolável, com copiar por código e toggle de uso (aba de cupons).
 //
 // Quando codigos_detalhes está disponível, mostra badge usado/disponível por código.
 // O toggle só aparece em variant="full" quando onToggleUsado é passado.
@@ -310,7 +311,7 @@ const KanbanCard: React.FC<CardActionsProps> = ({ sol, isDark, podeGerarCupom, p
         )}
         {sol.tipo === 'cupom' && sol.status === 'solicitado' && podeGerarCupom && (
           <button type="button" onClick={() => onGerar(sol)} className={`px-2 py-1 rounded-lg text-[11px] font-semibold transition-colors ${isDark ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'}`}>
-            Marcar gerado
+            Colar código
           </button>
         )}
         {podeCancelar && (
@@ -355,7 +356,7 @@ const KanbanBoard: React.FC<{ solicitacoes: CortesiaSolicitacaoResponse[] } & Om
 
 // ─────────────────────────────────────────────────────────────
 // Filtro padrão — mesmo componente e mesmo conjunto de campos (busca,
-// evento, área, e opcionalmente tipo/status) em Acompanhamento e Geração de
+// evento, área, e opcionalmente tipo/status) em Acompanhamento e Aplicar
 // Cupons, para que o usuário aprenda o padrão uma vez e reaproveite nas
 // duas telas.
 // ─────────────────────────────────────────────────────────────
@@ -393,8 +394,8 @@ const buscaCasa = (sol: CortesiaSolicitacaoResponse, busca: string): boolean => 
     .some(v => (v || '').toLowerCase().includes(alvo));
 };
 
-// opts.ignorarEvento: Geração de Cupons já usa o campo Evento do filtro para
-// trocar a janela de "Gerados" no backend (histórico completo daquele
+// opts.ignorarEvento: Aplicar Cupons já usa o campo Evento do filtro para
+// trocar a janela de "Aplicados" no backend (histórico completo daquele
 // evento) — reaplicar o mesmo filtro no cliente aí seria redundante, então
 // pendentes filtra por evento e gerados não.
 const aplicarFiltro = (
@@ -470,8 +471,8 @@ const FiltroBar: React.FC<FiltroBarProps> = ({
       {onStatus && (
         <select value={status} onChange={e => onStatus(e.target.value as '' | KanbanColKey)} className={selectCls}>
           <option value="">Todos os status</option>
-          <option value="aguardando">Aguardando geração</option>
-          <option value="gerado">Gerado</option>
+          <option value="aguardando">Aguardando código</option>
+          <option value="gerado">Aplicado</option>
           <option value="recebida">Recebida</option>
         </select>
       )}
@@ -488,7 +489,7 @@ const FiltroBar: React.FC<FiltroBarProps> = ({
 };
 
 // ─────────────────────────────────────────────────────────────
-// Agrupamento por evento (Geração de Cupons) — mesmo espírito do acordeão de
+// Agrupamento por evento (Aplicar Cupons) — mesmo espírito do acordeão de
 // "Eventos e saldo por área": cabeçalho com nome/data/contagem, clicável
 // para recolher, várias seções podem ficar abertas ao mesmo tempo.
 // ─────────────────────────────────────────────────────────────
@@ -579,7 +580,7 @@ const SolicitacaoCortesias: React.FC = () => {
   const [loadingFila, setLoadingFila] = useState(true);
   const [errorFila, setErrorFila] = useState<string | null>(null);
   const [exportando, setExportando] = useState(false);
-  // Filtro por evento dos "Gerados": vazio = janela padrão (últimos
+  // Filtro por evento dos "Aplicados": vazio = janela padrão (últimos
   // FILA_GERADOS_JANELA_DIAS dias); com evento selecionado, o backend troca
   // para o histórico completo daquele evento. Nunca afeta os "Pendentes".
   const [filaEventoId, setFilaEventoId] = useState<number | ''>('');
@@ -588,8 +589,8 @@ const SolicitacaoCortesias: React.FC = () => {
   // Filtro da aba Acompanhamento (busca + evento + área + tipo + status,
   // tudo em memória sobre a lista já carregada).
   const [filtroAcomp, setFiltroAcomp] = useState<FiltroSolicitacoes>(FILTRO_VAZIO);
-  // Filtro da aba Geração de Cupons: busca + área em memória; o campo Evento
-  // reaproveita filaEventoId, que já troca a janela de "Gerados" no backend.
+  // Filtro da aba Aplicar Cupons: busca + área em memória; o campo Evento
+  // reaproveita filaEventoId, que já troca a janela de "Aplicados" no backend.
   const [filtroGeracaoBusca, setFiltroGeracaoBusca] = useState('');
   const [filtroGeracaoArea, setFiltroGeracaoArea] = useState<number | ''>('');
   // Filtro da aba Solicitações ("Eventos e saldo por área"): busca pelo nome
@@ -938,8 +939,8 @@ const SolicitacaoCortesias: React.FC = () => {
   const eventoOpcoesAcomp = useMemo(() => opcoesEvento(solicitacoes), [solicitacoes]);
   const solicitacoesFiltradas = useMemo(() => aplicarFiltro(solicitacoes, filtroAcomp), [solicitacoes, filtroAcomp]);
 
-  // Geração de Cupons: mesma busca+área nas duas seções; evento filtra só
-  // Pendentes (Gerados já muda de janela via filaEventoId no backend).
+  // Aplicar Cupons: mesma busca+área nas duas seções; evento filtra só
+  // Pendentes (Aplicados já muda de janela via filaEventoId no backend).
   const areaOpcoesGeracao = useMemo(() => opcoesArea([...pendentesFila, ...geradosFila]), [pendentesFila, geradosFila]);
   const eventoOpcoesGeracao = useMemo(() => opcoesEvento([...pendentesFila, ...geradosFila]), [pendentesFila, geradosFila]);
   const filtroGeracaoAtivo = { busca: filtroGeracaoBusca, areaId: filtroGeracaoArea, eventoId: filaEventoId };
@@ -982,7 +983,7 @@ const SolicitacaoCortesias: React.FC = () => {
         </div>
       </div>
 
-      {/* Abas: quem solicita x quem gera os cupons */}
+      {/* Abas: quem solicita x quem aplica os códigos de cupom */}
       <div className={`inline-flex items-center gap-1 p-1 rounded-xl ${isDark ? 'bg-gray-800/50 border border-gray-700/50' : 'bg-gray-100 border border-gray-200'}`}>
         <button type="button" onClick={() => setAba('solicitacoes')} className={abaBtnCls(aba === 'solicitacoes')}>
           <ClipboardList className="w-3.5 h-3.5" /> Solicitações
@@ -992,7 +993,7 @@ const SolicitacaoCortesias: React.FC = () => {
         </button>
         {podeGerarCupom && (
           <button type="button" onClick={() => setAba('geracao')} className={abaBtnCls(aba === 'geracao')}>
-            <Ticket className="w-3.5 h-3.5" /> Geração de Cupons
+            <Ticket className="w-3.5 h-3.5" /> Aplicar Cupons
             {pendentesFila.length > 0 && (
               <span className={`ml-0.5 px-1.5 rounded-full text-[10px] font-bold ${isDark ? 'bg-amber-500/30 text-amber-300' : 'bg-amber-200 text-amber-800'}`}>
                 {pendentesFila.length}
@@ -1209,11 +1210,11 @@ const SolicitacaoCortesias: React.FC = () => {
                             {sol.tipo === 'cupom' ? (
                               sol.status === 'gerado' ? (
                                 <span className={`inline-flex items-center gap-1 text-xs font-semibold ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
-                                  <CheckCircle2 className="w-3.5 h-3.5" /> Gerado
+                                  <CheckCircle2 className="w-3.5 h-3.5" /> Aplicado
                                 </span>
                               ) : (
                                 <span className={`inline-flex items-center gap-1 text-xs font-semibold ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
-                                  <Clock className="w-3.5 h-3.5" /> Aguardando geração
+                                  <Clock className="w-3.5 h-3.5" /> Aguardando código
                                 </span>
                               )
                             ) : (
@@ -1250,7 +1251,7 @@ const SolicitacaoCortesias: React.FC = () => {
                                   onClick={() => abrirGerar(sol)}
                                   className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${isDark ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'}`}
                                 >
-                                  Marcar gerado
+                                  Colar código
                                 </button>
                               )}
                               {podeCancelar && (
@@ -1292,9 +1293,9 @@ const SolicitacaoCortesias: React.FC = () => {
         <div className={cardCls}>
           <div className={`flex items-center justify-between p-4 border-b ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`}>
             <div>
-              <h2 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Fila de Geração de Cupons</h2>
+              <h2 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Fila de Cupons</h2>
               <p className={`text-xs mt-0.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                Pendentes de todas as áreas, sempre completos. Gerados dos últimos {FILA_GERADOS_JANELA_DIAS} dias por padrão — selecione um evento no filtro para ver o histórico completo.
+                Pendentes de todas as áreas, sempre completos. Aplicados dos últimos {FILA_GERADOS_JANELA_DIAS} dias por padrão — selecione um evento no filtro para ver o histórico completo.
               </p>
             </div>
             <div className="flex items-center gap-1.5">
@@ -1362,7 +1363,7 @@ const SolicitacaoCortesias: React.FC = () => {
                 eventoId={filaEventoId}
                 onEvento={setFilaEventoId}
                 eventoOpcoes={eventoOpcoesGeracao}
-                eventoPlaceholder={`Últimos ${FILA_GERADOS_JANELA_DIAS} dias (gerados)`}
+                eventoPlaceholder={`Últimos ${FILA_GERADOS_JANELA_DIAS} dias (aplicados)`}
                 onLimpar={limparFiltroGeracao}
                 resultCount={pendentesFiltrados.length + geradosFiltrados.length}
                 resultLabel="na fila"
@@ -1389,7 +1390,7 @@ const SolicitacaoCortesias: React.FC = () => {
                     )}
                   </div>
                   {pendentesFila.length === 0 ? (
-                    <p className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhuma solicitação aguardando geração.</p>
+                    <p className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhuma solicitação aguardando código.</p>
                   ) : pendentesFiltrados.length === 0 ? (
                     <p className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhum pendente encontrado para estes filtros.</p>
                   ) : (
@@ -1416,7 +1417,7 @@ const SolicitacaoCortesias: React.FC = () => {
                                 onClick={() => abrirGerar(sol)}
                                 className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${isDark ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'}`}
                               >
-                                Marcar gerado
+                                Colar código
                               </button>
                             </div>
                           ))}
@@ -1428,7 +1429,7 @@ const SolicitacaoCortesias: React.FC = () => {
                 <section>
                   <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
                     <h3 className={`text-xs font-bold uppercase tracking-wide ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                      Gerados <span className={isDark ? 'text-gray-600' : 'text-gray-400'}>({geradosFiltrados.length})</span>
+                      Aplicados <span className={isDark ? 'text-gray-600' : 'text-gray-400'}>({geradosFiltrados.length})</span>
                     </h3>
                     {gruposGerados.length > 1 && (
                       <div className="flex items-center gap-3">
@@ -1443,15 +1444,15 @@ const SolicitacaoCortesias: React.FC = () => {
                   </div>
                   <p className={`text-xs mb-2 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
                     {filaEventoId
-                      ? 'Histórico completo de cupons gerados para o evento selecionado.'
-                      : `Mostrando apenas os gerados nos últimos ${FILA_GERADOS_JANELA_DIAS} dias. Selecione um evento no filtro para buscar códigos mais antigos.`}
+                      ? 'Histórico completo de cupons aplicados para o evento selecionado.'
+                      : `Mostrando apenas os aplicados nos últimos ${FILA_GERADOS_JANELA_DIAS} dias. Selecione um evento no filtro para buscar códigos mais antigos.`}
                   </p>
                   {geradosFila.length === 0 ? (
                     <p className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                      {filaEventoId ? 'Nenhum cupom gerado para este evento.' : `Nenhum cupom gerado nos últimos ${FILA_GERADOS_JANELA_DIAS} dias.`}
+                      {filaEventoId ? 'Nenhum cupom aplicado para este evento.' : `Nenhum cupom aplicado nos últimos ${FILA_GERADOS_JANELA_DIAS} dias.`}
                     </p>
                   ) : geradosFiltrados.length === 0 ? (
-                    <p className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhum gerado encontrado para estes filtros.</p>
+                    <p className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhum aplicado encontrado para estes filtros.</p>
                   ) : (
                     <div className="space-y-3">
                       {gruposGerados.map(grupo => (
@@ -1515,7 +1516,7 @@ const SolicitacaoCortesias: React.FC = () => {
                       : (isDark ? 'border-gray-600 text-gray-300' : 'border-gray-300 text-gray-600')
                   }`}
                 >
-                  <Ticket className="w-4 h-4" /> Gerar cupom
+                  <Ticket className="w-4 h-4" /> Cupom
                 </button>
                 <button
                   type="button"
@@ -1536,13 +1537,13 @@ const SolicitacaoCortesias: React.FC = () => {
                   <div className="space-y-1">
                     {!form.area_sigla && (
                       <p>
-                        A área <strong>{form.area_projecao_nome}</strong> ainda não tem uma sigla configurada — necessária para gerar os códigos de cupom.
+                        A área <strong>{form.area_projecao_nome}</strong> ainda não tem uma sigla configurada — necessária para gerar os códigos de cupom no Magento.
                         {' '}Configure a sigla em <strong>Configurações › Áreas e Usuários</strong> antes de enviar esta solicitação.
                       </p>
                     )}
                     {!form.evento_sku && (
                       <p>
-                        O evento <strong>{form.evento_nome}</strong> não tem um SKU cadastrado — necessário para gerar os códigos de cupom.
+                        O evento <strong>{form.evento_nome}</strong> não tem um SKU cadastrado — necessário para gerar os códigos de cupom no Magento.
                         {' '}Cadastre o SKU do evento antes de enviar esta solicitação.
                       </p>
                     )}
@@ -1605,7 +1606,7 @@ const SolicitacaoCortesias: React.FC = () => {
                   onChange={e => setObservacao(e.target.value)}
                   rows={2}
                   className={inputCls}
-                  placeholder="Contexto adicional para quem for gerar/receber"
+                  placeholder="Contexto adicional para quem for aplicar/receber"
                 />
               </div>
 

@@ -1830,7 +1830,7 @@ export interface CupomCodigoItem {
 }
 
 // Opção enxuta (sem números de saldo) para o filtro por evento da fila de
-// geração de cupons — só eventos com pelo menos um cupom já gerado.
+// aplicação de cupons — só eventos com pelo menos um cupom já aplicado.
 export interface CortesiaEventoFilaOpcao {
   evento_id: number;
   evento_nome: string;
@@ -1927,16 +1927,16 @@ export const cortesiaSolicitacaoService = {
     link.remove();
     window.URL.revokeObjectURL(url);
   },
-  // Fila dedicada de quem gera os cupons: todas as solicitações tipo cupom,
-  // sem recorte por área (backend usa pode_editar, não vínculo com a área).
-  // Pendentes sempre vêm completos; gerados são limitados aos últimos 90
-  // dias a menos que evento_id seja informado (aí vem o histórico completo
-  // daquele evento).
+  // Fila dedicada de quem aplica os códigos de cupom: todas as solicitações
+  // tipo cupom, sem recorte por área (backend usa pode_editar, não vínculo
+  // com a área). Pendentes sempre vêm completos; aplicados são limitados
+  // aos últimos 90 dias a menos que evento_id seja informado (aí vem o
+  // histórico completo daquele evento).
   filaGeracao: async (params?: { evento_id?: number }): Promise<CortesiaSolicitacaoResponse[]> => {
     const response = await api.get('/cortesia-solicitacao/fila-geracao', { params });
     return response.data;
   },
-  // Eventos com pelo menos um cupom já gerado — alimenta o filtro acima.
+  // Eventos com pelo menos um cupom já aplicado — alimenta o filtro acima.
   eventosFilaGeracao: async (): Promise<CortesiaEventoFilaOpcao[]> => {
     const response = await api.get('/cortesia-solicitacao/fila-geracao/eventos');
     return response.data;

@@ -21,7 +21,7 @@ class EventoSaldoResponse(BaseModel):
 
 
 class EventoFilaOpcao(BaseModel):
-    """Opção enxuta para o filtro por evento da fila de geração de cupons —
+    """Opção enxuta para o filtro por evento da fila de cupons —
     só id/nome/data, sem os números de saldo (que não fazem sentido aqui)."""
     evento_id: int
     evento_nome: str

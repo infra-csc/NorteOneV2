@@ -11,7 +11,7 @@ Design properties under test:
 * Zero matches → that group's lines are rejected ("não encontrada"); other
   groups in the same file are unaffected (each group commits independently).
 * 2+ matches (ambiguous) → rejected outright, never auto-distributed; the
-  rejection message points back at the single-paste "Marcar gerado" flow.
+  rejection message points back at the single-paste "Colar código" flow.
 * The same code appearing on 2+ lines anywhere in the file is rejected on
   exactly those lines (naming the colliding line numbers), before any
   group-matching happens — this is stricter/more precise than relying on the
@@ -272,7 +272,7 @@ def test_import_ambiguous_group_rejected(SessionFactory, seed_base):
     assert resumo.rejeitados == 1
     linha = _resultado_por_linha(resumo, 1)
     assert "ambíguo" in linha.mensagem.lower() or "ambiguo" in linha.mensagem.lower()
-    assert "marcar gerado" in linha.mensagem.lower(), "must point to the fallback single-paste flow"
+    assert "colar código" in linha.mensagem.lower(), "must point to the fallback single-paste flow"
 
     db_check = SessionFactory()
     try:
@@ -507,7 +507,7 @@ def test_import_stale_pending_snapshot_defensive_recheck(SessionFactory, seed_ba
     assert resumo.aplicados == 0
     assert resumo.rejeitados == 1
     linha = _resultado_por_linha(resumo, 1)
-    assert "gerada ou cancelada" in linha.mensagem.lower()
+    assert "recebeu um código ou foi cancelada" in linha.mensagem.lower()
 
 
 # ---------------------------------------------------------------------------

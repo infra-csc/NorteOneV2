@@ -269,8 +269,8 @@ def test_commit_time_collision_returns_409_not_500(SessionFactory):
 
 def test_same_solicitacao_double_call_second_returns_400(SessionFactory, seed_data):
     """A duplicate gerar_cupom call for an already-generated solicitação must
-    be rejected with HTTP 400 ("já foi marcada como gerada") *before* writing
-    any codes to the DB.
+    be rejected with HTTP 400 ("já tem um código de cupom cadastrado") *before*
+    writing any codes to the DB.
 
     Design note
     -----------
@@ -282,8 +282,8 @@ def test_same_solicitacao_double_call_second_returns_400(SessionFactory, seed_da
     * Call 1 (first request): must succeed and persist exactly ``quantidade``
       unique codes.
     * Call 2 (duplicate request, same solicitacao_id): must raise HTTP 400
-      with the "já foi marcada como gerada" message and must NOT write any
-      additional code rows.
+      with the "já tem um código de cupom cadastrado" message and must NOT
+      write any additional code rows.
 
     The production race (two requests arriving before either commits) is
     addressed by the ``SELECT … FOR UPDATE`` added to the route: only one
@@ -356,7 +356,7 @@ def test_same_solicitacao_double_call_second_returns_400(SessionFactory, seed_da
     assert exc_info.value.status_code == 400, (
         f"Expected HTTP 400 on duplicate call, got {exc_info.value.status_code}"
     )
-    assert "já foi marcada como gerada" in (exc_info.value.detail or ""), (
+    assert "já tem um código de cupom cadastrado" in (exc_info.value.detail or ""), (
         f"Unexpected rejection message: {exc_info.value.detail!r}"
     )
 

@@ -119,9 +119,9 @@ def _invalidate_areas_cache():
         _areas_cache["ts"] = 0.0
 
 
-# Sigla da área: usada como prefixo dos códigos de cupom gerados automaticamente
-# (task #174). Curta, só letras/números, para o código final não ficar longo
-# demais nem ambíguo.
+# Sigla da área: usada como prefixo do código de cupom que o admin cria
+# manualmente no Magento (ver Solicitação de Cortesias, task #174). Curta,
+# só letras/números, para o código final não ficar longo demais nem ambíguo.
 _SIGLA_RE = re.compile(r"^[A-Z0-9]{2,10}$")
 
 
@@ -3442,8 +3442,9 @@ def update_area_sigla(
     current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
 ):
     """Define/atualiza a sigla de uma área já existente (task #174). A sigla é
-    o prefixo usado na geração automática de código de cupom; mudar aqui não
-    altera códigos já gerados anteriormente (texto estático já persistido)."""
+    o prefixo usado no código de cupom que o admin cria manualmente no Magento;
+    mudar aqui não altera códigos já gerados anteriormente (texto estático já
+    persistido)."""
     if not is_user_admin(current_user):
         raise HTTPException(status_code=403, detail="Apenas administradores podem alterar a sigla da área")
     area = db.query(AreaProjecao).filter(AreaProjecao.id == area_id).first()
