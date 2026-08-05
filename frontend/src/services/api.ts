@@ -1956,6 +1956,26 @@ export const cortesiaSolicitacaoService = {
     link.remove();
     window.URL.revokeObjectURL(url);
   },
+  // Mesmos filtros da aba Acompanhamento (busca, área, evento, tipo,
+  // status) — o backend aplica a mesma regra de visibilidade da listagem,
+  // então um usuário comum sempre recebe só as próprias solicitações.
+  exportarAcompanhamento: async (params?: {
+    evento_id?: number;
+    area_projecao_id?: number;
+    tipo?: string;
+    status?: string;
+    busca?: string;
+  }): Promise<void> => {
+    const response = await api.get('/cortesia-solicitacao/exportar-acompanhamento', { params, responseType: 'blob' });
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'acompanhamento_cortesias.csv');
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  },
   // Modelo .txt com EVENTO;AREA já preenchidos para cada cortesia pendente
   // de geração — só falta colar o código do Magento no final de cada linha.
   baixarModeloImportacaoCupons: async (): Promise<void> => {

@@ -134,6 +134,15 @@ def _parse_codigos_cupom(texto: str | None) -> list[str]:
     return [c.strip() for c in _CODIGO_CUPOM_SPLIT_RE.split(texto) if c.strip()]
 
 
+def _sanitize_csv(val: str) -> str:
+    """Neutraliza injeção de fórmula (CSV injection) em campos abertos por
+    usuário antes de escrever numa célula — compartilhado por todos os
+    exports CSV deste módulo."""
+    if val and val[0] in ('=', '+', '-', '@', '\t', '\r'):
+        return "'" + val
+    return val
+
+
 # Os códigos de cupom não são mais gerados pelo app (task #242) — são criados
 # manualmente no Magento e colados na solicitação. O índice único abaixo
 # continua garantindo que nenhum código colado se repita entre solicitações.
@@ -168,6 +177,33 @@ def _pode_ver_todas_solicitacoes(user: Usuario) -> bool:
     hoje) veem todas as solicitações, independente de área ou de quem abriu.
     Os demais usuários só devem ver as solicitações que eles mesmos criaram."""
     return is_user_admin(user) or user_has_permission(user, CORTESIA_SOLICITACAO_PERMISSION, "pode_editar")
+
+
+def _coluna_kanban(sol: CortesiaSolicitacao) -> str:
+    """Espelha `colunaDe()` em SolicitacaoCortesias.tsx: a aba Acompanhamento
+    filtra e exibe por essa coluna derivada, não pelo campo `status` bruto —
+    'planilha' é sempre 'recebida', e 'cupom' só vira 'gerado' quando o
+    código já foi aplicado. Mantenha as duas em sincronia se uma mudar."""
+    if sol.tipo == TIPO_PLANILHA:
+        return "recebida"
+    return "gerado" if sol.status == STATUS_GERADO else "aguardando"
+
+
+_STATUS_LABEL_KANBAN = {"recebida": "Recebida", "gerado": "Aplicado", "aguardando": "Aguardando código"}
+
+
+def _busca_casa(sol: CortesiaSolicitacao, alvo: str) -> bool:
+    """Espelha `buscaCasa()` em SolicitacaoCortesias.tsx: substring
+    case-insensitive (já normalizado para minúsculas em `alvo`) sobre
+    evento, área, solicitante, gerador e observação."""
+    campos = [
+        sol.evento.nome if sol.evento else None,
+        sol.area_projecao.nome if sol.area_projecao else None,
+        sol.solicitante.nome if sol.solicitante else None,
+        sol.gerador.nome if sol.gerador else None,
+        sol.observacao,
+    ]
+    return any(alvo in (c or "").lower() for c in campos)
 
 
 def _calcular_saldo(db: Session, evento_id: int, area_projecao_id: int) -> tuple[int, int, int]:
@@ -408,6 +444,80 @@ def list_solicitacoes(
         query = query.filter(CortesiaSolicitacao.solicitado_por == current_user.id)
     rows = query.order_by(CortesiaSolicitacao.created_at.desc()).all()
     return [_serialize(r) for r in rows]
+
+
+@router.get("/exportar-acompanhamento")
+def exportar_acompanhamento(
+    evento_id: int = Query(None),
+    area_projecao_id: int = Query(None),
+    tipo: str = Query(None, description="'cupom' ou 'planilha'"),
+    status: str = Query(None, description="Coluna derivada da aba Acompanhamento: aguardando | gerado | recebida"),
+    busca: str = Query(None),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(CORTESIA_SOLICITACAO_PERMISSION, "pode_visualizar")),
+):
+    """CSV com as solicitações visíveis na aba Acompanhamento, sob os mesmos
+    filtros da tela (busca, área, evento, tipo, status) e a MESMA regra de
+    visibilidade de `list_solicitacoes`/`baixar_arquivo`: quem não tem
+    `_pode_ver_todas_solicitacoes` só pode exportar as próprias
+    solicitações — o filtro por `solicitado_por` é aplicado no servidor
+    antes de qualquer outro filtro da tela, então nenhuma combinação de
+    query string devolve linha de outra pessoa."""
+    query = (
+        db.query(CortesiaSolicitacao)
+        .options(
+            joinedload(CortesiaSolicitacao.evento),
+            joinedload(CortesiaSolicitacao.area_projecao),
+            joinedload(CortesiaSolicitacao.solicitante),
+            joinedload(CortesiaSolicitacao.gerador),
+            joinedload(CortesiaSolicitacao.codigos),
+        )
+        .filter(CortesiaSolicitacao.deleted_at.is_(None))
+    )
+    if evento_id:
+        query = query.filter(CortesiaSolicitacao.evento_id == evento_id)
+    if area_projecao_id:
+        query = query.filter(CortesiaSolicitacao.area_projecao_id == area_projecao_id)
+    if tipo:
+        query = query.filter(CortesiaSolicitacao.tipo == tipo)
+    if not _pode_ver_todas_solicitacoes(current_user):
+        query = query.filter(CortesiaSolicitacao.solicitado_por == current_user.id)
+    rows = query.order_by(CortesiaSolicitacao.created_at.desc()).all()
+
+    # status (coluna kanban) e busca replicam a mesma lógica client-side de
+    # colunaDe()/buscaCasa() (SolicitacaoCortesias.tsx) — não dá pra
+    # filtrar em SQL sem duplicar essa árvore de decisão em dois lugares.
+    if status:
+        rows = [r for r in rows if _coluna_kanban(r) == status]
+    if busca and busca.strip():
+        alvo = busca.strip().lower()
+        rows = [r for r in rows if _busca_casa(r, alvo)]
+
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=';')
+    writer.writerow(['Evento', 'Área', 'Tipo', 'Quantidade', 'Status', 'Código(s)', 'Solicitante', 'Data'])
+    for sol in rows:
+        codigos = [c.codigo for c in sol.codigos] if sol.codigos else _parse_codigos_cupom(sol.codigo_cupom)
+        writer.writerow([
+            _sanitize_csv(sol.evento.nome if sol.evento else ''),
+            _sanitize_csv(sol.area_projecao.nome if sol.area_projecao else ''),
+            'Cupom' if sol.tipo == TIPO_CUPOM else 'Planilha',
+            sol.quantidade,
+            _STATUS_LABEL_KANBAN[_coluna_kanban(sol)],
+            _sanitize_csv(', '.join(codigos)),
+            _sanitize_csv(sol.solicitante.nome if sol.solicitante else ''),
+            sol.created_at.strftime('%d/%m/%Y %H:%M') if sol.created_at else '',
+        ])
+
+    output.seek(0)
+    # utf-8-sig já grava o BOM sozinho ao codificar — prefixar '\ufeff' na
+    # string e DEPOIS codificar com utf-8-sig duplica o BOM (o decode de
+    # volta só remove um, sobrando um caractere colado no cabeçalho).
+    return StreamingResponse(
+        io.BytesIO(output.getvalue().encode('utf-8-sig')),
+        media_type='text/csv',
+        headers={'Content-Disposition': 'attachment; filename=acompanhamento_cortesias.csv'},
+    )
 
 
 @router.get("/fila-geracao", response_model=list[CortesiaSolicitacaoResponse])
@@ -902,11 +1012,6 @@ def exportar_cupons(
         query = query.filter(CortesiaSolicitacao.area_projecao_id == area_projecao_id)
     rows = query.order_by(CortesiaSolicitacao.gerado_em.desc()).all()
 
-    def _sanitize_csv(val: str) -> str:
-        if val and val[0] in ('=', '+', '-', '@', '\t', '\r'):
-            return "'" + val
-        return val
-
     output = io.StringIO()
     writer = csv.writer(output, delimiter=';')
     writer.writerow([
@@ -933,11 +1038,11 @@ def exportar_cupons(
                 writer.writerow(base + [_sanitize_csv(codigo)] + tail)
 
     output.seek(0)
-    bom = '\ufeff'
-    content = bom + output.getvalue()
-
+    # utf-8-sig já grava o BOM sozinho ao codificar — prefixar '\ufeff' na
+    # string e DEPOIS codificar com utf-8-sig duplica o BOM (o decode de
+    # volta só remove um, sobrando um caractere colado no cabeçalho).
     return StreamingResponse(
-        io.BytesIO(content.encode('utf-8-sig')),
+        io.BytesIO(output.getvalue().encode('utf-8-sig')),
         media_type='text/csv',
         headers={'Content-Disposition': 'attachment; filename=cupons_aplicados.csv'},
     )

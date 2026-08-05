@@ -589,6 +589,7 @@ const SolicitacaoCortesias: React.FC = () => {
   // Filtro da aba Acompanhamento (busca + evento + área + tipo + status,
   // tudo em memória sobre a lista já carregada).
   const [filtroAcomp, setFiltroAcomp] = useState<FiltroSolicitacoes>(FILTRO_VAZIO);
+  const [exportandoAcomp, setExportandoAcomp] = useState(false);
   // Filtro da aba Aplicar Cupons: busca + área em memória; o campo Evento
   // reaproveita filaEventoId, que já troca a janela de "Aplicados" no backend.
   const [filtroGeracaoBusca, setFiltroGeracaoBusca] = useState('');
@@ -867,6 +868,26 @@ const SolicitacaoCortesias: React.FC = () => {
     }
   };
 
+  const exportarAcompanhamento = async () => {
+    setExportandoAcomp(true);
+    try {
+      // Mesmos filtros já aplicados na tela — o backend reaplica a mesma
+      // regra de visibilidade da listagem, então isso nunca traz mais do
+      // que o usuário já vê na tabela/kanban.
+      await cortesiaSolicitacaoService.exportarAcompanhamento({
+        evento_id: filtroAcomp.eventoId || undefined,
+        area_projecao_id: filtroAcomp.areaId || undefined,
+        tipo: filtroAcomp.tipo || undefined,
+        status: filtroAcomp.status || undefined,
+        busca: filtroAcomp.busca.trim() || undefined,
+      });
+    } catch (e) {
+      window.alert(extractError(e));
+    } finally {
+      setExportandoAcomp(false);
+    }
+  };
+
   const baixarModeloImportacao = async () => {
     setBaixandoModelo(true);
     try {
@@ -1138,6 +1159,15 @@ const SolicitacaoCortesias: React.FC = () => {
                   <LayoutGrid className="w-3.5 h-3.5" /> Kanban
                 </button>
               </div>
+              <button
+                type="button"
+                onClick={exportarAcompanhamento}
+                disabled={exportandoAcomp || solicitacoesFiltradas.length === 0}
+                title={solicitacoesFiltradas.length === 0 ? 'Nenhuma solicitação para exportar com estes filtros' : 'Exportar as solicitações filtradas'}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 ${isDark ? 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'}`}
+              >
+                <FileDown className="w-3.5 h-3.5" /> {exportandoAcomp ? 'Exportando...' : 'Exportar CSV'}
+              </button>
               <button
                 onClick={carregarSolicitacoes}
                 className={`p-2 rounded-lg transition-colors ${isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}
