@@ -57,6 +57,9 @@ const fmtTamanhoArquivo = (bytes: number): string => {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
+const fmtNum = (n: number | null | undefined): string =>
+  n == null ? '—' : n.toLocaleString('pt-BR');
+
 const extractError = (e: any): string => {
   const detail = e?.response?.data?.detail;
   if (typeof detail === 'string' && detail.trim()) return detail;
@@ -285,7 +288,7 @@ const KanbanCard: React.FC<CardActionsProps> = ({ sol, isDark, podeGerarCupom, p
         </div>
         <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
           {sol.tipo === 'cupom' ? <Ticket className="w-3 h-3" /> : <FileSpreadsheet className="w-3 h-3" />}
-          {sol.quantidade}
+          {fmtNum(sol.quantidade)}
         </span>
       </div>
       {codigos.length > 0 && (
@@ -743,7 +746,7 @@ const SolicitacaoCortesias: React.FC = () => {
       return;
     }
     if (qtd > form.saldo) {
-      setFormError(`Quantidade maior que o saldo disponível (${form.saldo}).`);
+      setFormError(`Quantidade maior que o saldo disponível (${fmtNum(form.saldo)}).`);
       return;
     }
     if (tipo === 'planilha' && !arquivo) {
@@ -1101,10 +1104,10 @@ const SolicitacaoCortesias: React.FC = () => {
                                 {ev.areas.map(area => (
                                   <tr key={area.area_projecao_id} className={`border-t ${isDark ? 'border-gray-700/50' : 'border-gray-100'}`}>
                                     <td className={`px-4 py-2 ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{area.area_projecao_nome}</td>
-                                    <td className={`px-4 py-2 text-right ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{area.projetado}</td>
-                                    <td className={`px-4 py-2 text-right ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{area.solicitado}</td>
+                                    <td className={`px-4 py-2 text-right ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{fmtNum(area.projetado)}</td>
+                                    <td className={`px-4 py-2 text-right ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{fmtNum(area.solicitado)}</td>
                                     <td className={`px-4 py-2 text-right font-semibold ${area.saldo > 0 ? (isDark ? 'text-emerald-400' : 'text-emerald-600') : (isDark ? 'text-gray-500' : 'text-gray-400')}`}>
-                                      {area.saldo}
+                                      {fmtNum(area.saldo)}
                                     </td>
                                     {podeCriar && (
                                       <td className="px-4 py-2 text-right">
@@ -1235,7 +1238,7 @@ const SolicitacaoCortesias: React.FC = () => {
                               {sol.tipo === 'cupom' ? 'Cupom' : 'Planilha'}
                             </span>
                           </td>
-                          <td className={`px-3 py-2 text-right font-semibold ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{sol.quantidade}</td>
+                          <td className={`px-3 py-2 text-right font-semibold ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{fmtNum(sol.quantidade)}</td>
                           <td className="px-3 py-2">
                             {sol.tipo === 'cupom' ? (
                               sol.status === 'gerado' ? (
@@ -1438,7 +1441,7 @@ const SolicitacaoCortesias: React.FC = () => {
                               <div className="min-w-0">
                                 <p className={`text-sm font-semibold truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>{sol.area_projecao_nome}</p>
                                 <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                                  {sol.quantidade} cortesias · solicitado por {sol.solicitado_por_nome || '—'} em {fmtDataHora(sol.created_at)}
+                                  {fmtNum(sol.quantidade)} cortesias · solicitado por {sol.solicitado_por_nome || '—'} em {fmtDataHora(sol.created_at)}
                                 </p>
                                 {sol.observacao && <p className={`text-xs italic mt-0.5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{sol.observacao}</p>}
                               </div>
@@ -1533,7 +1536,7 @@ const SolicitacaoCortesias: React.FC = () => {
             <div className="p-4 space-y-3">
               <div className={`text-xs p-2.5 rounded-lg ${isDark ? 'bg-gray-900/50 text-gray-300' : 'bg-gray-50 text-gray-700'}`}>
                 <p><strong>{form.evento_nome}</strong> — {form.area_projecao_nome}</p>
-                <p className="mt-0.5">Saldo disponível: <strong>{form.saldo}</strong></p>
+                <p className="mt-0.5">Saldo disponível: <strong>{fmtNum(form.saldo)}</strong></p>
               </div>
 
               <div className="flex gap-2">
@@ -1748,7 +1751,7 @@ const SolicitacaoCortesias: React.FC = () => {
                 {gerarAlvo.evento_nome} — {gerarAlvo.area_projecao_nome}
               </p>
               <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                Gere {gerarAlvo.quantidade} código(s) no Magento e cole abaixo, um por linha ({parseCodigosColados(gerarCodigosTexto).length} de {gerarAlvo.quantidade} colado(s)).
+                Gere {fmtNum(gerarAlvo.quantidade)} código(s) no Magento e cole abaixo, um por linha ({fmtNum(parseCodigosColados(gerarCodigosTexto).length)} de {fmtNum(gerarAlvo.quantidade)} colado(s)).
               </p>
               <textarea
                 value={gerarCodigosTexto}
