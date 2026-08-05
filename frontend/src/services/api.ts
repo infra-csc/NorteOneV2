@@ -1575,6 +1575,11 @@ export const marketingService = {
       [key: string]: string | number;
     }[];
     ultima_atualizacao: string;
+    /** Present when at least one bank failed live and its last-good data was used instead. */
+    fallback_info?: {
+      ativo?: { fonte: string; capturado_em: string | null; erro: string };
+      magento?: { fonte: string; capturado_em: string | null; erro: string };
+    };
   }> => {
     const response = await api.get('/marketing/curva-comparativa', { signal });
     return response.data;

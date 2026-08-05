@@ -8542,9 +8542,13 @@ def check_duplicate_action_endpoint(
     }
 
 
-def _fetch_monthly_sales_ativo(ano_atual: int, ano_anterior: int) -> list:
+def _fetch_monthly_sales_ativo(ano_atual: int, ano_anterior: int) -> tuple:
+    """Returns (rows: list, error: Optional[str]).
+    rows is the fetched data on success, [] on failure.
+    error is None on success, a string description on failure.
+    """
     if db_module.engine_ssh is None:
-        return []
+        return [], "Ativo (SSH tunnel) não configurado"
     try:
         query = """
 SELECT /*+ MAX_EXECUTION_TIME(90000) */
@@ -8579,15 +8583,20 @@ ORDER BY ano, mes
 """
         with db_module.engine_ssh.connect() as conn:
             result = conn.execute(text(query), {"ano_atual": ano_atual, "ano_anterior": ano_anterior})
-            return [{"ano": int(r[0]), "mes": int(r[1]), "qtd": int(r[2] or 0), "receita": float(r[3] or 0)} for r in result.fetchall()]
+            rows = [{"ano": int(r[0]), "mes": int(r[1]), "qtd": int(r[2] or 0), "receita": float(r[3] or 0)} for r in result.fetchall()]
+        return rows, None
     except Exception as e:
         logger.error(f"Erro monthly sales Ativo: {e}")
-        return []
+        return [], str(e)
 
 
-def _fetch_monthly_sales_magento(ano_atual: int, ano_anterior: int) -> list:
+def _fetch_monthly_sales_magento(ano_atual: int, ano_anterior: int) -> tuple:
+    """Returns (rows: list, error: Optional[str]).
+    rows is the fetched data on success, [] on failure.
+    error is None on success, a string description on failure.
+    """
     if db_module.engine_magento is None:
-        return []
+        return [], "Magento não configurado"
     try:
         query = """
 SELECT /*+ MAX_EXECUTION_TIME(90000) */
@@ -8640,15 +8649,23 @@ ORDER BY ano, mes
 """
         def _curva_monthly_work(conn):
             return conn.execute(text(query), {"ano_atual": ano_atual, "ano_anterior": ano_anterior}).fetchall()
-        rows = magento_run(_curva_monthly_work, label="curva:monthly-sales", profile="background")
-        return [{"ano": int(r[0]), "mes": int(r[1]), "qtd": int(r[2] or 0), "receita": float(r[3] or 0)} for r in rows]
+        rows_raw = magento_run(_curva_monthly_work, label="curva:monthly-sales", profile="background")
+        rows = [{"ano": int(r[0]), "mes": int(r[1]), "qtd": int(r[2] or 0), "receita": float(r[3] or 0)} for r in rows_raw]
+        return rows, None
     except Exception as e:
         logger.error(f"Erro monthly sales Magento: {e}")
-        return []
+        return [], str(e)
 
 
 _curva_cache = {}
 _curva_cache_timestamp = None
+
+# Last-good-data stores per bank for single-bank fallback.
+# Structure: {"data": [rows...], "at": ISO-8601 string}
+# Protected by _curva_last_good_lock for thread safety.
+_curva_last_good_ativo: dict = {}
+_curva_last_good_magento: dict = {}
+_curva_last_good_lock = _threading.Lock()
 
 
 @router.get("/curva-comparativa")
@@ -8674,16 +8691,103 @@ def get_curva_comparativa(
     future_magento = _rolling_avg_executor.submit(_fetch_monthly_sales_magento, ano_atual, ano_anterior)
 
     try:
-        dados_ativo = future_ativo.result(timeout=60)
+        dados_ativo, ativo_error = future_ativo.result(timeout=60)
     except Exception as e:
         logger.error(f"Curva comparativa Ativo timeout: {e}")
-        dados_ativo = []
+        dados_ativo, ativo_error = [], str(e)
 
     try:
-        dados_magento = future_magento.result(timeout=60)
+        dados_magento, magento_error = future_magento.result(timeout=60)
     except Exception as e:
         logger.error(f"Curva comparativa Magento timeout: {e}")
-        dados_magento = []
+        dados_magento, magento_error = [], str(e)
+
+    # ── Fallback: single-bank failure fills from last good data ──────────────
+    # When exactly one bank fails:
+    #   - If last-good data exists → use it and annotate with fallback_info.
+    #   - If no last-good data yet (cold start) → annotate with fallback_info
+    #     using fonte="sem_dados_anteriores" so the caller/UI still knows the
+    #     response is degraded.
+    # When BOTH banks fail: preserve current zeros behavior (no fallback).
+    # Either way: any single-bank failure bypasses the 5-min cache so that the
+    # next request immediately retries the live fetch.
+    now_iso = datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat()
+    fallback_info: Optional[dict] = None
+
+    with _curva_last_good_lock:
+        # Persist successful fetches to last-good stores.
+        if not ativo_error and dados_ativo:
+            _curva_last_good_ativo.clear()
+            _curva_last_good_ativo["data"] = dados_ativo
+            _curva_last_good_ativo["at"] = now_iso
+        if not magento_error and dados_magento:
+            _curva_last_good_magento.clear()
+            _curva_last_good_magento["data"] = dados_magento
+            _curva_last_good_magento["at"] = now_iso
+
+        ativo_failed = bool(ativo_error)
+        magento_failed = bool(magento_error)
+        both_failed = ativo_failed and magento_failed
+
+        if not both_failed:
+            # Single-bank failure — always annotate as degraded regardless of
+            # whether last-good data is available.
+            if ativo_failed:
+                if _curva_last_good_ativo.get("data"):
+                    logger.warning(
+                        f"[CurvaComparativa] Ativo falhou ({ativo_error}); "
+                        f"usando último dado bom de {_curva_last_good_ativo.get('at')}"
+                    )
+                    dados_ativo = _curva_last_good_ativo["data"]
+                    fallback_info = {
+                        **(fallback_info or {}),
+                        "ativo": {
+                            "fonte": "ultimo_dado_bom",
+                            "capturado_em": _curva_last_good_ativo.get("at"),
+                            "erro": ativo_error,
+                        },
+                    }
+                else:
+                    logger.warning(
+                        f"[CurvaComparativa] Ativo falhou ({ativo_error}) e não há "
+                        "dado anterior disponível; contribuição parcialmente zerada."
+                    )
+                    fallback_info = {
+                        **(fallback_info or {}),
+                        "ativo": {
+                            "fonte": "sem_dados_anteriores",
+                            "capturado_em": None,
+                            "erro": ativo_error,
+                        },
+                    }
+            if magento_failed:
+                if _curva_last_good_magento.get("data"):
+                    logger.warning(
+                        f"[CurvaComparativa] Magento falhou ({magento_error}); "
+                        f"usando último dado bom de {_curva_last_good_magento.get('at')}"
+                    )
+                    dados_magento = _curva_last_good_magento["data"]
+                    fallback_info = {
+                        **(fallback_info or {}),
+                        "magento": {
+                            "fonte": "ultimo_dado_bom",
+                            "capturado_em": _curva_last_good_magento.get("at"),
+                            "erro": magento_error,
+                        },
+                    }
+                else:
+                    logger.warning(
+                        f"[CurvaComparativa] Magento falhou ({magento_error}) e não há "
+                        "dado anterior disponível; contribuição parcialmente zerada."
+                    )
+                    fallback_info = {
+                        **(fallback_info or {}),
+                        "magento": {
+                            "fonte": "sem_dados_anteriores",
+                            "capturado_em": None,
+                            "erro": magento_error,
+                        },
+                    }
 
     monthly = {}
     for m in range(1, 13):
@@ -8730,11 +8834,18 @@ def get_curva_comparativa(
         "ano_atual": ano_atual,
         "ano_anterior": ano_anterior,
         "data": data,
-        "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat()
+        "ultima_atualizacao": now_iso,
     }
+    if fallback_info:
+        result["fallback_info"] = fallback_info
 
-    _curva_cache = result
-    _curva_cache_timestamp = current_time
+    # Only cache when BOTH banks returned live data — any single-bank failure
+    # (even one with no last-good fallback) skips the cache so the next request
+    # immediately retries the live fetch instead of serving a degraded response
+    # for up to 5 minutes.
+    if not ativo_failed and not magento_failed:
+        _curva_cache = result
+        _curva_cache_timestamp = current_time
     return result
 
 
