@@ -27,7 +27,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from ...core.database import get_db
-from ...core.security import is_user_admin, require_permission
+from ...core.security import is_user_admin, require_permission, user_has_permission
 from ...models.cadastro_evento import CadastroEvento
 from ...models.cortesia_solicitacao import (
     STATUS_GERADO,
@@ -159,6 +159,15 @@ def _check_area_permission(db: Session, user: Usuario, area_projecao_id: int):
     allowed = _get_user_area_ids(db, user.id)
     if area_projecao_id not in allowed:
         raise HTTPException(status_code=403, detail="Você não tem permissão para solicitar cortesias desta área")
+
+
+def _pode_ver_todas_solicitacoes(user: Usuario) -> bool:
+    """Regra de visibilidade única, reaproveitada na listagem e no download do
+    arquivo anexado: admins e quem tem a permissão de aplicar código de cupom
+    (pode_editar deste módulo — o mesmo grupo que já trabalha a fila de cupons
+    hoje) veem todas as solicitações, independente de área ou de quem abriu.
+    Os demais usuários só devem ver as solicitações que eles mesmos criaram."""
+    return is_user_admin(user) or user_has_permission(user, CORTESIA_SOLICITACAO_PERMISSION, "pode_editar")
 
 
 def _calcular_saldo(db: Session, evento_id: int, area_projecao_id: int) -> tuple[int, int, int]:
@@ -395,9 +404,8 @@ def list_solicitacoes(
         query = query.filter(CortesiaSolicitacao.evento_id == evento_id)
     if area_projecao_id:
         query = query.filter(CortesiaSolicitacao.area_projecao_id == area_projecao_id)
-    if not is_user_admin(current_user):
-        area_ids = _get_user_area_ids(db, current_user.id)
-        query = query.filter(CortesiaSolicitacao.area_projecao_id.in_(area_ids))
+    if not _pode_ver_todas_solicitacoes(current_user):
+        query = query.filter(CortesiaSolicitacao.solicitado_por == current_user.id)
     rows = query.order_by(CortesiaSolicitacao.created_at.desc()).all()
     return [_serialize(r) for r in rows]
 
@@ -1207,9 +1215,8 @@ def baixar_arquivo(
     if not sol or not sol.caminho_arquivo:
         raise HTTPException(status_code=404, detail="Arquivo não encontrado")
 
-    if not is_user_admin(current_user):
-        area_ids = _get_user_area_ids(db, current_user.id)
-        if sol.area_projecao_id not in area_ids:
+    if not _pode_ver_todas_solicitacoes(current_user):
+        if sol.solicitado_por != current_user.id:
             raise HTTPException(status_code=403, detail="Você não tem permissão para acessar este arquivo")
 
     caminho_completo = os.path.join(_UPLOAD_DIR, sol.caminho_arquivo)

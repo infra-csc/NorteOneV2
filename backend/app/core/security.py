@@ -155,6 +155,22 @@ def is_user_admin(user) -> bool:
     return user.perfil_acesso_rel is not None and user.perfil_acesso_rel.is_admin
 
 
+def user_has_permission(user, modulo: str, permissao: str = "pode_visualizar") -> bool:
+    """Checagem booleana de permissão — mesma regra usada por `require_permission`,
+    mas sem depender do FastAPI nem lançar exceção. Serve para regras de
+    negócio que precisam combinar "tem essa permissão" com outras condições
+    (ex.: uma tela onde só quem tem determinada permissão vê tudo, e os
+    demais só o que é próprio deles). Admins sempre retornam True."""
+    if is_user_admin(user):
+        return True
+    if not user.perfil_acesso_rel:
+        return False
+    return any(
+        perm.modulo == modulo and getattr(perm, permissao, False)
+        for perm in user.perfil_acesso_rel.permissoes
+    )
+
+
 def require_admin():
     async def admin_checker(current_user=Depends(get_current_user)):
         if not is_user_admin(current_user):
