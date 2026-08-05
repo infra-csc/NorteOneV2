@@ -53,6 +53,24 @@ class CupomCodigoItem(BaseModel):
         from_attributes = True
 
 
+class ImportarCupomLinhaResultado(BaseModel):
+    """Resultado de uma linha do .txt de importação em lote (Task #244) —
+    uma por código informado (linhas de cabeçalho/comentário/modelo ainda
+    sem código não entram aqui, só contam em ImportarCupomResumo.ignorados)."""
+    linha: int
+    texto: str
+    aplicado: bool
+    mensagem: str
+
+
+class ImportarCupomResumo(BaseModel):
+    total: int
+    aplicados: int
+    rejeitados: int
+    ignorados: int
+    resultados: List[ImportarCupomLinhaResultado] = []
+
+
 class CortesiaSolicitacaoResponse(BaseModel):
     id: int
     evento_id: int

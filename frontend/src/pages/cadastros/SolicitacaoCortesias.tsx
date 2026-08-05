@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cortesiaSolicitacaoService } from '../../services/api';
-import type { CortesiaEventoSaldoResponse, CortesiaEventoFilaOpcao, CortesiaSolicitacaoResponse, CupomCodigoItem } from '../../services/api';
+import type { CortesiaEventoSaldoResponse, CortesiaEventoFilaOpcao, CortesiaSolicitacaoResponse, CupomCodigoItem, ImportarCupomResumo } from '../../services/api';
 import { useTheme } from '../../context/ThemeContext';
 import { usePermissions } from '../../context/PermissionContext';
 import {
@@ -634,6 +634,12 @@ const SolicitacaoCortesias: React.FC = () => {
   const [gerandoSalvando, setGerandoSalvando] = useState(false);
   const [gerarError, setGerarError] = useState<string | null>(null);
 
+  const importarInputRef = useRef<HTMLInputElement | null>(null);
+  const [baixandoModelo, setBaixandoModelo] = useState(false);
+  const [importando, setImportando] = useState(false);
+  const [importarResumo, setImportarResumo] = useState<ImportarCupomResumo | null>(null);
+  const [importarError, setImportarError] = useState<string | null>(null);
+
   const [cancelandoId, setCancelandoId] = useState<number | null>(null);
   const [togglingCodigoId, setTogglingCodigoId] = useState<number | null>(null);
 
@@ -857,6 +863,37 @@ const SolicitacaoCortesias: React.FC = () => {
       window.alert(extractError(e));
     } finally {
       setExportando(false);
+    }
+  };
+
+  const baixarModeloImportacao = async () => {
+    setBaixandoModelo(true);
+    try {
+      await cortesiaSolicitacaoService.baixarModeloImportacaoCupons();
+    } catch (e) {
+      window.alert(extractError(e));
+    } finally {
+      setBaixandoModelo(false);
+    }
+  };
+
+  const abrirSeletorImportar = () => importarInputRef.current?.click();
+
+  const importarArquivoSelecionado = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const arquivo = e.target.files?.[0] || null;
+    e.target.value = ''; // permite selecionar o mesmo arquivo de novo depois de corrigi-lo
+    if (!arquivo) return;
+    setImportando(true);
+    setImportarError(null);
+    setImportarResumo(null);
+    try {
+      const resumo = await cortesiaSolicitacaoService.importarCupons(arquivo);
+      setImportarResumo(resumo);
+      await Promise.all([carregarSolicitacoes(), carregarFila()]);
+    } catch (e) {
+      setImportarError(extractError(e));
+    } finally {
+      setImportando(false);
     }
   };
 
@@ -1261,6 +1298,31 @@ const SolicitacaoCortesias: React.FC = () => {
               </p>
             </div>
             <div className="flex items-center gap-1.5">
+              <input
+                ref={importarInputRef}
+                type="file"
+                accept=".txt"
+                onChange={importarArquivoSelecionado}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={baixarModeloImportacao}
+                disabled={baixandoModelo || pendentesFila.length === 0}
+                title={pendentesFila.length === 0 ? 'Nenhuma solicitação pendente para incluir no modelo' : 'Baixar .txt com evento e área já preenchidos'}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 ${isDark ? 'bg-gray-700/60 text-gray-300 hover:bg-gray-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+              >
+                <FileDown className="w-3.5 h-3.5" /> {baixandoModelo ? 'Baixando...' : 'Baixar modelo'}
+              </button>
+              <button
+                type="button"
+                onClick={abrirSeletorImportar}
+                disabled={importando || pendentesFila.length === 0}
+                title={pendentesFila.length === 0 ? 'Nenhuma solicitação pendente para importar' : 'Importar .txt com EVENTO;AREA;CODIGO'}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 ${isDark ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'}`}
+              >
+                <ClipboardList className="w-3.5 h-3.5" /> {importando ? 'Importando...' : 'Importar .txt'}
+              </button>
               <button
                 type="button"
                 onClick={exportarCupons}
@@ -1278,6 +1340,11 @@ const SolicitacaoCortesias: React.FC = () => {
               </button>
             </div>
           </div>
+          {importarError && (
+            <div className={`mx-4 mt-4 flex items-center gap-2 p-3 rounded-xl text-sm ${isDark ? 'bg-red-500/10 text-red-400' : 'bg-red-50 text-red-600'}`}>
+              <AlertTriangle className="w-4 h-4 shrink-0" /> {importarError}
+            </div>
+          )}
           <div className="p-4 space-y-5">
             {errorFila && (
               <div className={`flex items-center gap-2 p-3 rounded-xl text-sm ${isDark ? 'bg-red-500/10 text-red-400' : 'bg-red-50 text-red-600'}`}>
@@ -1561,6 +1628,74 @@ const SolicitacaoCortesias: React.FC = () => {
                 className="px-4 py-2 rounded-xl text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
               >
                 {salvando ? 'Enviando...' : 'Enviar solicitação'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: resultado da importação em lote (.txt) */}
+      {importarResumo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className={`w-full max-w-2xl rounded-2xl shadow-2xl border max-h-[90vh] flex flex-col ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+            <div className={`flex items-center justify-between p-4 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+              <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Resultado da importação</h3>
+              <button onClick={() => setImportarResumo(null)} className={isDark ? 'text-gray-400 hover:text-white' : 'text-gray-400 hover:text-gray-700'}>
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-3 overflow-y-auto">
+              <div className="flex items-center gap-2 flex-wrap text-xs font-semibold">
+                <span className={`px-2.5 py-1 rounded-lg ${isDark ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-700'}`}>
+                  {importarResumo.aplicados} aplicado(s)
+                </span>
+                {importarResumo.rejeitados > 0 && (
+                  <span className={`px-2.5 py-1 rounded-lg ${isDark ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-700'}`}>
+                    {importarResumo.rejeitados} rejeitado(s)
+                  </span>
+                )}
+                {importarResumo.ignorados > 0 && (
+                  <span className={`px-2.5 py-1 rounded-lg ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
+                    {importarResumo.ignorados} linha(s) ignorada(s) (cabeçalho/comentário/sem código)
+                  </span>
+                )}
+              </div>
+              {importarResumo.resultados.length === 0 ? (
+                <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Nenhuma linha com código foi encontrada no arquivo.</p>
+              ) : (
+                <div className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                  <table className="w-full text-xs">
+                    <thead className={isDark ? 'bg-gray-900/50' : 'bg-gray-50'}>
+                      <tr>
+                        <th className={`text-left font-semibold px-3 py-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Linha</th>
+                        <th className={`text-left font-semibold px-3 py-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Conteúdo</th>
+                        <th className={`text-left font-semibold px-3 py-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Resultado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importarResumo.resultados.map((r, idx) => (
+                        <tr key={`${r.linha}-${idx}`} className={`border-t ${isDark ? 'border-gray-700/50' : 'border-gray-100'}`}>
+                          <td className={`px-3 py-2 align-top ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{r.linha}</td>
+                          <td className={`px-3 py-2 align-top font-mono ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{r.texto}</td>
+                          <td className="px-3 py-2 align-top">
+                            <div className={`flex items-start gap-1.5 ${r.aplicado ? (isDark ? 'text-emerald-400' : 'text-emerald-700') : (isDark ? 'text-red-400' : 'text-red-600')}`}>
+                              {r.aplicado ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5" /> : <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />}
+                              <span>{r.mensagem}</span>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            <div className={`flex items-center justify-end gap-2 p-4 border-t ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+              <button
+                onClick={() => setImportarResumo(null)}
+                className="px-4 py-2 rounded-xl text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700"
+              >
+                Fechar
               </button>
             </div>
           </div>

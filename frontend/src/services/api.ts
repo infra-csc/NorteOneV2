@@ -1837,6 +1837,21 @@ export interface CortesiaEventoFilaOpcao {
   evento_data: string | null;
 }
 
+export interface ImportarCupomLinhaResultado {
+  linha: number;
+  texto: string;
+  aplicado: boolean;
+  mensagem: string;
+}
+
+export interface ImportarCupomResumo {
+  total: number;
+  aplicados: number;
+  rejeitados: number;
+  ignorados: number;
+  resultados: ImportarCupomLinhaResultado[];
+}
+
 export interface CortesiaSolicitacaoResponse {
   id: number;
   evento_id: number;
@@ -1940,6 +1955,30 @@ export const cortesiaSolicitacaoService = {
     link.click();
     link.remove();
     window.URL.revokeObjectURL(url);
+  },
+  // Modelo .txt com EVENTO;AREA já preenchidos para cada cortesia pendente
+  // de geração — só falta colar o código do Magento no final de cada linha.
+  baixarModeloImportacaoCupons: async (): Promise<void> => {
+    const response = await api.get('/cortesia-solicitacao/importar-cupons/modelo', { responseType: 'blob' });
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'modelo_importacao_cupons.txt');
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  },
+  // Importação em lote (.txt, uma linha EVENTO;AREA;CODIGO por código) —
+  // cada linha é aplicada à solicitação pendente correspondente.
+  importarCupons: async (arquivo: File): Promise<ImportarCupomResumo> => {
+    const form = new FormData();
+    form.append('arquivo', arquivo);
+    const response = await api.post('/cortesia-solicitacao/importar-cupons', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000,
+    });
+    return response.data;
   },
 };
 

@@ -46,6 +46,8 @@ from ...schemas.cortesia_solicitacao import (
     CupomCodigoItem,
     EventoFilaOpcao,
     EventoSaldoResponse,
+    ImportarCupomLinhaResultado,
+    ImportarCupomResumo,
     SaldoAreaItem,
 )
 
@@ -69,6 +71,10 @@ _FILA_GERADOS_JANELA_DIAS = 90
 _UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "uploads", "cortesia_solicitacao")
 _ALLOWED_EXTENSOES = {".xlsx", ".xls", ".csv"}
 _MAX_UPLOAD_BYTES = 15 * 1024 * 1024  # 15MB
+
+# Importação em lote de códigos de cupom (task #244) é sempre um arquivo de
+# texto simples e pequeno (um código por linha) — 5MB já é folga generosa.
+_MAX_IMPORT_TXT_BYTES = 5 * 1024 * 1024
 
 # Um código de cupom por linha é o formato canônico salvo em codigo_cupom,
 # mas aceitamos colar/importar separado por vírgula ou ponto e vírgula
@@ -692,6 +698,93 @@ async def criar_solicitacao_planilha(
     return _serialize(sol)
 
 
+def _aplicar_codigos_cupom(
+    db: Session,
+    sol: CortesiaSolicitacao,
+    codigos_brutos: list[str] | None,
+    current_user: Usuario,
+) -> None:
+    """Valida e grava o(s) código(s) de cupom numa solicitação pendente.
+
+    Compartilhado pelo paste individual (``gerar_cupom``, task #242) e pela
+    importação em lote via .txt (``importar_cupons``, task #244) — nunca deve
+    haver duas cópias dessa regra, ou os dois caminhos divergem com o tempo.
+
+    Não faz commit: quem chama decide o escopo da transação (uma solicitação
+    por commit no paste individual; um commit por grupo evento+área,
+    independente dos demais, na importação em lote). Lança ``HTTPException``
+    com o motivo da rejeição; nada é persistido quando ela é lançada."""
+    if sol.tipo != TIPO_CUPOM:
+        raise HTTPException(status_code=400, detail="Somente solicitações do tipo cupom podem ser marcadas como geradas")
+    if sol.status == STATUS_GERADO:
+        raise HTTPException(status_code=400, detail="Esta solicitação já foi marcada como gerada")
+
+    codigos = [c.strip() for c in (codigos_brutos or []) if c and c.strip()]
+    if not codigos:
+        raise HTTPException(status_code=400, detail="Informe ao menos um código de cupom gerado no Magento.")
+
+    quantidade = max(1, sol.quantidade or 1)
+    if len(codigos) != quantidade:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Esta solicitação pediu {quantidade} cortesia(s), mas {len(codigos)} código(s) "
+                f"foram informados. Informe exatamente {quantidade} código(s)."
+            ),
+        )
+
+    codigo_longo_demais = next((c for c in codigos if len(c) > 300), None)
+    if codigo_longo_demais:
+        raise HTTPException(
+            status_code=400,
+            detail=f"O código '{codigo_longo_demais[:40]}...' passa do limite de 300 caracteres.",
+        )
+
+    # Duplicidade dentro do próprio envio, case-insensitive.
+    vistos: set[str] = set()
+    for codigo in codigos:
+        chave = codigo.upper()
+        if chave in vistos:
+            raise HTTPException(status_code=400, detail=f"O código '{codigo}' foi informado mais de uma vez.")
+        vistos.add(chave)
+
+    # Duplicidade contra códigos já salvos em qualquer outra solicitação.
+    for codigo in codigos:
+        if _codigo_cupom_existe(db, codigo.upper()):
+            raise HTTPException(status_code=400, detail=f"O código '{codigo}' já está em uso em outra solicitação.")
+
+    sol.codigo_cupom = "\n".join(codigos)
+    sol.status = STATUS_GERADO
+    sol.gerado_por = current_user.id
+    sol.gerado_em = _now_brasilia()
+
+    for codigo in codigos:
+        db.add(CortesiaCupomCodigo(solicitacao_id=sol.id, codigo=codigo))
+
+
+def _commit_codigos_cupom(db: Session) -> None:
+    """Faz o commit do que ``_aplicar_codigos_cupom`` preparou, traduzindo um
+    IntegrityError do índice único de código para HTTP 409 amigável.
+
+    Extraído junto com ``_aplicar_codigos_cupom`` para que o paste individual
+    e a importação em lote tratem a mesma corrida (dois caminhos gravando o
+    mesmo código) de forma idêntica."""
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        # Só trata como conflito de unicidade (mensagem amigável) quando o
+        # próprio índice único de código é o que rejeitou; qualquer outra
+        # violação de integridade é um erro real e não deve ser mascarada
+        # (memory: delete-insert-child-race).
+        if _CODIGO_CUPOM_INDICE_UNICO not in str(getattr(exc, "orig", exc)):
+            raise HTTPException(status_code=500, detail="Erro inesperado ao salvar os códigos de cupom.") from exc
+        raise HTTPException(
+            status_code=409,
+            detail="Um dos códigos já foi salvo por outra solicitação nesse meio tempo. Confira e tente novamente.",
+        )
+
+
 @router.post("/{solicitacao_id}/gerar", response_model=CortesiaSolicitacaoResponse)
 def gerar_cupom(
     solicitacao_id: int,
@@ -713,67 +806,9 @@ def gerar_cupom(
     )
     if not sol:
         raise HTTPException(status_code=404, detail="Solicitação não encontrada")
-    if sol.tipo != TIPO_CUPOM:
-        raise HTTPException(status_code=400, detail="Somente solicitações do tipo cupom podem ser marcadas como geradas")
-    if sol.status == STATUS_GERADO:
-        raise HTTPException(status_code=400, detail="Esta solicitação já foi marcada como gerada")
 
-    codigos = [c.strip() for c in (payload.codigos or []) if c and c.strip()]
-    if not codigos:
-        raise HTTPException(status_code=400, detail="Cole ao menos um código de cupom gerado no Magento.")
-
-    quantidade = max(1, sol.quantidade or 1)
-    if len(codigos) != quantidade:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Esta solicitação pediu {quantidade} cortesia(s), mas {len(codigos)} código(s) "
-                f"foram colados. Cole exatamente {quantidade} código(s), um por linha."
-            ),
-        )
-
-    codigo_longo_demais = next((c for c in codigos if len(c) > 300), None)
-    if codigo_longo_demais:
-        raise HTTPException(
-            status_code=400,
-            detail=f"O código '{codigo_longo_demais[:40]}...' passa do limite de 300 caracteres.",
-        )
-
-    # Duplicidade dentro do próprio envio, case-insensitive.
-    vistos: set[str] = set()
-    for codigo in codigos:
-        chave = codigo.upper()
-        if chave in vistos:
-            raise HTTPException(status_code=400, detail=f"O código '{codigo}' foi colado mais de uma vez.")
-        vistos.add(chave)
-
-    # Duplicidade contra códigos já salvos em qualquer outra solicitação.
-    for codigo in codigos:
-        if _codigo_cupom_existe(db, codigo.upper()):
-            raise HTTPException(status_code=400, detail=f"O código '{codigo}' já está em uso em outra solicitação.")
-
-    sol.codigo_cupom = "\n".join(codigos)
-    sol.status = STATUS_GERADO
-    sol.gerado_por = current_user.id
-    sol.gerado_em = _now_brasilia()
-
-    for codigo in codigos:
-        db.add(CortesiaCupomCodigo(solicitacao_id=sol.id, codigo=codigo))
-
-    try:
-        db.commit()
-    except IntegrityError as exc:
-        db.rollback()
-        # Só trata como conflito de unicidade (mensagem amigável) quando o
-        # próprio índice único de código é o que rejeitou; qualquer outra
-        # violação de integridade é um erro real e não deve ser mascarada
-        # (memory: delete-insert-child-race).
-        if _CODIGO_CUPOM_INDICE_UNICO not in str(getattr(exc, "orig", exc)):
-            raise HTTPException(status_code=500, detail="Erro inesperado ao salvar os códigos de cupom.") from exc
-        raise HTTPException(
-            status_code=409,
-            detail="Um dos códigos colados já foi salvo por outra solicitação nesse meio tempo. Confira e tente novamente.",
-        )
+    _aplicar_codigos_cupom(db, sol, payload.codigos, current_user)
+    _commit_codigos_cupom(db)
 
     db.refresh(sol)
     return _serialize(sol)
@@ -895,6 +930,245 @@ def exportar_cupons(
         io.BytesIO(content.encode('utf-8-sig')),
         media_type='text/csv',
         headers={'Content-Disposition': 'attachment; filename=cupons_gerados.csv'},
+    )
+
+
+def _pendentes_cupom_com_nomes(db: Session) -> list[CortesiaSolicitacao]:
+    """Solicitações de cupom ainda pendentes de geração, com evento/área
+    pré-carregados — usado tanto pelo modelo de importação quanto pelo
+    casamento de linhas na importação em lote."""
+    return (
+        db.query(CortesiaSolicitacao)
+        .options(joinedload(CortesiaSolicitacao.evento), joinedload(CortesiaSolicitacao.area_projecao))
+        .filter(
+            CortesiaSolicitacao.tipo == TIPO_CUPOM,
+            CortesiaSolicitacao.status == STATUS_SOLICITADO,
+            CortesiaSolicitacao.deleted_at.is_(None),
+        )
+        .order_by(CortesiaSolicitacao.evento_id, CortesiaSolicitacao.area_projecao_id, CortesiaSolicitacao.created_at)
+        .all()
+    )
+
+
+def _e_cabecalho_importacao(evento_texto: str, area_texto: str, codigo_texto: str) -> bool:
+    """Reconhece a linha de cabeçalho pelo conteúdo (EVENTO;AREA;CODIGO,
+    case-insensitive/com ou sem acento) — nunca por posição, para que o
+    admin possa reordenar ou reenviar o arquivo do modelo sem se preocupar."""
+    return (
+        evento_texto.strip().lower() == "evento"
+        and area_texto.strip().lower() in ("área", "area")
+        and codigo_texto.strip().lower() in ("código", "codigo")
+    )
+
+
+@router.get("/importar-cupons/modelo")
+def baixar_modelo_importacao_cupons(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(CORTESIA_SOLICITACAO_PERMISSION, "pode_editar")),
+):
+    """.txt modelo com uma linha por cortesia ainda pendente de geração —
+    evento e área já preenchidos exatamente como o importador espera, só
+    falta colar o código gerado no Magento no final de cada linha. Elimina
+    o maior risco de erro do formato manual: digitar o nome do evento/área
+    de um jeito que não bate com o cadastro."""
+    pendentes = _pendentes_cupom_com_nomes(db)
+    linhas = [
+        "# Preencha o código de cupom gerado no Magento no final de cada linha.",
+        "# Não altere EVENTO nem AREA — é assim que o importador encontra a solicitação certa.",
+        "# Uma linha por cortesia solicitada: quem pediu mais de uma já aparece repetido abaixo.",
+        "EVENTO;AREA;CODIGO",
+    ]
+    if not pendentes:
+        linhas.append("# Nenhuma solicitação de cupom pendente de geração no momento.")
+    for sol in pendentes:
+        evento_nome = sol.evento.nome if sol.evento else f"Evento {sol.evento_id}"
+        area_nome = sol.area_projecao.nome if sol.area_projecao else f"Área {sol.area_projecao_id}"
+        for _ in range(max(1, sol.quantidade or 1)):
+            linhas.append(f"{evento_nome};{area_nome};")
+    conteudo = "\n".join(linhas) + "\n"
+    return StreamingResponse(
+        io.BytesIO(conteudo.encode("utf-8-sig")),
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=modelo_importacao_cupons.txt"},
+    )
+
+
+@router.post("/importar-cupons", response_model=ImportarCupomResumo)
+async def importar_cupons(
+    arquivo: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(CORTESIA_SOLICITACAO_PERMISSION, "pode_editar")),
+):
+    """Importa em lote códigos de cupom já gerados manualmente no Magento
+    (task #244): cada linha do .txt traz EVENTO;AREA;CODIGO e é aplicada à
+    solicitação pendente correspondente, reaproveitando a mesma validação e
+    gravação do paste individual (_aplicar_codigos_cupom, task #242) — os
+    dois caminhos nunca podem divergir.
+
+    Cada grupo de linhas com o mesmo evento+área é resolvido e salvo de forma
+    independente: um grupo com problema (solicitação não encontrada, ambígua,
+    código repetido, quantidade errada, etc.) não impede os demais grupos do
+    arquivo de serem aplicados. Dentro de um grupo continua valendo a regra
+    tudo-ou-nada do paste manual — uma solicitação nunca é parcialmente
+    atendida."""
+    nome_original = arquivo.filename or "cupons.txt"
+    if os.path.splitext(nome_original)[1].lower() != ".txt":
+        raise HTTPException(status_code=400, detail="Envie um arquivo .txt.")
+
+    conteudo = await arquivo.read()
+    if not conteudo:
+        raise HTTPException(status_code=400, detail="Arquivo vazio.")
+    if len(conteudo) > _MAX_IMPORT_TXT_BYTES:
+        raise HTTPException(status_code=400, detail="Arquivo maior que o limite de 5MB.")
+    try:
+        texto = conteudo.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(
+            status_code=400,
+            detail="Não foi possível ler o arquivo como texto UTF-8. Salve novamente como .txt (UTF-8) e reenvie.",
+        )
+
+    resultados: list[ImportarCupomLinhaResultado] = []
+    entradas: list[dict] = []
+    ignorados = 0
+    for idx, bruta in enumerate(texto.splitlines(), start=1):
+        linha = bruta.strip()
+        if not linha or linha.startswith("#"):
+            continue
+        partes = linha.split(";")
+        if len(partes) != 3:
+            resultados.append(ImportarCupomLinhaResultado(
+                linha=idx, texto=linha, aplicado=False,
+                mensagem="Formato inválido — cada linha precisa ter EVENTO;AREA;CODIGO.",
+            ))
+            continue
+        evento_texto, area_texto, codigo = (p.strip() for p in partes)
+        if _e_cabecalho_importacao(evento_texto, area_texto, codigo):
+            ignorados += 1
+            continue
+        if not codigo:
+            # Linha do modelo baixado ainda sem o código preenchido — não é
+            # erro, só não há nada a aplicar ainda.
+            ignorados += 1
+            continue
+        if not evento_texto or not area_texto:
+            resultados.append(ImportarCupomLinhaResultado(
+                linha=idx, texto=linha, aplicado=False,
+                mensagem="Formato inválido — EVENTO e AREA não podem ficar em branco.",
+            ))
+            continue
+        if len(codigo) > 300:
+            resultados.append(ImportarCupomLinhaResultado(
+                linha=idx, texto=linha, aplicado=False,
+                mensagem="O código passa do limite de 300 caracteres.",
+            ))
+            continue
+        entradas.append({
+            "linha": idx, "texto": linha,
+            "evento_texto": evento_texto, "area_texto": area_texto, "codigo": codigo,
+        })
+
+    if not entradas:
+        if resultados:
+            return ImportarCupomResumo(
+                total=len(resultados), aplicados=0, rejeitados=len(resultados),
+                ignorados=ignorados, resultados=resultados,
+            )
+        raise HTTPException(
+            status_code=400,
+            detail="Nenhum código encontrado no arquivo. Preencha ao menos uma linha com EVENTO;AREA;CODIGO.",
+        )
+
+    # Duplicidade de código dentro do próprio arquivo, mesmo entre grupos
+    # diferentes — nunca aplicar o mesmo código em duas solicitações. Fica
+    # mais claro apontar as linhas exatas aqui do que deixar cair no check
+    # genérico "já em uso em outra solicitação" lá na frente, que também
+    # cobriria (com mensagem mais vaga) um código reciclado de outro upload.
+    por_codigo: dict[str, list[dict]] = {}
+    for entrada in entradas:
+        por_codigo.setdefault(entrada["codigo"].upper(), []).append(entrada)
+    entradas_validas: list[dict] = []
+    for ocorrencias in por_codigo.values():
+        if len(ocorrencias) > 1:
+            numeros = ", ".join(str(o["linha"]) for o in ocorrencias)
+            for o in ocorrencias:
+                resultados.append(ImportarCupomLinhaResultado(
+                    linha=o["linha"], texto=o["texto"], aplicado=False,
+                    mensagem=f"Código repetido no arquivo (linhas {numeros}) — corrija e reenvie.",
+                ))
+        else:
+            entradas_validas.append(ocorrencias[0])
+
+    # Agrupar por (evento, área) normalizado — cada grupo deve corresponder a
+    # no máximo uma solicitação pendente (ambiguidade é rejeitada, nunca
+    # distribuída automaticamente entre múltiplas).
+    grupos: dict[tuple[str, str], list[dict]] = {}
+    for entrada in entradas_validas:
+        grupo_chave = (entrada["evento_texto"].lower(), entrada["area_texto"].lower())
+        grupos.setdefault(grupo_chave, []).append(entrada)
+
+    mapa_pendentes: dict[tuple[str, str], list[int]] = {}
+    for sol in _pendentes_cupom_com_nomes(db):
+        chave = (
+            (sol.evento.nome if sol.evento else "").strip().lower(),
+            (sol.area_projecao.nome if sol.area_projecao else "").strip().lower(),
+        )
+        mapa_pendentes.setdefault(chave, []).append(sol.id)
+
+    for grupo_chave, linhas_grupo in grupos.items():
+        evento_label = linhas_grupo[0]["evento_texto"]
+        area_label = linhas_grupo[0]["area_texto"]
+        candidatos_ids = mapa_pendentes.get(grupo_chave, [])
+
+        if not candidatos_ids:
+            motivo = f"Nenhuma solicitação pendente encontrada para evento '{evento_label}' e área '{area_label}'."
+            for item in linhas_grupo:
+                resultados.append(ImportarCupomLinhaResultado(linha=item["linha"], texto=item["texto"], aplicado=False, mensagem=motivo))
+            continue
+
+        if len(candidatos_ids) > 1:
+            motivo = (
+                f"Existem {len(candidatos_ids)} solicitações pendentes para evento '{evento_label}' e área '{area_label}' "
+                "— ambíguo para importar em lote. Aplique pela fila individualmente (\"Marcar gerado\")."
+            )
+            for item in linhas_grupo:
+                resultados.append(ImportarCupomLinhaResultado(linha=item["linha"], texto=item["texto"], aplicado=False, mensagem=motivo))
+            continue
+
+        sol = (
+            db.query(CortesiaSolicitacao)
+            .filter(CortesiaSolicitacao.id == candidatos_ids[0], CortesiaSolicitacao.deleted_at.is_(None))
+            .with_for_update()
+            .first()
+        )
+        if not sol or sol.status == STATUS_GERADO:
+            motivo = "Esta solicitação foi gerada ou cancelada por outra ação enquanto o arquivo era processado."
+            for item in linhas_grupo:
+                resultados.append(ImportarCupomLinhaResultado(linha=item["linha"], texto=item["texto"], aplicado=False, mensagem=motivo))
+            continue
+
+        codigos_ordenados = [item["codigo"] for item in sorted(linhas_grupo, key=lambda item: item["linha"])]
+        try:
+            _aplicar_codigos_cupom(db, sol, codigos_ordenados, current_user)
+            _commit_codigos_cupom(db)
+        except HTTPException as exc:
+            db.rollback()
+            motivo = exc.detail if isinstance(exc.detail, str) else "Não foi possível aplicar estes códigos."
+            for item in linhas_grupo:
+                resultados.append(ImportarCupomLinhaResultado(linha=item["linha"], texto=item["texto"], aplicado=False, mensagem=motivo))
+            continue
+
+        db.refresh(sol)
+        motivo = f"Aplicado à solicitação de {evento_label} — {area_label} (#{sol.id})."
+        for item in linhas_grupo:
+            resultados.append(ImportarCupomLinhaResultado(linha=item["linha"], texto=item["texto"], aplicado=True, mensagem=motivo))
+
+    resultados.sort(key=lambda r: r.linha)
+    aplicados = sum(1 for r in resultados if r.aplicado)
+    rejeitados = sum(1 for r in resultados if not r.aplicado)
+    return ImportarCupomResumo(
+        total=len(resultados), aplicados=aplicados, rejeitados=rejeitados,
+        ignorados=ignorados, resultados=resultados,
     )
 
 
