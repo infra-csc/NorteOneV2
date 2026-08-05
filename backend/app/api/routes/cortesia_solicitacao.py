@@ -14,7 +14,6 @@ import io
 import logging
 import os
 import re
-import secrets
 import threading
 import uuid
 from datetime import date, datetime, timedelta
@@ -22,7 +21,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
-from sqlalchemy import and_, func, or_, text
+from sqlalchemy import func, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
@@ -41,6 +40,7 @@ from ...models.cortesia_solicitacao import (
 from ...models.projecao import AreaProjecao, AreaProjecaoUsuario, ProjecaoInscritos
 from ...models.user import Usuario
 from ...schemas.cortesia_solicitacao import (
+    CortesiaCupomColarRequest,
     CortesiaSolicitacaoCupomCreate,
     CortesiaSolicitacaoResponse,
     CupomCodigoItem,
@@ -127,115 +127,16 @@ def _parse_codigos_cupom(texto: str | None) -> list[str]:
     return [c.strip() for c in _CODIGO_CUPOM_SPLIT_RE.split(texto) if c.strip()]
 
 
-# Geração automática de código de cupom (task #174): sigla da área + SKU do
-# evento + sufixo aleatório, todos os códigos com o mesmo tamanho total fixo.
-# Alfabeto sem 0/O/1/I/L para não confundir na hora de digitar/conferir.
-# Sigla vai até 10 caracteres e o SKU do evento varia hoje entre 8 e 10 —
-# o total precisa cobrir o pior caso (10+10=20) mais um sufixo com entropia
-# mínima, senão combinações longas estourariam o tamanho fixo dos demais.
-_CODIGO_CUPOM_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
-_CODIGO_CUPOM_TAMANHO_TOTAL = 26
-_CODIGO_CUPOM_SUFIXO_MIN = 6
-_CODIGO_CUPOM_BASE_MAXIMA = _CODIGO_CUPOM_TAMANHO_TOTAL - _CODIGO_CUPOM_SUFIXO_MIN
-_CODIGO_CUPOM_MAX_TENTATIVAS = 30
+# Os códigos de cupom não são mais gerados pelo app (task #242) — são criados
+# manualmente no Magento e colados na solicitação. O índice único abaixo
+# continua garantindo que nenhum código colado se repita entre solicitações.
 _CODIGO_CUPOM_INDICE_UNICO = "ux_cortesia_cupom_codigo_codigo"
 
 
 def _codigo_cupom_existe(db: Session, codigo: str) -> bool:
+    """Confere duplicidade contra os códigos já salvos, case-insensitive
+    (``codigo`` já deve chegar uppercased do chamador)."""
     return db.query(CortesiaCupomCodigo.id).filter(func.upper(CortesiaCupomCodigo.codigo) == codigo).first() is not None
-
-
-def _verificar_espaco_cupom(db: Session, base: str, quantidade: int) -> None:
-    """Pré-vôo: verifica se há espaço suficiente no alfabeto de sufixos para
-    gerar *quantidade* novos códigos únicos com este base (sigla+SKU).
-
-    Levanta HTTP 400 claro em dois cenários:
-    - Espaço totalmente esgotado: não há combinações restantes o suficiente.
-    - Espaço quase esgotado (>90% já utilizado): evita que a geração falhe
-      silenciosamente no loop de tentativas quando a densidade é alta.
-
-    Não bloqueia para bases com espaço amplo (caso normal); só age quando o
-    sufixo é mínimo (_CODIGO_CUPOM_SUFIXO_MIN) e a densidade está elevada.
-    """
-    sufixo_len = max(_CODIGO_CUPOM_SUFIXO_MIN, _CODIGO_CUPOM_TAMANHO_TOTAL - len(base))
-    total_combinacoes = len(_CODIGO_CUPOM_ALPHABET) ** sufixo_len
-
-    # Comprimento exato que todos os códigos gerados para este base terão.
-    comprimento_codigo = len(base) + sufixo_len
-
-    # Conta os códigos ocupados por este base em dois grupos:
-    #
-    # 1. Linhas com base preenchida (coluna adicionada + backfill): match
-    #    exato na coluna base — sem ambiguidade de prefixo entre bases distintas.
-    #
-    # 2. Linhas legadas com base IS NULL (geradas antes da coluna existir e
-    #    que a migração de backfill não conseguiu preencher — e.g. sigla ou SKU
-    #    ausentes no momento da migração): fallback via comprimento exato +
-    #    prefixo escapado.  Pode sobre-contar ligeiramente quando bases distintas
-    #    compartilham prefixo (e.g. "AB" vs "ABC"), mas erra do lado conservador
-    #    correto — impede falsos negativos na guarda de esgotamento.
-    base_escaped = base.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    ja_usados = (
-        db.query(func.count(CortesiaCupomCodigo.id))
-        .filter(
-            or_(
-                CortesiaCupomCodigo.base == base,
-                and_(
-                    CortesiaCupomCodigo.base.is_(None),
-                    func.length(CortesiaCupomCodigo.codigo) == comprimento_codigo,
-                    func.upper(CortesiaCupomCodigo.codigo).like(
-                        f"{base_escaped}%", escape="\\"
-                    ),
-                ),
-            )
-        )
-        .scalar()
-    ) or 0
-
-    espaco_restante = total_combinacoes - ja_usados
-
-    if quantidade > espaco_restante:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Não há combinações únicas suficientes para gerar {quantidade} cupons com "
-                f"a base '{base}' (sigla+SKU). "
-                f"Espaço total: {total_combinacoes:,} combinações; "
-                f"já utilizadas: {ja_usados:,}; disponíveis: {max(0, espaco_restante):,}. "
-                "Ajuste a sigla da área ou o SKU do evento para ampliar o espaço disponível."
-            ),
-        )
-
-    # Limiar de segurança: nega a geração quando mais de 90 % do espaço já foi
-    # consumido, pois a taxa de colisões sobe rapidamente e tornaria o loop de
-    # tentativas por código quase certo de falhar.
-    if total_combinacoes > 0 and (ja_usados + quantidade) > total_combinacoes * 0.9:
-        pct_usado = ja_usados / total_combinacoes * 100
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"O espaço de códigos para a base '{base}' (sigla+SKU) está quase esgotado: "
-                f"{ja_usados:,} de {total_combinacoes:,} combinações já utilizadas "
-                f"({pct_usado:.1f}%). Gerar mais {quantidade} cupom(ns) ultrapassaria "
-                "o limite de segurança de 90 % de ocupação. "
-                "Ajuste a sigla da área ou o SKU do evento para ampliar o espaço disponível."
-            ),
-        )
-
-
-def _gerar_codigo_cupom_unico(db: Session, base: str, ja_gerados: list[str]) -> str:
-    """Gera um código único (contra o histórico já persistido + os já
-    reservados nesta mesma chamada). Levanta HTTPException 500 clara se
-    esgotar as tentativas — nunca retorna um código sem checar unicidade."""
-    sufixo_len = max(_CODIGO_CUPOM_SUFIXO_MIN, _CODIGO_CUPOM_TAMANHO_TOTAL - len(base))
-    for _ in range(_CODIGO_CUPOM_MAX_TENTATIVAS):
-        sufixo = "".join(secrets.choice(_CODIGO_CUPOM_ALPHABET) for _ in range(sufixo_len))
-        candidato = f"{base}{sufixo}"
-        if candidato in ja_gerados:
-            continue
-        if not _codigo_cupom_existe(db, candidato):
-            return candidato
-    raise HTTPException(status_code=500, detail="Não foi possível gerar um código de cupom único. Tente novamente.")
 
 
 def _get_user_area_ids(db: Session, user_id: int) -> set:
@@ -794,13 +695,13 @@ async def criar_solicitacao_planilha(
 @router.post("/{solicitacao_id}/gerar", response_model=CortesiaSolicitacaoResponse)
 def gerar_cupom(
     solicitacao_id: int,
+    payload: CortesiaCupomColarRequest,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission(CORTESIA_SOLICITACAO_PERMISSION, "pode_editar")),
 ):
-    """Gera automaticamente os códigos de cupom desta solicitação — um por
-    unidade solicitada — no padrão SIGLA da área + SKU do evento + sufixo
-    aleatório. Falha com mensagem clara se a área ainda não tem sigla
-    cadastrada ou se o evento não tem SKU (nada de fallback silencioso)."""
+    """Registra o(s) código(s) de cupom já gerados manualmente no Magento
+    para esta solicitação — o app não gera mais código sozinho, só valida e
+    salva o que foi colado (nada de fallback silencioso em duplicidade)."""
     sol = (
         db.query(CortesiaSolicitacao)
         .filter(
@@ -817,69 +718,62 @@ def gerar_cupom(
     if sol.status == STATUS_GERADO:
         raise HTTPException(status_code=400, detail="Esta solicitação já foi marcada como gerada")
 
-    area = db.query(AreaProjecao).filter(AreaProjecao.id == sol.area_projecao_id).first()
-    sigla = (area.sigla or "").strip().upper() if area else ""
-    if not sigla:
-        nome_area = area.nome if area else "desta solicitação"
-        raise HTTPException(
-            status_code=400,
-            detail=f"A área '{nome_area}' ainda não tem uma sigla configurada. Configure a sigla em Configurações › Áreas e Usuários antes de gerar os cupons.",
-        )
+    codigos = [c.strip() for c in (payload.codigos or []) if c and c.strip()]
+    if not codigos:
+        raise HTTPException(status_code=400, detail="Cole ao menos um código de cupom gerado no Magento.")
 
-    evento = db.query(CadastroEvento).filter(CadastroEvento.id == sol.evento_id).first()
-    sku = (evento.sku or "").strip().upper() if evento else ""
-    if not sku:
-        raise HTTPException(status_code=400, detail="O evento desta solicitação não tem um SKU cadastrado. Cadastre o SKU do evento antes de gerar os cupons.")
-
-    base = f"{sigla}{sku}"
-    if len(base) > _CODIGO_CUPOM_BASE_MAXIMA:
+    quantidade = max(1, sol.quantidade or 1)
+    if len(codigos) != quantidade:
         raise HTTPException(
             status_code=400,
             detail=(
-                f"A sigla '{sigla}' combinada com o SKU '{sku}' do evento soma "
-                f"{len(base)} caracteres, acima do limite de {_CODIGO_CUPOM_BASE_MAXIMA} "
-                "necessário para manter todos os códigos de cupom com o mesmo tamanho. "
-                "Ajuste a sigla da área para algo mais curto e tente novamente."
+                f"Esta solicitação pediu {quantidade} cortesia(s), mas {len(codigos)} código(s) "
+                f"foram colados. Cole exatamente {quantidade} código(s), um por linha."
             ),
         )
-    quantidade = max(1, sol.quantidade or 1)
 
-    # Pré-vôo: garante que há espaço suficiente no alfabeto de sufixos antes
-    # de iniciar qualquer tentativa de geração (HTTP 400 explícito se não há).
-    _verificar_espaco_cupom(db, base, quantidade)
+    codigo_longo_demais = next((c for c in codigos if len(c) > 300), None)
+    if codigo_longo_demais:
+        raise HTTPException(
+            status_code=400,
+            detail=f"O código '{codigo_longo_demais[:40]}...' passa do limite de 300 caracteres.",
+        )
 
-    # Retry no nível da transação: mesmo com a checagem prévia de unicidade,
-    # uma colisão real só é detectada pelo índice único no commit — nesse
-    # caso descarta tudo e gera de novo (memory: delete-insert-child-race).
-    for tentativa in range(3):
-        codigos: list[str] = []
-        for _ in range(quantidade):
-            codigos.append(_gerar_codigo_cupom_unico(db, base, codigos))
+    # Duplicidade dentro do próprio envio, case-insensitive.
+    vistos: set[str] = set()
+    for codigo in codigos:
+        chave = codigo.upper()
+        if chave in vistos:
+            raise HTTPException(status_code=400, detail=f"O código '{codigo}' foi colado mais de uma vez.")
+        vistos.add(chave)
 
-        # Normaliza para um código por linha, mesmo formato usado pelo fluxo
-        # legado — mantém leitura/exportação consistentes.
-        sol.codigo_cupom = "\n".join(codigos)
-        sol.status = STATUS_GERADO
-        sol.gerado_por = current_user.id
-        sol.gerado_em = _now_brasilia()
+    # Duplicidade contra códigos já salvos em qualquer outra solicitação.
+    for codigo in codigos:
+        if _codigo_cupom_existe(db, codigo.upper()):
+            raise HTTPException(status_code=400, detail=f"O código '{codigo}' já está em uso em outra solicitação.")
 
-        for codigo in codigos:
-            db.add(CortesiaCupomCodigo(solicitacao_id=sol.id, codigo=codigo, base=base))
+    sol.codigo_cupom = "\n".join(codigos)
+    sol.status = STATUS_GERADO
+    sol.gerado_por = current_user.id
+    sol.gerado_em = _now_brasilia()
 
-        try:
-            db.commit()
-            break
-        except IntegrityError as exc:
-            db.rollback()
-            # Só trata como colisão de código (retry vale a pena) quando o
-            # próprio índice único de código é o que rejeitou; qualquer outra
-            # violação de integridade é um erro real e não deve ser mascarado
-            # como "conflito ao gerar código".
-            if _CODIGO_CUPOM_INDICE_UNICO not in str(getattr(exc, "orig", exc)):
-                raise HTTPException(status_code=500, detail="Erro inesperado ao salvar os códigos de cupom gerados.") from exc
-            if tentativa == 2:
-                raise HTTPException(status_code=409, detail="Conflito ao gerar códigos únicos de cupom. Tente novamente.")
-            continue
+    for codigo in codigos:
+        db.add(CortesiaCupomCodigo(solicitacao_id=sol.id, codigo=codigo))
+
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        # Só trata como conflito de unicidade (mensagem amigável) quando o
+        # próprio índice único de código é o que rejeitou; qualquer outra
+        # violação de integridade é um erro real e não deve ser mascarada
+        # (memory: delete-insert-child-race).
+        if _CODIGO_CUPOM_INDICE_UNICO not in str(getattr(exc, "orig", exc)):
+            raise HTTPException(status_code=500, detail="Erro inesperado ao salvar os códigos de cupom.") from exc
+        raise HTTPException(
+            status_code=409,
+            detail="Um dos códigos colados já foi salvo por outra solicitação nesse meio tempo. Confira e tente novamente.",
+        )
 
     db.refresh(sol)
     return _serialize(sol)

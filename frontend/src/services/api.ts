@@ -1893,8 +1893,8 @@ export const cortesiaSolicitacaoService = {
     });
     return response.data;
   },
-  gerarCupom: async (id: number): Promise<CortesiaSolicitacaoResponse> => {
-    const response = await api.post(`/cortesia-solicitacao/${id}/gerar`);
+  gerarCupom: async (id: number, codigos: string[]): Promise<CortesiaSolicitacaoResponse> => {
+    const response = await api.post(`/cortesia-solicitacao/${id}/gerar`, { codigos });
     return response.data;
   },
   cancelar: async (id: number) => {

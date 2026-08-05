@@ -1,25 +1,32 @@
-"""Concurrency tests: coupon codes must never collide when two gerar_cupom
-requests fire at the same instant; planilha double-submits must be blocked.
+"""Concurrency tests: coupon codes must never collide across gerar_cupom
+requests; planilha double-submits must be blocked.
 
-Two strategies are used together for gerar_cupom:
+The app no longer generates coupon codes — they're created manually in
+Magento and pasted in (task #242) — so the gerar_cupom tests below cover:
 
-1. **Real concurrent threads** – a `threading.Barrier` forces both callers to
-   start executing at the exact same moment. SQLite (StaticPool) serialises
-   writes, so this confirms the *happy-path* invariants: both calls eventually
-   succeed, every successful call persists exactly the requested number of
-   codes, no duplicate codes land in the DB, and no solicitação is left in a
-   half-generated state.
+* A pasted code that collides with one saved by another request between the
+  pre-commit uniqueness check and the actual commit (simulated by patching
+  ``_codigo_cupom_existe`` to miss the conflict) must surface as HTTP 409 via
+  the real DB unique index — never 500, never a silent duplicate, and never
+  retried/regenerated (there's nothing to regenerate: the code came from the
+  user).
+* Validation guards (wrong code count, duplicate within the same paste, code
+  already used elsewhere, double-submit for an already-generated solicitação)
+  reject clearly before anything is written.
 
-2. **Simulated worst-case race** – `_codigo_cupom_existe` is patched to always
-   return ``False`` (i.e., the pre-commit uniqueness check misses every conflict,
-   as would happen if two threads ran their pre-checks before *either* committed).
-   The real DB unique index then fires on the first commit attempt, triggering
-   the IntegrityError → rollback → retry path. The test confirms that the retry
-   succeeds and the final state is still consistent.
+These are deliberately exercised as sequential/mocked scenarios, not real
+concurrent OS threads: gerar_cupom relies on ``with_for_update()`` for
+production (Postgres) row-level locking, which SQLite does not implement, and
+SQLite's StaticPool hands every test session the SAME underlying connection —
+which allows only one active transaction at a time. Two real threads racing
+writes on it can partially interleave at the statement level in ways no real
+per-connection database ever would, so a thread-based test here could only
+ever produce noise, not signal. The planilha flow below IS tested with real
+threads because it serializes concurrent callers with an app-level
+``threading.Lock`` before touching the DB, sidestepping that limitation.
 
 The ``ux_cortesia_cupom_codigo_codigo`` unique index lives in a migration, not
-in the ORM model, so it is created explicitly on the in-memory SQLite engine
-(see memory: coupon-code-auto-generation).
+in the ORM model, so it is created explicitly on the in-memory SQLite engine.
 
 Planilha double-submit tests confirm that:
 * A second identical upload within the 30-second window is rejected with 409.
@@ -53,10 +60,10 @@ from app.models.cortesia_solicitacao import (
 )
 from app.models.projecao import AreaProjecao
 from app.models.user import Usuario
+from app.schemas.cortesia_solicitacao import CortesiaCupomColarRequest
 
 from app.api.routes.cortesia_solicitacao import (
     _CODIGO_CUPOM_INDICE_UNICO,
-    _gerar_codigo_cupom_unico,
     _planilha_advisory_lock_params,
     criar_solicitacao_planilha,
     gerar_cupom,
@@ -165,135 +172,30 @@ def _all_persisted_codes(SessionFactory) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Test 1 – real concurrent threads
+# Test 1 – simulated worst-case race: commit-time collision surfaces as 409
 # ---------------------------------------------------------------------------
 
-def test_concurrent_gerar_no_duplicate_codes(SessionFactory, seed_data):
-    """Two threads calling gerar_cupom at the same instant must produce only
-    unique codes and leave every solicitação in a consistent state."""
+def test_commit_time_collision_returns_409_not_500(SessionFactory):
+    """Worst-case race: the DB commit fails with the unique-index
+    IntegrityError (as would happen when two requests both pass the
+    pre-commit uniqueness check for the same code before either commits).
 
-    barrier = threading.Barrier(2)
-    results: dict = {}
-    errors: dict = {}
+    Unlike the old auto-generation flow, there's nothing to regenerate — the
+    code came from the user — so gerar_cupom must fail cleanly with HTTP 409
+    (never 500, never silently retried/duplicated) and leave the solicitação
+    untouched, not half-saved.
 
-    def run(sol_id: int, label: str):
-        db = SessionFactory()
-        try:
-            # Sync both threads to maximise overlap at the entry point.
-            barrier.wait(timeout=15)
-            fake_user = _make_fake_admin()
-            with patch(
-                "app.api.routes.cortesia_solicitacao.is_user_admin",
-                return_value=True,
-            ):
-                result = gerar_cupom(
-                    solicitacao_id=sol_id,
-                    db=db,
-                    current_user=fake_user,
-                )
-            results[label] = result
-        except Exception as exc:  # noqa: BLE001
-            errors[label] = exc
-        finally:
-            db.close()
-
-    t1 = threading.Thread(target=run, args=(seed_data["sol1_id"], "t1"), daemon=True)
-    t2 = threading.Thread(target=run, args=(seed_data["sol2_id"], "t2"), daemon=True)
-    t1.start()
-    t2.start()
-    t1.join(timeout=30)
-    t2.join(timeout=30)
-
-    assert not t1.is_alive(), "Thread 1 timed out — gerar_cupom hung"
-    assert not t2.is_alive(), "Thread 2 timed out — gerar_cupom hung"
-
-    # At least one call must succeed; both failing would indicate a real bug
-    # (the retry budget is 3 attempts — more than enough for two concurrent
-    # callers).
-    assert results, (
-        "All concurrent gerar_cupom calls failed.\n"
-        f"Errors: { {k: str(v) for k, v in errors.items()} }"
-    )
-
-    # ------------------------------------------------------------------
-    # Invariant A: no duplicate codes in the database
-    # ------------------------------------------------------------------
-    all_codes = _all_persisted_codes(SessionFactory)
-    assert len(all_codes) == len(set(all_codes)), (
-        f"Duplicate coupon codes found in DB: {all_codes}"
-    )
-
-    # ------------------------------------------------------------------
-    # Invariant B: each successful call persisted exactly `quantidade` codes.
-    # Verified via a fresh session rather than result.codigos_detalhes: with
-    # SQLite StaticPool (shared connection) the in-flight lazy relationship
-    # can appear stale when two sessions overlap, while a fresh query always
-    # returns the committed truth.
-    # ------------------------------------------------------------------
-    db_b = SessionFactory()
-    try:
-        for label, result in results.items():
-            code_count = (
-                db_b.query(CortesiaCupomCodigo)
-                .filter_by(solicitacao_id=result.id)
-                .count()
-            )
-            assert code_count == seed_data["quantidade"], (
-                f"{label}: expected {seed_data['quantidade']} code rows in DB for "
-                f"sol {result.id}, got {code_count}"
-            )
-    finally:
-        db_b.close()
-
-    # ------------------------------------------------------------------
-    # Invariant C: no half-generated state — status and code-row count agree
-    # ------------------------------------------------------------------
-    db = SessionFactory()
-    try:
-        for sol_id in (seed_data["sol1_id"], seed_data["sol2_id"]):
-            sol = db.query(CortesiaSolicitacao).filter_by(id=sol_id).first()
-            code_count = (
-                db.query(CortesiaCupomCodigo)
-                .filter_by(solicitacao_id=sol_id)
-                .count()
-            )
-            if sol.status == STATUS_GERADO:
-                assert code_count == seed_data["quantidade"], (
-                    f"sol {sol_id}: status=gerado but only {code_count} code rows "
-                    f"(expected {seed_data['quantidade']})"
-                )
-            else:
-                # STATUS_SOLICITADO: the call either wasn't attempted yet or
-                # failed clearly — no orphan code rows should exist.
-                assert code_count == 0, (
-                    f"sol {sol_id}: status=solicitado but {code_count} orphan "
-                    "code rows found (partial write leaked past rollback)"
-                )
-    finally:
-        db.close()
-
-
-# ---------------------------------------------------------------------------
-# Test 2 – simulated worst-case race: retry path succeeds on second attempt
-# ---------------------------------------------------------------------------
-
-def test_integrity_error_retry_succeeds_on_second_attempt(SessionFactory):
-    """Worst-case race: the first DB commit fails with the unique-index
-    IntegrityError (as would happen when two threads both pass the pre-check
-    before either commits).  gerar_cupom must roll back, regenerate fresh
-    candidates, and succeed on the retry — leaving exactly the right number
-    of codes in a consistent state.
-
-    Implemented as a single-threaded test with a patched ``commit`` that raises
-    IntegrityError exactly once, then delegates to the real commit.  This
-    avoids SQLite StaticPool connection-sharing issues while still exercising
-    the full IntegrityError → rollback → retry code path.
+    Implemented as a single-threaded test with a patched ``commit`` that
+    raises the unique-index IntegrityError, avoiding SQLite StaticPool
+    connection-sharing issues while still exercising the real code path.
     """
+    from fastapi import HTTPException
+
     db_setup = SessionFactory()
     try:
         sol3 = CortesiaSolicitacao(
             id=7003, evento_id=6001, area_projecao_id=5001,
-            tipo=TIPO_CUPOM, quantidade=3, status=STATUS_SOLICITADO,
+            tipo=TIPO_CUPOM, quantidade=1, status=STATUS_SOLICITADO,
             solicitado_por=9001,
         )
         db_setup.add(sol3)
@@ -305,71 +207,64 @@ def test_integrity_error_retry_succeeds_on_second_attempt(SessionFactory):
     try:
         fake_user = _make_fake_admin()
 
-        # Patch commit: fail with the unique-index error on attempt 1,
-        # then call the real commit on subsequent attempts.
-        attempt = [0]
-        real_commit = db.commit
-
-        def commit_fail_once():
-            attempt[0] += 1
-            if attempt[0] == 1:
-                # Simulate what the DB does when the unique index fires.
-                db.rollback()
-                raise SAIntegrityError(
-                    statement=None,
-                    params=None,
-                    orig=Exception(_CODIGO_CUPOM_INDICE_UNICO),
-                )
-            real_commit()
+        def commit_raises_unique_violation():
+            # Simulate what the DB does when the unique index fires.
+            db.rollback()
+            raise SAIntegrityError(
+                statement=None,
+                params=None,
+                orig=Exception(_CODIGO_CUPOM_INDICE_UNICO),
+            )
 
         with (
             patch(
                 "app.api.routes.cortesia_solicitacao.is_user_admin",
                 return_value=True,
             ),
-            patch.object(db, "commit", side_effect=commit_fail_once),
+            # Miss the conflict at the pre-commit check, same as a genuine
+            # race would — the real unique index is what must catch it.
+            patch(
+                "app.api.routes.cortesia_solicitacao._codigo_cupom_existe",
+                return_value=False,
+            ),
+            patch.object(db, "commit", side_effect=commit_raises_unique_violation),
         ):
-            result = gerar_cupom(
-                solicitacao_id=7003,
-                db=db,
-                current_user=fake_user,
-            )
+            with pytest.raises(HTTPException) as exc_info:
+                gerar_cupom(
+                    solicitacao_id=7003,
+                    payload=CortesiaCupomColarRequest(codigos=["MAGCOLIDECODE"]),
+                    db=db,
+                    current_user=fake_user,
+                )
     finally:
         db.close()
 
-    # The retry must have been triggered and must have ultimately succeeded.
-    assert attempt[0] == 2, (
-        f"Expected commit to be called exactly 2 times (1 fail + 1 success), "
-        f"got {attempt[0]}"
-    )
-    assert len(result.codigos_detalhes) == 3, (
-        f"Expected 3 codes after retry, got {len(result.codigos_detalhes)}"
+    assert exc_info.value.status_code == 409, (
+        f"Expected HTTP 409 on commit-time collision, got {exc_info.value.status_code}"
     )
 
-    # Consistency: 3 code rows, status=gerado, no duplicates anywhere.
+    # Consistency: solicitação stays solicitado, no orphan code row.
     db_check = SessionFactory()
     try:
         sol = db_check.query(CortesiaSolicitacao).filter_by(id=7003).first()
-        assert sol.status == STATUS_GERADO
+        assert sol.status == STATUS_SOLICITADO, (
+            f"sol 7003: status={sol.status!r} after failed commit — must stay "
+            "solicitado, not half-saved"
+        )
         code_count = (
             db_check.query(CortesiaCupomCodigo)
             .filter_by(solicitacao_id=7003)
             .count()
         )
-        assert code_count == 3, (
-            f"sol 7003: status=gerado but {code_count} code rows (expected 3)"
+        assert code_count == 0, (
+            f"sol 7003: expected 0 code rows after failed commit, found {code_count}"
         )
     finally:
         db_check.close()
 
-    all_codes = _all_persisted_codes(SessionFactory)
-    assert len(all_codes) == len(set(all_codes)), (
-        f"Duplicate coupon codes after retry: {all_codes}"
-    )
-
 
 # ---------------------------------------------------------------------------
-# Test 4 – same solicitacao_id targeted twice (double-call / double-click guard)
+# Test 2 – same solicitacao_id targeted twice (double-call / double-click guard)
 # ---------------------------------------------------------------------------
 
 def test_same_solicitacao_double_call_second_returns_400(SessionFactory, seed_data):
@@ -412,6 +307,7 @@ def test_same_solicitacao_double_call_second_returns_400(SessionFactory, seed_da
         db_setup.close()
 
     fake_user = _make_fake_admin()
+    codigos = [f"MAGDUPCODE{i}" for i in range(quantidade)]
 
     # ------------------------------------------------------------------
     # Call 1: must succeed with exactly `quantidade` codes
@@ -424,6 +320,7 @@ def test_same_solicitacao_double_call_second_returns_400(SessionFactory, seed_da
         ):
             result1 = gerar_cupom(
                 solicitacao_id=7004,
+                payload=CortesiaCupomColarRequest(codigos=codigos),
                 db=db1,
                 current_user=fake_user,
             )
@@ -435,7 +332,8 @@ def test_same_solicitacao_double_call_second_returns_400(SessionFactory, seed_da
     )
 
     # ------------------------------------------------------------------
-    # Call 2: must raise HTTP 400 before writing anything
+    # Call 2: must raise HTTP 400 before writing anything (even with a
+    # fresh set of codes — the solicitação is already gerado).
     # ------------------------------------------------------------------
     db2 = SessionFactory()
     try:
@@ -446,6 +344,9 @@ def test_same_solicitacao_double_call_second_returns_400(SessionFactory, seed_da
             with pytest.raises(HTTPException) as exc_info:
                 gerar_cupom(
                     solicitacao_id=7004,
+                    payload=CortesiaCupomColarRequest(
+                        codigos=[f"MAGDUPCODE2-{i}" for i in range(quantidade)]
+                    ),
                     db=db2,
                     current_user=fake_user,
                 )
@@ -487,57 +388,181 @@ def test_same_solicitacao_double_call_second_returns_400(SessionFactory, seed_da
 
 
 # ---------------------------------------------------------------------------
-# Test 3 – retry budget exhaustion returns a clear 409 (unit)
+# Test 3 – validation guards on the pasted-codes payload (unit)
 # ---------------------------------------------------------------------------
 
-def test_retry_budget_exhausted_raises_409(SessionFactory):
-    """If every attempt hits an IntegrityError matching the unique-index name,
-    gerar_cupom must raise HTTP 409 — not silently succeed, not hang, not 500."""
+def test_wrong_code_count_returns_400(SessionFactory):
+    """Pasting a different number of codes than `quantidade` must be rejected
+    before anything is written — partial fulfillment is not allowed."""
     from fastapi import HTTPException
 
     db_setup = SessionFactory()
     try:
-        sol5 = CortesiaSolicitacao(
+        sol = CortesiaSolicitacao(
             id=7005, evento_id=6001, area_projecao_id=5001,
-            tipo=TIPO_CUPOM, quantidade=1, status=STATUS_SOLICITADO,
+            tipo=TIPO_CUPOM, quantidade=3, status=STATUS_SOLICITADO,
             solicitado_por=9001,
         )
-        db_setup.add(sol5)
+        db_setup.add(sol)
         db_setup.commit()
     finally:
         db_setup.close()
 
-    # Simulate a commit that ALWAYS raises the unique-index IntegrityError so
-    # all 3 retry slots are consumed.
-    fake_ie = SAIntegrityError(
-        statement=None,
-        params=None,
-        orig=Exception(_CODIGO_CUPOM_INDICE_UNICO),
-    )
-
     db = SessionFactory()
     try:
         fake_user = _make_fake_admin()
-        with (
-            patch(
-                "app.api.routes.cortesia_solicitacao.is_user_admin",
-                return_value=True,
-            ),
-            patch(
-                "app.api.routes.cortesia_solicitacao._codigo_cupom_existe",
-                return_value=False,
-            ),
-            patch.object(db, "commit", side_effect=fake_ie),
+        with patch(
+            "app.api.routes.cortesia_solicitacao.is_user_admin",
+            return_value=True,
         ):
             with pytest.raises(HTTPException) as exc_info:
                 gerar_cupom(
                     solicitacao_id=7005,
+                    payload=CortesiaCupomColarRequest(codigos=["SOCODE1", "SOCODE2"]),
                     db=db,
                     current_user=fake_user,
                 )
-        assert exc_info.value.status_code == 409, (
-            f"Expected HTTP 409 on exhausted retry budget, got {exc_info.value.status_code}"
+        assert exc_info.value.status_code == 400, (
+            f"Expected HTTP 400 on wrong code count, got {exc_info.value.status_code}"
         )
+
+        code_count = db.query(CortesiaCupomCodigo).filter_by(solicitacao_id=7005).count()
+        assert code_count == 0, "Wrong-count paste must not write any rows"
+    finally:
+        db.close()
+
+
+def test_code_too_long_returns_400(SessionFactory):
+    """A pasted code over 300 chars (the DB column limit) must be rejected
+    before anything is written, not left to fail as a DB-level error."""
+    from fastapi import HTTPException
+
+    db_setup = SessionFactory()
+    try:
+        sol = CortesiaSolicitacao(
+            id=7006, evento_id=6001, area_projecao_id=5001,
+            tipo=TIPO_CUPOM, quantidade=1, status=STATUS_SOLICITADO,
+            solicitado_por=9001,
+        )
+        db_setup.add(sol)
+        db_setup.commit()
+    finally:
+        db_setup.close()
+
+    db = SessionFactory()
+    try:
+        fake_user = _make_fake_admin()
+        codigo_gigante = "X" * 301
+        with patch(
+            "app.api.routes.cortesia_solicitacao.is_user_admin",
+            return_value=True,
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                gerar_cupom(
+                    solicitacao_id=7006,
+                    payload=CortesiaCupomColarRequest(codigos=[codigo_gigante]),
+                    db=db,
+                    current_user=fake_user,
+                )
+        assert exc_info.value.status_code == 400, (
+            f"Expected HTTP 400 on over-length code, got {exc_info.value.status_code}"
+        )
+
+        code_count = db.query(CortesiaCupomCodigo).filter_by(solicitacao_id=7006).count()
+        assert code_count == 0, "Over-length code must not write any rows"
+    finally:
+        db.close()
+
+
+def test_duplicate_code_within_same_paste_returns_400(SessionFactory):
+    """The same code appearing twice in one paste (case-insensitively) must be
+    rejected — it can only ever redeem once in Magento."""
+    from fastapi import HTTPException
+
+    db_setup = SessionFactory()
+    try:
+        sol = CortesiaSolicitacao(
+            id=7010, evento_id=6001, area_projecao_id=5001,
+            tipo=TIPO_CUPOM, quantidade=2, status=STATUS_SOLICITADO,
+            solicitado_por=9001,
+        )
+        db_setup.add(sol)
+        db_setup.commit()
+    finally:
+        db_setup.close()
+
+    db = SessionFactory()
+    try:
+        fake_user = _make_fake_admin()
+        with patch(
+            "app.api.routes.cortesia_solicitacao.is_user_admin",
+            return_value=True,
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                gerar_cupom(
+                    solicitacao_id=7010,
+                    payload=CortesiaCupomColarRequest(codigos=["REPETIDOCODE", "repetidocode"]),
+                    db=db,
+                    current_user=fake_user,
+                )
+        assert exc_info.value.status_code == 400, (
+            f"Expected HTTP 400 on in-paste duplicate, got {exc_info.value.status_code}"
+        )
+
+        code_count = db.query(CortesiaCupomCodigo).filter_by(solicitacao_id=7010).count()
+        assert code_count == 0, "In-paste duplicate must not write any rows"
+    finally:
+        db.close()
+
+
+def test_code_already_used_elsewhere_returns_400(SessionFactory):
+    """A code already saved against another solicitação (case-insensitively)
+    must be rejected — coupon codes are globally unique across all requests."""
+    from fastapi import HTTPException
+
+    db_setup = SessionFactory()
+    try:
+        usado = CortesiaSolicitacao(
+            id=7011, evento_id=6001, area_projecao_id=5001,
+            tipo=TIPO_CUPOM, quantidade=1, status=STATUS_GERADO,
+            solicitado_por=9001,
+        )
+        db_setup.add(usado)
+        db_setup.flush()
+        db_setup.add(CortesiaCupomCodigo(solicitacao_id=usado.id, codigo="JAUSADOCODE"))
+
+        novo = CortesiaSolicitacao(
+            id=7012, evento_id=6001, area_projecao_id=5001,
+            tipo=TIPO_CUPOM, quantidade=1, status=STATUS_SOLICITADO,
+            solicitado_por=9001,
+        )
+        db_setup.add(novo)
+        db_setup.commit()
+    finally:
+        db_setup.close()
+
+    db = SessionFactory()
+    try:
+        fake_user = _make_fake_admin()
+        with patch(
+            "app.api.routes.cortesia_solicitacao.is_user_admin",
+            return_value=True,
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                gerar_cupom(
+                    solicitacao_id=7012,
+                    # Different case from the stored code — the check must
+                    # still catch it.
+                    payload=CortesiaCupomColarRequest(codigos=["jaUsadoCode"]),
+                    db=db,
+                    current_user=fake_user,
+                )
+        assert exc_info.value.status_code == 400, (
+            f"Expected HTTP 400 on code already used elsewhere, got {exc_info.value.status_code}"
+        )
+
+        sol_novo = db.query(CortesiaSolicitacao).filter_by(id=7012).first()
+        assert sol_novo.status == STATUS_SOLICITADO, "Rejected paste must not mark as gerado"
     finally:
         db.close()
 

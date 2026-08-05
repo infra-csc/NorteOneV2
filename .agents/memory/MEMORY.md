@@ -44,7 +44,8 @@
 - [Ticket promo fallback](ticket-promo-fallback.md) — nunca fabricar status "ativo" no fallback; múltiplas promos resolvem por entity_id DESC + 2 passadas de status; "inativo" nunca elegível.
 - [Margem parcial + avisos](margem-parcial-avisos.md) — refresh parcial restaura última margemPorKit íntegra do EDS (card e tabela em lockstep); avisos colapsam em 1; sem-prefixo é reservado.
 - [Area-scoped lists vs module permissions](area-scope-vs-module-permission.md) — papel "global" (permissão de módulo, sem área) some de listas area-scoped; precisa endpoint novo sem escopo, nunca remendar o existente.
-- [Coupon code auto-generation](cupom-codigo-geracao.md) — código = sigla da área + SKU do evento + sufixo aleatório (sem 0/O/1/I/L), tamanho total fixo; reusar `_gerar_codigo_cupom_unico`, não duplicar para bulk-generate.
+- [Coupon codes are pasted, not generated](cupom-codigo-geracao.md) — reversed 2026-08: app só valida/salva código colado (criado manual no Magento); sigla/SKU não são mais exigidos.
+- [SQLite StaticPool fake concurrency](sqlite-staticpool-fake-concurrency.md) — teste com threads reais + engine StaticPool pode produzir "inconsistência" que não existe em Postgres real; sintoma = flakiness sem bug de aplicação.
 - [Screenshot tool blocked by app auth](screenshot-auth-wall.md) — app exige login (MS SSO ou emergência) em toda rota; Screenshot não interage com forms — verificar UI autenticada via backend/API, não via captura de tela.
 - [Fila pendente vs. histórico janela](fila-pendente-vs-historico-janela.md) — em endpoint fila+histórico, janela de performance só corta o lado resolvido; pendente fica sempre completo e imune a qualquer filtro do outro lado.
 - [Ativo lot-JOIN fallback](ativo-lot-join-fallback.md) — INNER JOIN de lote no Ativo derruba o evento/kit inteiro sem lote atual; LEFT JOIN+COALESCE só na JOIN de lote, nunca na de categoria (mck) — non-determinism em nomes quase-duplicados.

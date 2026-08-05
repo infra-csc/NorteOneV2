@@ -35,6 +35,13 @@ class CortesiaSolicitacaoCupomCreate(BaseModel):
     observacao: Optional[str] = None
 
 
+class CortesiaCupomColarRequest(BaseModel):
+    """Código(s) de cupom já gerados manualmente no Magento, colados pelo
+    usuário para vincular a uma solicitação pendente — o app não gera mais
+    o código sozinho."""
+    codigos: List[str]
+
+
 class CupomCodigoItem(BaseModel):
     id: int
     codigo: str

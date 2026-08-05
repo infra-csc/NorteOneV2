@@ -624,6 +624,7 @@ const SolicitacaoCortesias: React.FC = () => {
   const [formError, setFormError] = useState<string | null>(null);
 
   const [gerarAlvo, setGerarAlvo] = useState<CortesiaSolicitacaoResponse | null>(null);
+  const [gerarCodigosTexto, setGerarCodigosTexto] = useState('');
   const [gerandoSalvando, setGerandoSalvando] = useState(false);
   const [gerarError, setGerarError] = useState<string | null>(null);
 
@@ -764,16 +765,26 @@ const SolicitacaoCortesias: React.FC = () => {
 
   const abrirGerar = (sol: CortesiaSolicitacaoResponse) => {
     setGerarAlvo(sol);
+    setGerarCodigosTexto('');
     setGerarError(null);
   };
 
+  const parseCodigosColados = (texto: string): string[] =>
+    texto.split('\n').map((c) => c.trim()).filter((c) => c.length > 0);
+
   const submitGerar = async () => {
     if (!gerarAlvo) return;
+    const codigos = parseCodigosColados(gerarCodigosTexto);
+    if (codigos.length === 0) {
+      setGerarError('Cole ao menos um código de cupom gerado no Magento.');
+      return;
+    }
     setGerandoSalvando(true);
     setGerarError(null);
     try {
-      await cortesiaSolicitacaoService.gerarCupom(gerarAlvo.id);
+      await cortesiaSolicitacaoService.gerarCupom(gerarAlvo.id, codigos);
       setGerarAlvo(null);
+      setGerarCodigosTexto('');
       await Promise.all([carregarSolicitacoes(), carregarFila()]);
     } catch (e) {
       setGerarError(extractError(e));
@@ -1515,12 +1526,12 @@ const SolicitacaoCortesias: React.FC = () => {
         </div>
       )}
 
-      {/* Modal: marcar cupom gerado */}
+      {/* Modal: colar cupom gerado no Magento */}
       {gerarAlvo && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className={`w-full max-w-lg rounded-2xl shadow-2xl border max-h-[90vh] flex flex-col ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
             <div className={`flex items-center justify-between p-4 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
-              <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Gerar código de cupom</h3>
+              <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Colar código de cupom</h3>
               <button onClick={() => setGerarAlvo(null)} className={isDark ? 'text-gray-400 hover:text-white' : 'text-gray-400 hover:text-gray-700'}>
                 <X className="w-5 h-5" />
               </button>
@@ -1530,8 +1541,15 @@ const SolicitacaoCortesias: React.FC = () => {
                 {gerarAlvo.evento_nome} — {gerarAlvo.area_projecao_nome}
               </p>
               <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                {gerarAlvo.quantidade} código(s) serão gerados automaticamente, um por cortesia solicitada, no padrão sigla da área + SKU do evento + sufixo aleatório — todos com o mesmo tamanho.
+                Gere {gerarAlvo.quantidade} código(s) no Magento e cole abaixo, um por linha ({parseCodigosColados(gerarCodigosTexto).length} de {gerarAlvo.quantidade} colado(s)).
               </p>
+              <textarea
+                value={gerarCodigosTexto}
+                onChange={(e) => setGerarCodigosTexto(e.target.value)}
+                rows={Math.min(10, Math.max(4, gerarAlvo.quantidade))}
+                placeholder={'Cole aqui o(s) código(s) gerados no Magento\num por linha'}
+                className={`w-full rounded-xl border px-3 py-2 text-sm font-mono resize-y ${isDark ? 'bg-gray-900 border-gray-700 text-gray-100 placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'}`}
+              />
               {gerarError && (
                 <div className={`flex items-center gap-2 p-2.5 rounded-lg text-sm ${isDark ? 'bg-red-500/10 text-red-400' : 'bg-red-50 text-red-600'}`}>
                   <AlertTriangle className="w-4 h-4 shrink-0" /> {gerarError}
@@ -1550,7 +1568,7 @@ const SolicitacaoCortesias: React.FC = () => {
                 disabled={gerandoSalvando}
                 className="px-4 py-2 rounded-xl text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
               >
-                {gerandoSalvando ? 'Gerando...' : 'Gerar código automaticamente'}
+                {gerandoSalvando ? 'Salvando...' : 'Salvar código(s)'}
               </button>
             </div>
           </div>
