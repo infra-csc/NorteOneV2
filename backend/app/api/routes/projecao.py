@@ -2362,11 +2362,9 @@ def exportar_projecoes(
             writer.writerow(base + [kit_nome, kit_qtd, cli_nome, cli_qtd] + tail)
 
     output.seek(0)
-    bom = '\ufeff'
-    content = bom + output.getvalue()
 
     return StreamingResponse(
-        io.BytesIO(content.encode('utf-8-sig')),
+        io.BytesIO(output.getvalue().encode('utf-8-sig')),
         media_type='text/csv',
         headers={'Content-Disposition': 'attachment; filename=projecao_inscritos.csv'},
     )
