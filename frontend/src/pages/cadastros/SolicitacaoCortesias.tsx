@@ -418,9 +418,9 @@ interface FiltroBarProps {
   areaId: number | '';
   onArea: (v: number | '') => void;
   areaOpcoes: OpcaoFiltro[];
-  eventoId: number | '';
-  onEvento: (v: number | '') => void;
-  eventoOpcoes: OpcaoFiltro[];
+  eventoId?: number | '';
+  onEvento?: (v: number | '') => void;
+  eventoOpcoes?: OpcaoFiltro[];
   eventoPlaceholder?: string;
   status?: '' | KanbanColKey;
   onStatus?: (v: '' | KanbanColKey) => void;
@@ -450,10 +450,12 @@ const FiltroBar: React.FC<FiltroBarProps> = ({
           className={`w-full bg-transparent text-xs focus:outline-none ${isDark ? 'text-gray-200 placeholder:text-gray-600' : 'text-gray-800 placeholder:text-gray-400'}`}
         />
       </div>
-      <select value={eventoId} onChange={e => onEvento(e.target.value ? Number(e.target.value) : '')} className={selectCls}>
-        <option value="">{eventoPlaceholder || 'Todos os eventos'}</option>
-        {eventoOpcoes.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
-      </select>
+      {onEvento && (
+        <select value={eventoId ?? ''} onChange={e => onEvento(e.target.value ? Number(e.target.value) : '')} className={selectCls}>
+          <option value="">{eventoPlaceholder || 'Todos os eventos'}</option>
+          {(eventoOpcoes || []).map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+        </select>
+      )}
       <select value={areaId} onChange={e => onArea(e.target.value ? Number(e.target.value) : '')} className={selectCls}>
         <option value="">Todas as áreas</option>
         {areaOpcoes.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
@@ -590,6 +592,10 @@ const SolicitacaoCortesias: React.FC = () => {
   // reaproveita filaEventoId, que já troca a janela de "Gerados" no backend.
   const [filtroGeracaoBusca, setFiltroGeracaoBusca] = useState('');
   const [filtroGeracaoArea, setFiltroGeracaoArea] = useState<number | ''>('');
+  // Filtro da aba Solicitações ("Eventos e saldo por área"): busca pelo nome
+  // do evento + área, tudo em memória sobre a lista já carregada.
+  const [filtroEventosBusca, setFiltroEventosBusca] = useState('');
+  const [filtroEventosArea, setFiltroEventosArea] = useState<number | ''>('');
   // Chaves "secao-eventoId" recolhidas nos agrupamentos por evento de
   // Pendentes/Gerados — Set vazio = tudo expandido (padrão).
   const [gruposColapsados, setGruposColapsados] = useState<Set<string>>(new Set());
@@ -872,6 +878,23 @@ const SolicitacaoCortesias: React.FC = () => {
   const pendentesFila = useMemo(() => filaGeracao.filter(s => s.status === 'solicitado'), [filaGeracao]);
   const geradosFila = useMemo(() => filaGeracao.filter(s => s.status === 'gerado'), [filaGeracao]);
 
+  // Solicitações (Eventos e saldo por área): busca por nome do evento +
+  // área, filtrando tanto quais eventos aparecem quanto quais linhas de
+  // área aparecem dentro de cada evento expandido.
+  const areaOpcoesEventos = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const ev of eventos) for (const a of ev.areas) if (!map.has(a.area_projecao_id)) map.set(a.area_projecao_id, a.area_projecao_nome || `Área ${a.area_projecao_id}`);
+    return Array.from(map, ([id, nome]) => ({ id, nome })).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  }, [eventos]);
+  const eventosFiltrados = useMemo(() => {
+    const busca = filtroEventosBusca.trim().toLowerCase();
+    return eventos
+      .filter(ev => !busca || (ev.evento_nome || '').toLowerCase().includes(busca))
+      .map(ev => filtroEventosArea ? { ...ev, areas: ev.areas.filter(a => a.area_projecao_id === filtroEventosArea) } : ev)
+      .filter(ev => !filtroEventosArea || ev.areas.length > 0);
+  }, [eventos, filtroEventosBusca, filtroEventosArea]);
+  const limparFiltroEventos = () => { setFiltroEventosBusca(''); setFiltroEventosArea(''); };
+
   // Acompanhamento: opções do filtro vêm da própria lista carregada e o
   // resultado filtrado alimenta tanto a Tabela quanto o Kanban.
   const areaOpcoesAcomp = useMemo(() => opcoesArea(solicitacoes), [solicitacoes]);
@@ -962,15 +985,33 @@ const SolicitacaoCortesias: React.FC = () => {
                   <AlertTriangle className="w-4 h-4 shrink-0" /> {errorEventos}
                 </div>
               )}
+              {!loadingEventos && eventos.length > 0 && (
+                <FiltroBar
+                  isDark={isDark}
+                  busca={filtroEventosBusca}
+                  onBusca={setFiltroEventosBusca}
+                  buscaPlaceholder="Buscar evento por nome..."
+                  areaId={filtroEventosArea}
+                  onArea={setFiltroEventosArea}
+                  areaOpcoes={areaOpcoesEventos}
+                  onLimpar={limparFiltroEventos}
+                  resultCount={eventosFiltrados.length}
+                  resultLabel="evento(s)"
+                />
+              )}
               {loadingEventos ? (
                 <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Carregando...</p>
               ) : eventos.length === 0 ? (
                 <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                   Nenhum evento futuro com projeção cadastrada para as suas áreas.
                 </p>
+              ) : eventosFiltrados.length === 0 ? (
+                <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                  Nenhum evento encontrado para estes filtros.
+                </p>
               ) : (
                 <div className="space-y-2">
-                  {eventos.map(ev => {
+                  {eventosFiltrados.map(ev => {
                     const expandido = eventoExpandido === ev.evento_id;
                     return (
                       <div key={ev.evento_id} className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
