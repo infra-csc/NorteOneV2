@@ -40,10 +40,13 @@ from sqlalchemy.orm import Session
 
 import app.core.database as db_module
 from app.models.dimensoes import SkuMapping
+from app.models.cadastro_evento import CadastroEvento
+from app.models.projecao import ProjecaoInscritos, AreaProjecao
 from app.models.kit_config import KitConfig
 from app.models.kit_mapping_snapshot import KitMappingSnapshot
 from app.models.detalhe_dimensao_alias import DetalheDimensaoAlias
 from app.queries.detalhe_eventos import build_ativo_detalhe, build_magento_detalhe
+from app.services.canal_mapping import AREA_PARA_CANAL, CANAIS_DETALHE
 
 logger = logging.getLogger(__name__)
 
@@ -205,6 +208,94 @@ def get_evento_ids(db: Session, evento_grupo: str, ano: int) -> Tuple[List[int],
     ativo_ids = [m.id_externo for m in mappings if m.fonte == "ATIVO" and m.id_externo]
     magento_ids = [m.id_externo for m in mappings if m.fonte == "MAGENTO" and m.id_externo]
     return ativo_ids, magento_ids
+
+
+def resolve_cadastro_evento_ids(db: Session, evento_grupo: str, ano: int) -> List[int]:
+    """
+    Resolve os CadastroEvento.id correspondentes a um (evento_grupo, ano) do
+    Detalhamento de Eventos, para poder buscar a "Projeção de Inscritos"
+    (indexada por CadastroEvento.id, não por evento_grupo/ano).
+
+    Dois caminhos, combinados (um evento pode ter cadastro achável por
+    qualquer um dos dois, e não são mutuamente exclusivos):
+    - MAGENTO: SkuMapping.id_externo -> CadastroEvento.id_evento_magento
+      (cache materializado, sincronizado em sku_mappings.py ao salvar o
+      mapeamento — ver `_sync_id_evento_magento_from_mapping`).
+    - ATIVO: SkuMapping.id_externo -> CadastroEvento.projeto_id (convenção:
+      o ID externo do Ativo é o mesmo id de DimProjeto/CadastroEvento.projeto_id).
+
+    Retorna lista vazia quando não há CadastroEvento cadastrado para o evento
+    (evento existe em sku_mappings mas nunca foi cadastrado manualmente) — a
+    projeção simplesmente não está disponível nesse caso, sem erro.
+    """
+    ativo_ids, magento_ids = get_evento_ids(db, evento_grupo, ano)
+    cadastro_ids: set = set()
+
+    if magento_ids:
+        rows = (
+            db.query(CadastroEvento.id)
+            .filter(
+                CadastroEvento.id_evento_magento.in_(magento_ids),
+                CadastroEvento.deleted_at.is_(None),
+            )
+            .all()
+        )
+        cadastro_ids.update(r[0] for r in rows)
+
+    if ativo_ids:
+        rows = (
+            db.query(CadastroEvento.id)
+            .filter(
+                CadastroEvento.projeto_id.in_(ativo_ids),
+                CadastroEvento.deleted_at.is_(None),
+            )
+            .all()
+        )
+        cadastro_ids.update(r[0] for r in rows)
+
+    return list(cadastro_ids)
+
+
+def get_projetado_por_canal(db: Session, evento_grupo: str, ano: int) -> Dict[str, int]:
+    """
+    Agrega a projeção de inscritos AO VIVO (reflete Corte 2 quando existir)
+    por canal, usando o mapeamento área->canal (AREA_PARA_CANAL). Retorna
+    {canal: quantidade}, com todos os CANAIS_DETALHE presentes (0 quando sem
+    projeção). Áreas ativas fora do mapeamento são ignoradas na soma e
+    logadas como aviso — nunca "adivinhamos" um canal para elas.
+    """
+    resultado: Dict[str, int] = {canal: 0 for canal in CANAIS_DETALHE}
+
+    cadastro_ids = resolve_cadastro_evento_ids(db, evento_grupo, ano)
+    if not cadastro_ids:
+        return resultado
+
+    rows = (
+        db.query(AreaProjecao.nome, ProjecaoInscritos.quantidade)
+        .join(ProjecaoInscritos, ProjecaoInscritos.area_projecao_id == AreaProjecao.id)
+        .filter(
+            ProjecaoInscritos.evento_id.in_(cadastro_ids),
+            ProjecaoInscritos.deleted_at.is_(None),
+        )
+        .all()
+    )
+
+    areas_sem_mapeamento = set()
+    for area_nome, quantidade in rows:
+        canal = AREA_PARA_CANAL.get(area_nome)
+        if canal is None:
+            areas_sem_mapeamento.add(area_nome)
+            continue
+        resultado[canal] = resultado.get(canal, 0) + (quantidade or 0)
+
+    if areas_sem_mapeamento:
+        logger.warning(
+            f"[ProjetadoPorCanal] evento_grupo={evento_grupo!r} ano={ano} tem projeção em "
+            f"área(s) sem mapeamento de canal (ignorada na soma): {sorted(areas_sem_mapeamento)} "
+            f"— atualizar AREA_PARA_CANAL em app/services/canal_mapping.py"
+        )
+
+    return resultado
 
 
 def get_anos_evento(db: Session, evento_grupo: str) -> List[int]:
@@ -1038,6 +1129,16 @@ def get_detalhe(
                 payload_dict["source"] = "snapshot"
                 payload_dict["snapshot_updated_at"] = updated_at.isoformat()
 
+                # Projeção é sempre recalculada ao vivo, independente da idade do
+                # snapshot de inscrições: os dois conjuntos de dados evoluem em
+                # ritmos diferentes (projeção muda por edição manual, não por
+                # sincronização noturna) e a query é leve (poucas linhas, por PK).
+                try:
+                    payload_dict["projetado_por_canal"] = get_projetado_por_canal(db, evento_grupo, ano)
+                except Exception as _proj_err:
+                    logger.warning(f"[DetalheSnap] Erro ao calcular projetado_por_canal: {_proj_err}")
+                    payload_dict["projetado_por_canal"] = {}
+
                 if age_h <= SNAPSHOT_MAX_AGE_HOURS:
                     # Snapshot fresco: retorna imediatamente
                     payload_dict["snapshot_stale"] = False
@@ -1259,6 +1360,9 @@ def get_detalhe(
             },
             "fallback_bancos": fallback_bancos,
             "totais": _calc_totais(consolidado),
+            "projetado_por_canal": (
+                get_projetado_por_canal(db, evento_grupo, ano) if evento_grupo and ano else {}
+            ),
             "source": "live",
             "snapshot_updated_at": None,
         }

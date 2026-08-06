@@ -2326,6 +2326,11 @@ export interface DetalheEventoPayload {
    *  na resposta ao vivo que originou o fallback (não persiste no snapshot). */
   fallback_bancos?: Record<string, string>;
   totais: DetalheTotais;
+  /** Projeção de inscritos (ao vivo, agregada por área->canal) para os mesmos
+   *  canais de `totais.por_canal`. Usado no toggle "Inscritos x Projetados"
+   *  do gráfico "Inscritos por Canal". Ausente/vazio quando o evento não tem
+   *  CadastroEvento vinculado ou nenhuma projeção lançada. */
+  projetado_por_canal?: Record<string, number>;
   source?: 'cache' | 'snapshot' | 'live';
   snapshot_updated_at?: string | null;
   fora_da_janela_ao_vivo?: boolean;

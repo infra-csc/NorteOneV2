@@ -779,6 +779,7 @@ const DetalheEventos: React.FC = () => {
   const [hierarchy, setHierarchy] = useState<DimKey[]>(() => loadStoredHierarchy() ?? DEFAULT_HIERARCHY);
   const [flatCols, setFlatCols] = useState<DimKey[]>(() => loadStoredFlatCols() ?? DEFAULT_FLAT_COLS);
   const [activeTab, setActiveTab] = useState<'consolidado' | 'ativo' | 'magento'>('consolidado');
+  const [canalCompararProjetado, setCanalCompararProjetado] = useState(false);
   const [searchEventos, setSearchEventos] = useState('');
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const comboboxRef = useRef<HTMLDivElement>(null);
@@ -1181,11 +1182,24 @@ const DetalheEventos: React.FC = () => {
 
   const canalChartData = useMemo(() => {
     if (!payload) return [];
+    const projetado = payload.projetado_por_canal || {};
     return Object.entries(payload.totais.por_canal)
       .filter(([canal]) => filters.canal.length === 0 || filters.canal.includes(canal))
-      .map(([canal, v]) => ({ canal, inscritos: v.inscritos, receita: Math.round(v.receita_liquida || 0) }))
+      .map(([canal, v]) => ({
+        canal,
+        inscritos: v.inscritos,
+        receita: Math.round(v.receita_liquida || 0),
+        projetado: projetado[canal] || 0,
+      }))
       .sort((a, b) => b.inscritos - a.inscritos);
   }, [payload, filters.canal]);
+
+  // Só oferece o toggle quando existe pelo menos alguma projeção lançada para
+  // este evento — evita mostrar um comparativo vazio (tudo zerado) por padrão.
+  const temProjetadoPorCanal = useMemo(
+    () => Object.values(payload?.projetado_por_canal || {}).some(v => v > 0),
+    [payload]
+  );
 
   const modalidadeChartData = useMemo(() => {
     if (!payload) return [];
@@ -1842,16 +1856,53 @@ const DetalheEventos: React.FC = () => {
             {/* Charts Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className={`rounded-3xl border ${cardBg} p-6 shadow-sm backdrop-blur-xl`}>
-                <p className={`text-[11px] font-bold uppercase tracking-wider mb-6 ${textSec}`}>Inscritos por Canal</p>
+                <div className="flex items-center justify-between mb-6">
+                  <p className={`text-[11px] font-bold uppercase tracking-wider ${textSec}`}>
+                    {canalCompararProjetado ? 'Inscritos x Projetados por Canal' : 'Inscritos por Canal'}
+                  </p>
+                  {temProjetadoPorCanal && (
+                    <button
+                      onClick={() => setCanalCompararProjetado(v => !v)}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-colors ${
+                        canalCompararProjetado
+                          ? 'bg-blue-500 text-white shadow-sm'
+                          : dark ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                      title="Comparar inscritos reais com a projeção ao vivo por canal"
+                    >
+                      <TrendingUp className="w-3 h-3" />
+                      {canalCompararProjetado ? 'Ver só Inscritos' : 'Comparar c/ Projetado'}
+                    </button>
+                  )}
+                </div>
                 <div className="h-[180px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={canalChartData} barSize={40} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <BarChart data={canalChartData} barSize={canalCompararProjetado ? 18 : 40} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                       <XAxis dataKey="canal" tick={{ fontSize: 11, fill: dark ? '#94a3b8' : '#64748b', fontWeight: 600 }} axisLine={false} tickLine={false} />
                       <YAxis tick={{ fontSize: 11, fill: dark ? '#94a3b8' : '#64748b' }} axisLine={false} tickLine={false} />
-                      <Tooltip formatter={(v: number | undefined) => [fmt(v ?? 0), 'Inscritos']} cursor={{ fill: dark ? '#334155' : '#f1f5f9' }} contentStyle={{ background: dark ? '#1e293b' : '#fff', border: 'none', borderRadius: 12, fontSize: 12, fontWeight: 600, boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)' }} />
-                      <Bar dataKey="inscritos" radius={[6, 6, 0, 0]}>
-                        {canalChartData.map((entry, i) => <Cell key={i} fill={CANAL_COLORS[entry.canal] || CHART_COLORS[i % CHART_COLORS.length]} />)}
-                      </Bar>
+                      {canalCompararProjetado ? (
+                        <>
+                          <Tooltip
+                            formatter={(v: number | undefined, name: string | undefined) => [fmt(v ?? 0), name === 'projetado' ? 'Projetado' : 'Inscritos']}
+                            cursor={{ fill: dark ? '#334155' : '#f1f5f9' }}
+                            contentStyle={{ background: dark ? '#1e293b' : '#fff', border: 'none', borderRadius: 12, fontSize: 12, fontWeight: 600, boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)' }}
+                          />
+                          <Legend wrapperStyle={{ fontSize: 11, fontWeight: 600 }} formatter={(v) => v === 'projetado' ? 'Projetado' : 'Inscritos'} />
+                          <Bar dataKey="inscritos" name="inscritos" radius={[6, 6, 0, 0]}>
+                            {canalChartData.map((entry, i) => <Cell key={i} fill={CANAL_COLORS[entry.canal] || CHART_COLORS[i % CHART_COLORS.length]} />)}
+                          </Bar>
+                          <Bar dataKey="projetado" name="projetado" radius={[6, 6, 0, 0]} fillOpacity={0.45}>
+                            {canalChartData.map((entry, i) => <Cell key={i} fill={CANAL_COLORS[entry.canal] || CHART_COLORS[i % CHART_COLORS.length]} />)}
+                          </Bar>
+                        </>
+                      ) : (
+                        <>
+                          <Tooltip formatter={(v: number | undefined) => [fmt(v ?? 0), 'Inscritos']} cursor={{ fill: dark ? '#334155' : '#f1f5f9' }} contentStyle={{ background: dark ? '#1e293b' : '#fff', border: 'none', borderRadius: 12, fontSize: 12, fontWeight: 600, boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)' }} />
+                          <Bar dataKey="inscritos" radius={[6, 6, 0, 0]}>
+                            {canalChartData.map((entry, i) => <Cell key={i} fill={CANAL_COLORS[entry.canal] || CHART_COLORS[i % CHART_COLORS.length]} />)}
+                          </Bar>
+                        </>
+                      )}
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
