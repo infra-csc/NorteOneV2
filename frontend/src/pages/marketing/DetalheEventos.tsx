@@ -1563,6 +1563,9 @@ const DetalheEventos: React.FC = () => {
                             </button>
                           )}
                         </div>
+                        <p className={`px-4 pt-1.5 pb-2 text-[11px] leading-snug ${textSec}`}>
+                          Use <code className={`font-mono px-1 py-px rounded ${dark ? 'bg-slate-700/70 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>%</code> como curinga — ex.: "NIGHT RUN%SÃO PAU"
+                        </p>
 
                         <div className="max-h-80 overflow-y-auto scrollbar-thin-custom">
                           <button
