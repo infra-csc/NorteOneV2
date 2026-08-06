@@ -2010,6 +2010,18 @@ const EventDetail: React.FC = () => {
       _totalInscritosConsolidado, salesAverages]);
   // ─────────────────────────────────────────────────────────────────────────────
 
+  // Catálogo de tipos de ação (Análise Diária) — hooks precisam ficar aqui,
+  // antes de qualquer early return abaixo, para não variar a contagem de hooks
+  // entre a primeira renderização (sem `event`) e as seguintes (com `event`).
+  const [tipoAcaoCatalogo, setTipoAcaoCatalogo] = useState<TipoAcaoOption[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    marketingService.getTiposAcaoCatalogo()
+      .then(res => { if (!cancelled) setTipoAcaoCatalogo(res.tipos || []); })
+      .catch(err => console.error('Erro ao carregar catálogo de tipos de ação:', err));
+    return () => { cancelled = true; };
+  }, []);
+
   // Show preparing skeleton whenever the backend is computing the snapshot —
   // regardless of whether we have a previewEvent in state. Without this guard,
   // the component would render the full UI with event.dailySales = undefined
@@ -2428,14 +2440,6 @@ const EventDetail: React.FC = () => {
     }
   };
 
-  const [tipoAcaoCatalogo, setTipoAcaoCatalogo] = useState<TipoAcaoOption[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    marketingService.getTiposAcaoCatalogo()
-      .then(res => { if (!cancelled) setTipoAcaoCatalogo(res.tipos || []); })
-      .catch(err => console.error('Erro ao carregar catálogo de tipos de ação:', err));
-    return () => { cancelled = true; };
-  }, []);
   const handleCreateTipoAcao = async (nome: string): Promise<TipoAcaoOption> => {
     const res = await marketingService.createTipoAcaoCatalogo(nome);
     setTipoAcaoCatalogo(prev => prev.some(t => t.codigo === res.tipo.codigo) ? prev : [...prev, res.tipo]);
