@@ -1422,13 +1422,34 @@ const DetalheEventos: React.FC = () => {
     </>
   );
 
+  // Constrói um matcher a partir do termo de busca. Quando o termo contém
+  // '%', trata como coringa (equivalente a um LIKE de SQL): '%' vira
+  // "qualquer sequência de caracteres", permitindo termos como
+  // "NIGHT RUN%SÃO PAU" encontrarem "Night Run - São Paulo" mesmo com texto
+  // no meio. Sem '%', preserva o comportamento atual de substring simples.
+  const eventoMatcher = useMemo(() => {
+    const term = searchEventos.trim().toLowerCase();
+    if (!term) return null;
+    if (!term.includes('%')) {
+      return (haystack: string) => haystack.includes(term);
+    }
+    // Escapa caracteres especiais de regex no termo digitado, depois troca
+    // '%' (já escapado como '\%') por '.*' — evita que caracteres regex do
+    // termo digitado quebrem a busca.
+    const escaped = term
+      .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      .replace(/%/g, '.*');
+    const regex = new RegExp(escaped, 'i');
+    return (haystack: string) => regex.test(haystack);
+  }, [searchEventos]);
+
   const filteredEventos = useMemo(() =>
     eventos.filter(e =>
-      !searchEventos ||
-      e.nome_evento.toLowerCase().includes(searchEventos.toLowerCase()) ||
-      e.evento_grupo.toLowerCase().includes(searchEventos.toLowerCase())
+      !eventoMatcher ||
+      eventoMatcher(e.nome_evento.toLowerCase()) ||
+      eventoMatcher(e.evento_grupo.toLowerCase())
     ),
-    [eventos, searchEventos]
+    [eventos, eventoMatcher]
   );
 
   const selectedEvento = useMemo(
@@ -1581,7 +1602,11 @@ const DetalheEventos: React.FC = () => {
                                       isSelected ? 'bg-blue-700/60 text-blue-100' : dark ? 'bg-slate-700 text-slate-300' : 'bg-slate-100 text-slate-600'
                                     }`}>
                                       <Calendar className="w-2.5 h-2.5" />
-                                      {e.anos.length > 1 ? `${e.anos[e.anos.length - 1]}–${e.anos[0]}` : e.anos[0]}
+                                      {/* Lista os anos reais (edições) com mapeamento ativo, sem
+                                          fundir num intervalo "min–max" que sugeriria um único
+                                          evento contínuo — mesmo critério canônico de sku_mappings
+                                          usado para id_evento_magento. */}
+                                      {e.anos.length > 1 ? [...e.anos].sort((a, b) => b - a).join(', ') : e.anos[0]}
                                     </span>
                                   )}
                                 </span>
