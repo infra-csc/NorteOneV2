@@ -112,7 +112,7 @@ class AnaliseDiaria(Base):
     ponto_corte = Column(String(10))
     estagio = Column(String(20))
     analise_texto = Column(Text, nullable=False)
-    ponto_critico = Column(String(255))
+    ponto_critico = Column(Text)
     tipo_acao_sugerida = Column(String(50), nullable=False)
     tipos_acao_sugerida = Column(JSON)
     acao_sugerida_descricao = Column(Text)

@@ -1907,6 +1907,10 @@ def _run_column_migrations():
             # e alarga a coluna (era VARCHAR(10), só cabia os códigos fixos).
             "ALTER TABLE analises_diarias DROP CONSTRAINT IF EXISTS check_ponto_critico",
             "ALTER TABLE analises_diarias ALTER COLUMN ponto_critico TYPE VARCHAR(255)",
+            # VARCHAR(255) ainda truncava anotações mais longas (erro ao salvar) — o campo
+            # é um textarea igual a analise_texto/acao_sugerida_descricao, que já são TEXT
+            # (sem limite). Alarga para o mesmo tipo, eliminando o teto de caracteres.
+            "ALTER TABLE analises_diarias ALTER COLUMN ponto_critico TYPE TEXT",
             # Configuração Modalidade (tela + tabela modalidade_alias) foi descontinuada:
             # nunca teve uso real (0 linhas em prod/dev) e duplicava a normalização de
             # modalidade já coberta por Padrões de Dimensão (detalhe_dimensao_alias).
