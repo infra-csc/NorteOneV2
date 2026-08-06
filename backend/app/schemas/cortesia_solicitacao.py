@@ -17,6 +17,8 @@ class EventoSaldoResponse(BaseModel):
     evento_nome: str
     evento_data: Optional[str] = None
     evento_sku: Optional[str] = None
+    evento_status: Optional[str] = None
+    tem_cupons_gerados: bool = False
     areas: List[SaldoAreaItem] = []
 
 

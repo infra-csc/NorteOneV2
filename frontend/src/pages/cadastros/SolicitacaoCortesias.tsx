@@ -598,9 +598,17 @@ const SolicitacaoCortesias: React.FC = () => {
   const [filtroGeracaoBusca, setFiltroGeracaoBusca] = useState('');
   const [filtroGeracaoArea, setFiltroGeracaoArea] = useState<number | ''>('');
   // Filtro da aba Solicitações ("Eventos e saldo por área"): busca pelo nome
-  // do evento + área, tudo em memória sobre a lista já carregada.
+  // do evento + área, tudo em memória sobre a lista já carregada. O status
+  // (mesma nomenclatura da tela de Projeção) vai para o backend, pois muda
+  // quais eventos são buscados, não só o que é exibido.
   const [filtroEventosBusca, setFiltroEventosBusca] = useState('');
   const [filtroEventosArea, setFiltroEventosArea] = useState<number | ''>('');
+  const [filtroEventosStatus, setFiltroEventosStatus] = useState<'em_andamento' | 'concluido' | 'todos'>('em_andamento');
+  // Cupons já gerados de um evento concluído, exibidos ao expandir seu card.
+  const [cuponsEventoId, setCuponsEventoId] = useState<number | null>(null);
+  const [cuponsEvento, setCuponsEvento] = useState<CortesiaSolicitacaoResponse[]>([]);
+  const [loadingCuponsEvento, setLoadingCuponsEvento] = useState(false);
+  const [errorCuponsEvento, setErrorCuponsEvento] = useState<string | null>(null);
   // Chaves "secao-eventoId" recolhidas nos agrupamentos por evento de
   // Pendentes/Gerados — Set vazio = tudo expandido (padrão).
   const [gruposColapsados, setGruposColapsados] = useState<Set<string>>(new Set());
@@ -648,17 +656,39 @@ const SolicitacaoCortesias: React.FC = () => {
   const [cancelandoId, setCancelandoId] = useState<number | null>(null);
   const [togglingCodigoId, setTogglingCodigoId] = useState<number | null>(null);
 
-  const carregarEventos = async () => {
+  const carregarEventos = async (status?: 'em_andamento' | 'concluido' | 'todos') => {
     setLoadingEventos(true);
     setErrorEventos(null);
     try {
-      const data = await cortesiaSolicitacaoService.listEventosSaldo();
+      const data = await cortesiaSolicitacaoService.listEventosSaldo(status ?? filtroEventosStatus);
       setEventos(data);
     } catch (e) {
       setErrorEventos(extractError(e));
     } finally {
       setLoadingEventos(false);
     }
+  };
+
+  const carregarCuponsEvento = async (eventoId: number) => {
+    setLoadingCuponsEvento(true);
+    setErrorCuponsEvento(null);
+    try {
+      const data = await cortesiaSolicitacaoService.cuponsGeradosEvento(eventoId);
+      setCuponsEvento(data);
+    } catch (e) {
+      setErrorCuponsEvento(extractError(e));
+    } finally {
+      setLoadingCuponsEvento(false);
+    }
+  };
+
+  const toggleCuponsEvento = (eventoId: number) => {
+    if (cuponsEventoId === eventoId) {
+      setCuponsEventoId(null);
+      return;
+    }
+    setCuponsEventoId(eventoId);
+    carregarCuponsEvento(eventoId);
   };
 
   const carregarSolicitacoes = async () => {
@@ -703,10 +733,16 @@ const SolicitacaoCortesias: React.FC = () => {
 
   useEffect(() => {
     if (!podeVisualizar) return;
-    carregarEventos();
     carregarSolicitacoes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [podeVisualizar]);
+
+  useEffect(() => {
+    if (!podeVisualizar) return;
+    setCuponsEventoId(null);
+    carregarEventos(filtroEventosStatus);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [podeVisualizar, filtroEventosStatus]);
 
   useEffect(() => {
     if (!podeGerarCupom) {
@@ -851,6 +887,7 @@ const SolicitacaoCortesias: React.FC = () => {
         );
       setSolicitacoes(prev => patch(prev));
       setFilaGeracao(prev => patch(prev));
+      setCuponsEvento(prev => patch(prev));
     } catch (e) {
       window.alert(extractError(e));
     } finally {
@@ -1033,13 +1070,33 @@ const SolicitacaoCortesias: React.FC = () => {
           <div className={cardCls}>
             <div className={`flex items-center justify-between p-4 border-b ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`}>
               <h2 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Eventos e saldo por área</h2>
-              <button
-                onClick={carregarEventos}
-                className={`p-2 rounded-lg transition-colors ${isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}
-                title="Atualizar"
-              >
-                <RefreshCw className={`w-4 h-4 ${loadingEventos ? 'animate-spin' : ''}`} />
-              </button>
+              <div className="flex items-center gap-2">
+                <div className={`flex items-center gap-0.5 p-0.5 rounded-lg ${isDark ? 'bg-gray-900/50' : 'bg-gray-100'}`}>
+                  {(
+                    [
+                      { key: 'em_andamento', label: 'Em andamento' },
+                      { key: 'concluido', label: 'Concluído' },
+                      { key: 'todos', label: 'Todos' },
+                    ] as const
+                  ).map(opt => (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => setFiltroEventosStatus(opt.key)}
+                      className={viewBtnCls(filtroEventosStatus === opt.key)}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={() => carregarEventos()}
+                  className={`p-2 rounded-lg transition-colors ${isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}
+                  title="Atualizar"
+                >
+                  <RefreshCw className={`w-4 h-4 ${loadingEventos ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
             </div>
             <div className="p-4">
               {errorEventos && (
@@ -1065,7 +1122,11 @@ const SolicitacaoCortesias: React.FC = () => {
                 <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Carregando...</p>
               ) : eventos.length === 0 ? (
                 <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                  Nenhum evento futuro com projeção cadastrada para as suas áreas.
+                  {filtroEventosStatus === 'concluido'
+                    ? 'Nenhum evento concluído com cupons gerados para as suas áreas.'
+                    : filtroEventosStatus === 'todos'
+                      ? 'Nenhum evento com projeção cadastrada ou cupons gerados para as suas áreas.'
+                      : 'Nenhum evento em andamento com projeção cadastrada para as suas áreas.'}
                 </p>
               ) : eventosFiltrados.length === 0 ? (
                 <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
@@ -1075,19 +1136,78 @@ const SolicitacaoCortesias: React.FC = () => {
                 <div className="space-y-2">
                   {eventosFiltrados.map(ev => {
                     const expandido = eventoExpandido === ev.evento_id;
+                    const cuponsAbertos = cuponsEventoId === ev.evento_id;
                     return (
                       <div key={ev.evento_id} className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
-                        <button
-                          type="button"
-                          onClick={() => setEventoExpandido(expandido ? null : ev.evento_id)}
-                          className={`w-full flex items-center justify-between gap-3 px-4 py-3 text-left transition-colors ${isDark ? 'hover:bg-gray-700/30' : 'hover:bg-gray-50'}`}
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => ev.areas.length > 0 ? setEventoExpandido(expandido ? null : ev.evento_id) : toggleCuponsEvento(ev.evento_id)}
+                          onKeyDown={e => { if (e.key === 'Enter') (ev.areas.length > 0 ? setEventoExpandido(expandido ? null : ev.evento_id) : toggleCuponsEvento(ev.evento_id)); }}
+                          className={`w-full flex items-center justify-between gap-3 px-4 py-3 text-left transition-colors cursor-pointer ${isDark ? 'hover:bg-gray-700/30' : 'hover:bg-gray-50'}`}
                         >
-                          <div>
-                            <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{ev.evento_nome}</p>
-                            <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{fmtData(ev.evento_data)}</p>
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="min-w-0">
+                              <p className={`text-sm font-semibold truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>{ev.evento_nome}</p>
+                              <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{fmtData(ev.evento_data)}</p>
+                            </div>
+                            {ev.evento_status && (
+                              <span className={`shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
+                                ev.evento_status === 'Concluído'
+                                  ? (isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-600')
+                                  : (isDark ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-700')
+                              }`}>
+                                {ev.evento_status}
+                              </span>
+                            )}
                           </div>
-                          {expandido ? <ChevronUp className="w-4 h-4 shrink-0" /> : <ChevronDown className="w-4 h-4 shrink-0" />}
-                        </button>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {ev.tem_cupons_gerados && (
+                              <button
+                                type="button"
+                                onClick={e => { e.stopPropagation(); toggleCuponsEvento(ev.evento_id); }}
+                                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${isDark ? 'bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30' : 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200'}`}
+                              >
+                                <Ticket className="w-3.5 h-3.5" /> Ver cupons gerados
+                              </button>
+                            )}
+                            {ev.areas.length > 0 && (expandido ? <ChevronUp className="w-4 h-4 shrink-0" /> : <ChevronDown className="w-4 h-4 shrink-0" />)}
+                          </div>
+                        </div>
+                        {cuponsAbertos && (
+                          <div className={`border-t p-4 space-y-2 ${isDark ? 'border-gray-700 bg-gray-900/30' : 'border-gray-200 bg-gray-50/60'}`}>
+                            {loadingCuponsEvento ? (
+                              <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Carregando cupons...</p>
+                            ) : errorCuponsEvento ? (
+                              <div className={`flex items-center gap-2 text-sm ${isDark ? 'text-red-400' : 'text-red-600'}`}>
+                                <AlertTriangle className="w-4 h-4 shrink-0" /> {errorCuponsEvento}
+                              </div>
+                            ) : cuponsEvento.length === 0 ? (
+                              <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Nenhum cupom gerado encontrado para este evento nas suas áreas.</p>
+                            ) : (
+                              cuponsEvento.map(sol => (
+                                <div key={sol.id} className={`rounded-lg border p-3 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                                    <p className={`text-xs font-semibold ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
+                                      {sol.area_projecao_nome} <span className={isDark ? 'text-gray-500' : 'text-gray-400'}>· {fmtNum(sol.quantidade)} un.</span>
+                                    </p>
+                                    <span className={`text-[11px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                                      {sol.gerado_em ? `Gerado em ${fmtData(sol.gerado_em)}` : ''}{sol.gerado_por_nome ? ` por ${sol.gerado_por_nome}` : ''}
+                                    </span>
+                                  </div>
+                                  <CodigosList
+                                    codigos={sol.codigo_cupom_lista || []}
+                                    isDark={isDark}
+                                    variant="full"
+                                    detalhes={sol.codigos_detalhes}
+                                    onToggleUsado={podeGerarCupom ? (item => toggleUsado(sol, item)) : undefined}
+                                    togglingId={togglingCodigoId}
+                                  />
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        )}
                         {expandido && (
                           <div className={`border-t ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
                             <table className="w-full text-sm">

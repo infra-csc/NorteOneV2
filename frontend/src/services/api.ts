@@ -1823,6 +1823,8 @@ export interface CortesiaEventoSaldoResponse {
   evento_nome: string;
   evento_data: string | null;
   evento_sku?: string | null;
+  evento_status?: string | null;
+  tem_cupons_gerados?: boolean;
   areas: CortesiaSaldoAreaItem[];
 }
 
@@ -1884,8 +1886,12 @@ export interface CortesiaSolicitacaoResponse {
 // solicitação/registro interno de cortesias, com trava de saldo pela
 // Projeção de Inscritos.
 export const cortesiaSolicitacaoService = {
-  listEventosSaldo: async (): Promise<CortesiaEventoSaldoResponse[]> => {
-    const response = await api.get('/cortesia-solicitacao/eventos');
+  listEventosSaldo: async (status?: 'em_andamento' | 'concluido' | 'todos'): Promise<CortesiaEventoSaldoResponse[]> => {
+    const response = await api.get('/cortesia-solicitacao/eventos', { params: status ? { status } : undefined });
+    return response.data;
+  },
+  cuponsGeradosEvento: async (evento_id: number): Promise<CortesiaSolicitacaoResponse[]> => {
+    const response = await api.get(`/cortesia-solicitacao/eventos/${evento_id}/cupons-gerados`);
     return response.data;
   },
   getSaldo: async (evento_id: number): Promise<CortesiaSaldoAreaItem[]> => {

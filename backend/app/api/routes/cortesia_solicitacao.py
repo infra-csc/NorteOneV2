@@ -331,27 +331,46 @@ def _serialize(sol: CortesiaSolicitacao) -> CortesiaSolicitacaoResponse:
     )
 
 
+# Mesma nomenclatura de status já usada na tela de Projeção de Inscritos
+# (event_status_service.py): não inventar rótulos como "futuro"/"passado".
+_STATUS_EM_ANDAMENTO = "Em andamento"
+_STATUS_CONCLUIDO = "Concluído"
+_STATUS_FILTRO_VALORES = {"em_andamento", "concluido", "todos"}
+
+
 @router.get("/eventos", response_model=list[EventoSaldoResponse])
 def list_eventos_saldo(
+    status: str = Query(
+        "em_andamento",
+        description="Filtro por status do evento: em_andamento (padrão) | concluido | todos.",
+    ),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission(CORTESIA_SOLICITACAO_PERMISSION, "pode_visualizar")),
 ):
-    """Eventos futuros com o saldo (projetado - solicitado) por área.
+    """Eventos com o saldo (projetado - solicitado) por área, filtráveis por
+    status (mesma nomenclatura da tela de Projeção: "Em andamento" /
+    "Concluído").
 
     Admins veem todas as áreas ativas; demais usuários só as áreas às quais
     estão vinculados (mesma tabela area_projecao_usuario da tela de Projeção).
+
+    Eventos "Concluído" continuam aparecendo mesmo sem saldo projetado/
+    solicitado em nenhuma área, desde que já tenham cupom gerado — assim dá
+    para consultar os cupons de um evento que já aconteceu.
     """
-    hoje = date.today()
-    eventos = (
-        db.query(CadastroEvento)
-        .filter(
-            CadastroEvento.deleted_at.is_(None),
-            CadastroEvento.data_evento.isnot(None),
-            CadastroEvento.data_evento >= hoje,
-        )
-        .order_by(CadastroEvento.data_evento.asc(), CadastroEvento.nome.asc())
-        .all()
+    status_norm = (status or "em_andamento").strip().lower()
+    if status_norm not in _STATUS_FILTRO_VALORES:
+        raise HTTPException(status_code=400, detail=f"status inválido: {status}")
+
+    query = db.query(CadastroEvento).filter(
+        CadastroEvento.deleted_at.is_(None),
+        CadastroEvento.data_evento.isnot(None),
     )
+    if status_norm == "em_andamento":
+        query = query.filter(CadastroEvento.status == _STATUS_EM_ANDAMENTO)
+    elif status_norm == "concluido":
+        query = query.filter(CadastroEvento.status == _STATUS_CONCLUIDO)
+    eventos = query.order_by(CadastroEvento.data_evento.desc() if status_norm == "concluido" else CadastroEvento.data_evento.asc(), CadastroEvento.nome.asc()).all()
     if not eventos:
         return []
 
@@ -368,7 +387,29 @@ def list_eventos_saldo(
     if not areas:
         return []
 
-    saldos = _calcular_saldos_bulk(db, [ev.id for ev in eventos], [area.id for area in areas])
+    evento_ids = [ev.id for ev in eventos]
+    area_ids_list = [area.id for area in areas]
+    saldos = _calcular_saldos_bulk(db, evento_ids, area_ids_list)
+
+    cupom_gerado_query = db.query(CortesiaSolicitacao.evento_id).filter(
+        CortesiaSolicitacao.evento_id.in_(evento_ids),
+        CortesiaSolicitacao.tipo == TIPO_CUPOM,
+        CortesiaSolicitacao.status == STATUS_GERADO,
+        CortesiaSolicitacao.deleted_at.is_(None),
+    )
+    # Mesma regra de visibilidade de `_pode_ver_todas_solicitacoes`, aplicada
+    # IDÊNTICA à de `listar_cupons_gerados_evento`: quem tem `pode_editar`
+    # (ou é admin) vê cupons de qualquer área, sem escopo de área aqui —
+    # senão o flag "tem cupons gerados" (e a lista por trás dele) divergem
+    # e o botão "Ver cupons" aparece prometendo algo que a consulta não traz.
+    if _pode_ver_todas_solicitacoes(current_user):
+        pass
+    else:
+        cupom_gerado_query = cupom_gerado_query.filter(
+            CortesiaSolicitacao.area_projecao_id.in_(area_ids_list),
+            CortesiaSolicitacao.solicitado_por == current_user.id,
+        )
+    cupom_gerado_evento_ids = {r[0] for r in cupom_gerado_query.distinct().all()}
 
     result = []
     for ev in eventos:
@@ -385,16 +426,59 @@ def list_eventos_saldo(
                 saldo=saldo,
                 area_sigla=(area.sigla or "").strip() or None,
             ))
-        if not area_items:
+        tem_cupons = ev.id in cupom_gerado_evento_ids
+        if not area_items and not tem_cupons:
             continue
         result.append(EventoSaldoResponse(
             evento_id=ev.id,
             evento_nome=ev.nome,
             evento_data=ev.data_evento.isoformat() if ev.data_evento else None,
             evento_sku=(ev.sku or "").strip() or None,
+            evento_status=ev.status,
+            tem_cupons_gerados=tem_cupons,
             areas=area_items,
         ))
     return result
+
+
+@router.get("/eventos/{evento_id}/cupons-gerados", response_model=list[CortesiaSolicitacaoResponse])
+def listar_cupons_gerados_evento(
+    evento_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(CORTESIA_SOLICITACAO_PERMISSION, "pode_visualizar")),
+):
+    """Cupons já aplicados (gerados) para um evento específico, para consulta
+    a partir da lista de eventos — inclusive eventos já 'Concluído'. Usa a
+    permissão de leitura do módulo (pode_visualizar), não a de aplicar
+    código (pode_editar, exigida em /fila-geracao): é uma tela de consulta,
+    não de trabalho.
+
+    MESMA regra de visibilidade de `list_solicitacoes`/`baixar_arquivo`
+    (`_pode_ver_todas_solicitacoes`): admins e quem tem `pode_editar` veem
+    qualquer solicitação, de qualquer área; demais usuários só veem as que
+    ELES solicitaram — vínculo de área sozinho não basta, senão qualquer
+    membro da área enxergaria o código de cupom de outro colega."""
+    query = (
+        db.query(CortesiaSolicitacao)
+        .options(
+            joinedload(CortesiaSolicitacao.evento),
+            joinedload(CortesiaSolicitacao.area_projecao),
+            joinedload(CortesiaSolicitacao.solicitante),
+            joinedload(CortesiaSolicitacao.gerador),
+            joinedload(CortesiaSolicitacao.codigos).joinedload(CortesiaCupomCodigo.usuario_uso),
+        )
+        .filter(
+            CortesiaSolicitacao.evento_id == evento_id,
+            CortesiaSolicitacao.tipo == TIPO_CUPOM,
+            CortesiaSolicitacao.status == STATUS_GERADO,
+            CortesiaSolicitacao.deleted_at.is_(None),
+        )
+    )
+    if not _pode_ver_todas_solicitacoes(current_user):
+        query = query.filter(CortesiaSolicitacao.solicitado_por == current_user.id)
+
+    registros = query.order_by(CortesiaSolicitacao.gerado_em.desc()).all()
+    return [_serialize(r) for r in registros]
 
 
 @router.get("/saldo", response_model=list[SaldoAreaItem])
