@@ -79,7 +79,7 @@ const anosComCoberturaAoVivo = (anos: number[]): number[] => {
 const CANAL_COLORS: Record<string, string> = {
   Site: '#3b82f6',
   'Grupos/B2B': '#8b5cf6',
-  Cortesia: '#6b7280',
+  Cortesia: '#f59e0b',
 };
 
 const CHART_COLORS = [
@@ -178,7 +178,7 @@ const CanalBadge: React.FC<{ canal: string | null }> = ({ canal }) => {
   const map: Record<string, string> = {
     Site: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/20',
     'Grupos/B2B': 'bg-purple-500/10 text-purple-600 dark:text-purple-400 ring-1 ring-purple-500/20',
-    Cortesia: 'bg-slate-500/10 text-slate-600 dark:text-slate-400 ring-1 ring-slate-500/20',
+    Cortesia: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 ring-1 ring-amber-500/20',
   };
   const cls = (canal && map[canal]) || 'bg-slate-500/10 text-slate-600 dark:text-slate-400 ring-1 ring-slate-500/20';
   return (
@@ -1915,8 +1915,12 @@ const DetalheEventos: React.FC = () => {
                             content={() => (
                               <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 4 }}>
                                 <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: dark ? '#e2e8f0' : '#334155' }}>
-                                  <span style={{ width: 8, height: 8, borderRadius: 2, background: '#3b82f6', display: 'inline-block' }} />
-                                  Inscritos
+                                  <span style={{ display: 'inline-flex', gap: 2 }}>
+                                    {canalChartData.slice(0, 3).map((entry, i) => (
+                                      <span key={i} style={{ width: 7, height: 7, borderRadius: 2, background: CANAL_COLORS[entry.canal] || CHART_COLORS[i % CHART_COLORS.length], display: 'inline-block' }} />
+                                    ))}
+                                  </span>
+                                  Inscritos (cor por canal)
                                 </span>
                                 <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: dark ? '#e2e8f0' : '#334155' }}>
                                   <span style={{ width: 8, height: 8, borderRadius: 2, background: dark ? '#94a3b8' : '#64748b', display: 'inline-block' }} />
