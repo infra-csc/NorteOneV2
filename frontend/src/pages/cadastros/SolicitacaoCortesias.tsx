@@ -1279,7 +1279,7 @@ const SolicitacaoCortesias: React.FC = () => {
                                     <td className={`px-4 py-2 text-right font-semibold ${area.saldo > 0 ? (isDark ? 'text-emerald-400' : 'text-emerald-600') : (isDark ? 'text-gray-500' : 'text-gray-400')}`}>
                                       {fmtNum(area.saldo)}
                                     </td>
-                                    {podeCriar && (
+                                    {podeCriar && ev.evento_status !== 'Concluído' && (
                                       <td className="px-4 py-2 text-right">
                                         <button
                                           type="button"
