@@ -46,6 +46,7 @@ from ...schemas.cortesia_solicitacao import (
     CortesiaSolicitacaoResponse,
     CupomCodigoItem,
     EventoFilaOpcao,
+    EventoOcultoItem,
     EventoSaldoResponse,
     ImportarCupomLinhaResultado,
     ImportarCupomResumo,
@@ -177,6 +178,33 @@ def _pode_ver_todas_solicitacoes(user: Usuario) -> bool:
     hoje) veem todas as solicitações, independente de área ou de quem abriu.
     Os demais usuários só devem ver as solicitações que eles mesmos criaram."""
     return is_user_admin(user) or user_has_permission(user, CORTESIA_SOLICITACAO_PERMISSION, "pode_editar")
+
+
+def _cupom_gerado_evento_ids(
+    db: Session,
+    current_user: Usuario,
+    evento_ids: list[int],
+    area_ids_list: list[int],
+) -> set[int]:
+    """IDs de evento com pelo menos 1 cupom já gerado, dentro do MESMO
+    escopo de visibilidade usado em `list_eventos_saldo`, `/eventos/ocultos`
+    e `listar_cupons_gerados_evento`: quem tem `pode_editar` (ou é admin) vê
+    cupons de qualquer área; demais usuários só enxergam cupons que ELES
+    mesmos solicitaram, restritos às áreas do escopo do usuário. As 3 chamadas
+    têm que usar exatamente esta função, ou o flag "tem cupons"/o aviso de
+    "oculto"/a lista de consulta divergem entre si."""
+    query = db.query(CortesiaSolicitacao.evento_id).filter(
+        CortesiaSolicitacao.evento_id.in_(evento_ids),
+        CortesiaSolicitacao.tipo == TIPO_CUPOM,
+        CortesiaSolicitacao.status == STATUS_GERADO,
+        CortesiaSolicitacao.deleted_at.is_(None),
+    )
+    if not _pode_ver_todas_solicitacoes(current_user):
+        query = query.filter(
+            CortesiaSolicitacao.area_projecao_id.in_(area_ids_list),
+            CortesiaSolicitacao.solicitado_por == current_user.id,
+        )
+    return {r[0] for r in query.distinct().all()}
 
 
 def _coluna_kanban(sol: CortesiaSolicitacao) -> str:
@@ -390,26 +418,7 @@ def list_eventos_saldo(
     evento_ids = [ev.id for ev in eventos]
     area_ids_list = [area.id for area in areas]
     saldos = _calcular_saldos_bulk(db, evento_ids, area_ids_list)
-
-    cupom_gerado_query = db.query(CortesiaSolicitacao.evento_id).filter(
-        CortesiaSolicitacao.evento_id.in_(evento_ids),
-        CortesiaSolicitacao.tipo == TIPO_CUPOM,
-        CortesiaSolicitacao.status == STATUS_GERADO,
-        CortesiaSolicitacao.deleted_at.is_(None),
-    )
-    # Mesma regra de visibilidade de `_pode_ver_todas_solicitacoes`, aplicada
-    # IDÊNTICA à de `listar_cupons_gerados_evento`: quem tem `pode_editar`
-    # (ou é admin) vê cupons de qualquer área, sem escopo de área aqui —
-    # senão o flag "tem cupons gerados" (e a lista por trás dele) divergem
-    # e o botão "Ver cupons" aparece prometendo algo que a consulta não traz.
-    if _pode_ver_todas_solicitacoes(current_user):
-        pass
-    else:
-        cupom_gerado_query = cupom_gerado_query.filter(
-            CortesiaSolicitacao.area_projecao_id.in_(area_ids_list),
-            CortesiaSolicitacao.solicitado_por == current_user.id,
-        )
-    cupom_gerado_evento_ids = {r[0] for r in cupom_gerado_query.distinct().all()}
+    cupom_gerado_evento_ids = _cupom_gerado_evento_ids(db, current_user, evento_ids, area_ids_list)
 
     result = []
     for ev in eventos:
@@ -439,6 +448,72 @@ def list_eventos_saldo(
             areas=area_items,
         ))
     return result
+
+
+@router.get("/eventos/ocultos", response_model=list[EventoOcultoItem])
+def listar_eventos_ocultos(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(CORTESIA_SOLICITACAO_PERMISSION, "pode_visualizar")),
+):
+    """Eventos 'Em andamento' que NÃO aparecem em `/eventos` porque nenhuma
+    área elegível ao usuário atual tem projeção ou solicitação registrada
+    (mesma regra de exclusão de `list_eventos_saldo`, replicada aqui só
+    para o aviso — não muda o critério de inclusão da lista principal).
+    Escopo de área idêntico: admin vê todas as áreas ativas, demais só as
+    suas."""
+    eventos = (
+        db.query(CadastroEvento)
+        .filter(
+            CadastroEvento.deleted_at.is_(None),
+            CadastroEvento.data_evento.isnot(None),
+            CadastroEvento.status == _STATUS_EM_ANDAMENTO,
+        )
+        .order_by(CadastroEvento.data_evento.asc(), CadastroEvento.nome.asc())
+        .all()
+    )
+    if not eventos:
+        return []
+
+    if is_user_admin(current_user):
+        areas = db.query(AreaProjecao).filter(AreaProjecao.ativo == True).all()
+    else:
+        area_ids = _get_user_area_ids(db, current_user.id)
+        areas = (
+            db.query(AreaProjecao)
+            .filter(AreaProjecao.id.in_(area_ids), AreaProjecao.ativo == True)
+            .all()
+        )
+    if not areas:
+        # Sem nenhuma área elegível, TODOS os eventos "Em andamento" ficam
+        # ocultos — mas isso é um problema de cadastro de área do usuário,
+        # não de projeção por evento; não vale a pena listar centenas de
+        # eventos nesse caso extremo.
+        return []
+
+    evento_ids = [ev.id for ev in eventos]
+    area_ids_list = [area.id for area in areas]
+    saldos = _calcular_saldos_bulk(db, evento_ids, area_ids_list)
+
+    # MESMA regra de `list_eventos_saldo`: um evento sem saldo elegível em
+    # nenhuma área ainda assim é considerado visível (não "oculto") se já
+    # tem cupom gerado dentro do mesmo escopo de visibilidade — senão o
+    # aviso lista como oculto um evento que a lista principal já mostra.
+    cupom_gerado_evento_ids = _cupom_gerado_evento_ids(db, current_user, evento_ids, area_ids_list)
+
+    ocultos = []
+    for ev in eventos:
+        tem_area_elegivel = any(
+            saldos.get((ev.id, area.id), (0, 0, 0))[0] != 0 or saldos.get((ev.id, area.id), (0, 0, 0))[1] != 0
+            for area in areas
+        )
+        if tem_area_elegivel or ev.id in cupom_gerado_evento_ids:
+            continue
+        ocultos.append(EventoOcultoItem(
+            evento_id=ev.id,
+            evento_nome=ev.nome,
+            evento_data=ev.data_evento.isoformat() if ev.data_evento else None,
+        ))
+    return ocultos
 
 
 @router.get("/eventos/{evento_id}/cupons-gerados", response_model=list[CortesiaSolicitacaoResponse])

@@ -1828,6 +1828,12 @@ export interface CortesiaEventoSaldoResponse {
   areas: CortesiaSaldoAreaItem[];
 }
 
+export interface CortesiaEventoOcultoItem {
+  evento_id: number;
+  evento_nome: string;
+  evento_data: string | null;
+}
+
 export interface CupomCodigoItem {
   id: number;
   codigo: string;
@@ -1892,6 +1898,10 @@ export const cortesiaSolicitacaoService = {
   },
   cuponsGeradosEvento: async (evento_id: number): Promise<CortesiaSolicitacaoResponse[]> => {
     const response = await api.get(`/cortesia-solicitacao/eventos/${evento_id}/cupons-gerados`);
+    return response.data;
+  },
+  eventosOcultos: async (): Promise<CortesiaEventoOcultoItem[]> => {
+    const response = await api.get('/cortesia-solicitacao/eventos/ocultos');
     return response.data;
   },
   getSaldo: async (evento_id: number): Promise<CortesiaSaldoAreaItem[]> => {

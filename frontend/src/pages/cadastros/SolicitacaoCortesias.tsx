@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cortesiaSolicitacaoService } from '../../services/api';
-import type { CortesiaEventoSaldoResponse, CortesiaEventoFilaOpcao, CortesiaSolicitacaoResponse, CupomCodigoItem, ImportarCupomResumo } from '../../services/api';
+import type { CortesiaEventoSaldoResponse, CortesiaEventoFilaOpcao, CortesiaEventoOcultoItem, CortesiaSolicitacaoResponse, CupomCodigoItem, ImportarCupomResumo } from '../../services/api';
 import { useTheme } from '../../context/ThemeContext';
 import { usePermissions } from '../../context/PermissionContext';
 import {
@@ -656,6 +656,14 @@ const SolicitacaoCortesias: React.FC = () => {
   const [cancelandoId, setCancelandoId] = useState<number | null>(null);
   const [togglingCodigoId, setTogglingCodigoId] = useState<number | null>(null);
 
+  // Eventos "Em andamento" ocultos da lista principal por falta de
+  // projeção/solicitação em qualquer área elegível ao usuário — só
+  // relevante quando o filtro de status é "em_andamento" (a lógica de
+  // inclusão de "concluído"/"todos" já é outra). Aviso discreto, não muda
+  // o critério de exibição da lista principal.
+  const [eventosOcultos, setEventosOcultos] = useState<CortesiaEventoOcultoItem[]>([]);
+  const [ocultosExpandido, setOcultosExpandido] = useState(false);
+
   const carregarEventos = async (status?: 'em_andamento' | 'concluido' | 'todos') => {
     setLoadingEventos(true);
     setErrorEventos(null);
@@ -666,6 +674,17 @@ const SolicitacaoCortesias: React.FC = () => {
       setErrorEventos(extractError(e));
     } finally {
       setLoadingEventos(false);
+    }
+  };
+
+  const carregarEventosOcultos = async () => {
+    try {
+      const data = await cortesiaSolicitacaoService.eventosOcultos();
+      setEventosOcultos(data);
+    } catch (e) {
+      // Aviso é secundário à lista principal — falha em silêncio, sem
+      // travar nem poluir a tela com outro erro.
+      console.error('Erro ao carregar eventos ocultos:', e);
     }
   };
 
@@ -743,6 +762,12 @@ const SolicitacaoCortesias: React.FC = () => {
     carregarEventos(filtroEventosStatus);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [podeVisualizar, filtroEventosStatus]);
+
+  useEffect(() => {
+    if (!podeVisualizar) return;
+    carregarEventosOcultos();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [podeVisualizar]);
 
   useEffect(() => {
     if (!podeGerarCupom) {
@@ -1102,6 +1127,31 @@ const SolicitacaoCortesias: React.FC = () => {
               {errorEventos && (
                 <div className={`flex items-center gap-2 p-3 mb-3 rounded-xl text-sm ${isDark ? 'bg-red-500/10 text-red-400' : 'bg-red-50 text-red-600'}`}>
                   <AlertTriangle className="w-4 h-4 shrink-0" /> {errorEventos}
+                </div>
+              )}
+              {filtroEventosStatus === 'em_andamento' && eventosOcultos.length > 0 && (
+                <div className={`mb-3 rounded-xl border text-xs ${isDark ? 'border-amber-500/30 bg-amber-500/10' : 'border-amber-200 bg-amber-50'}`}>
+                  <button
+                    type="button"
+                    onClick={() => setOcultosExpandido(v => !v)}
+                    className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-left ${isDark ? 'text-amber-300' : 'text-amber-700'}`}
+                  >
+                    <span className="flex items-center gap-1.5 font-medium">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                      {eventosOcultos.length} evento(s) oculto(s) por falta de projeção cadastrada
+                    </span>
+                    {ocultosExpandido ? <ChevronUp className="w-3.5 h-3.5 shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 shrink-0" />}
+                  </button>
+                  {ocultosExpandido && (
+                    <ul className={`px-3 pb-2.5 space-y-0.5 ${isDark ? 'text-amber-300/80' : 'text-amber-700/90'}`}>
+                      {eventosOcultos.map(ev => (
+                        <li key={ev.evento_id} className="flex items-center gap-2">
+                          <span className="truncate">{ev.evento_nome}</span>
+                          <span className="shrink-0 opacity-70">{fmtData(ev.evento_data)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               )}
               {!loadingEventos && eventos.length > 0 && (

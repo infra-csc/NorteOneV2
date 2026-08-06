@@ -22,6 +22,15 @@ class EventoSaldoResponse(BaseModel):
     areas: List[SaldoAreaItem] = []
 
 
+class EventoOcultoItem(BaseModel):
+    """Evento 'Em andamento' que não aparece na lista principal porque
+    nenhuma área elegível ao usuário tem projeção ou solicitação de
+    cortesia registrada — usado só para o aviso discreto na tela."""
+    evento_id: int
+    evento_nome: str
+    evento_data: Optional[str] = None
+
+
 class EventoFilaOpcao(BaseModel):
     """Opção enxuta para o filtro por evento da fila de cupons —
     só id/nome/data, sem os números de saldo (que não fazem sentido aqui)."""
