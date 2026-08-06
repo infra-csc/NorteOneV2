@@ -1,5 +1,5 @@
 """
-Mapeamento fixo Área de Projeção -> Canal de vendas (Site / Cortesia / Grupos/B2B).
+Mapeamento fixo Área de Projeção -> Canal de vendas (Site / Cortesia / Saúde Corporativa).
 
 Usado para agregar a "Projeção de Inscritos" (lançada por área) nos mesmos 3
 canais usados no Detalhamento de Eventos ("Inscritos por Canal"), permitindo
@@ -9,7 +9,7 @@ Regra de negócio estável, confirmada com o usuário (Task #256):
 - Site → Site
 - Atendimento, Marketing, Relações Institucionais, Comercial, Cortesia RH,
   Proprietário → Cortesia
-- Saúde Corporativa → Grupos/B2B
+- Saúde Corporativa → Saúde Corporativa (identidade; área e canal têm o mesmo nome)
 
 Áreas ativas que não constam neste mapa (ex.: uma área nova criada depois)
 NÃO são silenciosamente jogadas em um canal "adivinhado" — ficam de fora da
@@ -26,8 +26,8 @@ AREA_PARA_CANAL: Dict[str, str] = {
     "Comercial": "Cortesia",
     "Cortesia RH": "Cortesia",
     "Proprietário": "Cortesia",
-    "Saúde Corporativa": "Grupos/B2B",
+    "Saúde Corporativa": "Saúde Corporativa",
 }
 
 # Canais existentes no Detalhamento de Eventos (mesmos usados em `por_canal`).
-CANAIS_DETALHE: List[str] = ["Site", "Cortesia", "Grupos/B2B"]
+CANAIS_DETALHE: List[str] = ["Site", "Cortesia", "Saúde Corporativa"]

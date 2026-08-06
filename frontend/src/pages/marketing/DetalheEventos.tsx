@@ -78,7 +78,7 @@ const anosComCoberturaAoVivo = (anos: number[]): number[] => {
 
 const CANAL_COLORS: Record<string, string> = {
   Site: '#3b82f6',
-  'Grupos/B2B': '#8b5cf6',
+  'Saúde Corporativa': '#8b5cf6',
   Cortesia: '#f59e0b',
 };
 
@@ -177,7 +177,7 @@ const KpiCard: React.FC<KpiCardProps> = ({ label, value, sub, icon, color, dark,
 const CanalBadge: React.FC<{ canal: string | null }> = ({ canal }) => {
   const map: Record<string, string> = {
     Site: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/20',
-    'Grupos/B2B': 'bg-purple-500/10 text-purple-600 dark:text-purple-400 ring-1 ring-purple-500/20',
+    'Saúde Corporativa': 'bg-purple-500/10 text-purple-600 dark:text-purple-400 ring-1 ring-purple-500/20',
     Cortesia: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 ring-1 ring-amber-500/20',
   };
   const cls = (canal && map[canal]) || 'bg-slate-500/10 text-slate-600 dark:text-slate-400 ring-1 ring-slate-500/20';

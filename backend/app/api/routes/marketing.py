@@ -4681,7 +4681,7 @@ FROM (
         h.ds_categoria,
         CASE
             WHEN a.nr_preco = 0 OR a.nr_desconto_individual >= a.nr_preco THEN 'Cortesia'
-            WHEN h.ds_categoria LIKE '%%Grup%%'                           THEN 'Grupos/B2B'
+            WHEN h.ds_categoria LIKE '%%Grup%%'                           THEN 'Saúde Corporativa'
             WHEN h.ds_categoria LIKE '%%ortesia%%'                        THEN 'Cortesia'
             ELSE                                                               'Site'
         END                                            AS canal,
@@ -4722,7 +4722,7 @@ FROM (
         h.ds_categoria,
         CASE
             WHEN a.nr_preco = 0 OR a.nr_desconto_individual >= a.nr_preco THEN 'Cortesia'
-            WHEN h.ds_categoria LIKE '%%Grup%%'                           THEN 'Grupos/B2B'
+            WHEN h.ds_categoria LIKE '%%Grup%%'                           THEN 'Saúde Corporativa'
             WHEN h.ds_categoria LIKE '%%ortesia%%'                        THEN 'Cortesia'
             ELSE                                                               'Site'
         END
@@ -4975,8 +4975,8 @@ SELECT /*+ MAX_EXECUTION_TIME(300000) */
     CASE
         WHEN so.base_grand_total = 0                                    THEN 'Cortesia'
         WHEN soi_child.price - soi_child.discount_amount = 0           THEN 'Cortesia'
-        WHEN so.discount_description LIKE '%%GRUPOS%%'                  THEN 'Grupos/B2B'
-        WHEN so.coupon_code LIKE 'GRUP%%'                               THEN 'Grupos/B2B'
+        WHEN so.discount_description LIKE '%%GRUPOS%%'                  THEN 'Saúde Corporativa'
+        WHEN so.coupon_code LIKE 'GRUP%%'                               THEN 'Saúde Corporativa'
         ELSE                                                                 'Site'
     END                                                                                 AS canal,
     lote_atual.lot_name                                                                 AS lote_atual,
@@ -5245,8 +5245,8 @@ GROUP BY
     CASE
         WHEN so.base_grand_total = 0                                    THEN 'Cortesia'
         WHEN soi_child.price - soi_child.discount_amount = 0           THEN 'Cortesia'
-        WHEN so.discount_description LIKE '%%GRUPOS%%'                  THEN 'Grupos/B2B'
-        WHEN so.coupon_code LIKE 'GRUP%%'                               THEN 'Grupos/B2B'
+        WHEN so.discount_description LIKE '%%GRUPOS%%'                  THEN 'Saúde Corporativa'
+        WHEN so.coupon_code LIKE 'GRUP%%'                               THEN 'Saúde Corporativa'
         ELSE                                                                 'Site'
     END,
     lote_atual.lot_name,
@@ -5275,8 +5275,8 @@ SELECT /*+ MAX_EXECUTION_TIME(60000) */
     h.ds_categoria                                                                  AS kit,
     CASE
         WHEN a.nr_preco = 0 OR a.nr_desconto_individual >= a.nr_preco                                    THEN 'Cortesia'
-        WHEN cupom.en_cupom_classificacao = 'Grupos'                                                    THEN 'Grupos/B2B'
-        WHEN h.ds_categoria LIKE '%%Grup%%'                                                             THEN 'Grupos/B2B'
+        WHEN cupom.en_cupom_classificacao = 'Grupos'                                                    THEN 'Saúde Corporativa'
+        WHEN h.ds_categoria LIKE '%%Grup%%'                                                             THEN 'Saúde Corporativa'
         ELSE                                                                                                  'Site'
     END                                                                             AS canal,
     COUNT(DISTINCT a.id_pedido_evento)                                              AS inscritos,
@@ -5309,8 +5309,8 @@ GROUP BY
     h.ds_categoria,
     CASE
         WHEN a.nr_preco = 0 OR a.nr_desconto_individual >= a.nr_preco                                    THEN 'Cortesia'
-        WHEN cupom.en_cupom_classificacao = 'Grupos'                                                    THEN 'Grupos/B2B'
-        WHEN h.ds_categoria LIKE '%%Grup%%'                                                             THEN 'Grupos/B2B'
+        WHEN cupom.en_cupom_classificacao = 'Grupos'                                                    THEN 'Saúde Corporativa'
+        WHEN h.ds_categoria LIKE '%%Grup%%'                                                             THEN 'Saúde Corporativa'
         ELSE                                                                                                  'Site'
     END
 ORDER BY b.id_evento, canal, inscritos DESC
@@ -16706,8 +16706,8 @@ def diagnostico_inscricoes(
         CASE
             WHEN a.nr_preco = 0 OR a.nr_desconto_individual >= a.nr_preco THEN 'Cortesia'
             WHEN cupom.en_cupom_classificacao IN ('Funcionário','Cortesia Faturada','Coligados') THEN 'Cortesia'
-            WHEN cupom.en_cupom_classificacao = 'Grupos' THEN 'Grupos/B2B'
-            WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
+            WHEN cupom.en_cupom_classificacao = 'Grupos' THEN 'Saúde Corporativa'
+            WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Saúde Corporativa'
             ELSE 'Site'
         END
     """

@@ -69,8 +69,8 @@ SELECT /*+ MAX_EXECUTION_TIME(90000) */
 
     CASE
         WHEN a.nr_preco = 0                                        THEN 'Cortesia'
-        WHEN cupom.en_cupom_classificacao = 'Grupos'               THEN 'Grupos/B2B'
-        WHEN h.ds_categoria LIKE '%Grup%'                          THEN 'Grupos/B2B'
+        WHEN cupom.en_cupom_classificacao = 'Grupos'               THEN 'Saúde Corporativa'
+        WHEN h.ds_categoria LIKE '%Grup%'                          THEN 'Saúde Corporativa'
         ELSE                                                            'Site'
     END                                                                                 AS canal,
 
@@ -142,8 +142,8 @@ WHERE
     b.ds_evento,
     CASE
         WHEN a.nr_preco = 0                                        THEN 'Cortesia'
-        WHEN cupom.en_cupom_classificacao = 'Grupos'               THEN 'Grupos/B2B'
-        WHEN h.ds_categoria LIKE '%Grup%'                          THEN 'Grupos/B2B'
+        WHEN cupom.en_cupom_classificacao = 'Grupos'               THEN 'Saúde Corporativa'
+        WHEN h.ds_categoria LIKE '%Grup%'                          THEN 'Saúde Corporativa'
         ELSE                                                            'Site'
     END,
     h.id_categoria,
@@ -214,8 +214,8 @@ _MODALIDADE_CASE = """
 _CANAL_CASE = """
         WHEN so.base_grand_total = 0                                    THEN 'Cortesia'
         WHEN soi_child.price - soi_child.discount_amount = 0           THEN 'Cortesia'
-        WHEN so.discount_description LIKE '%GRUPOS%'                    THEN 'Grupos/B2B'
-        WHEN so.coupon_code LIKE 'GRUP%'                               THEN 'Grupos/B2B'
+        WHEN so.discount_description LIKE '%GRUPOS%'                    THEN 'Saúde Corporativa'
+        WHEN so.coupon_code LIKE 'GRUP%'                               THEN 'Saúde Corporativa'
         ELSE                                                                 'Site'"""
 
 _SOI_CHILD_NAME_FILTER = """(
