@@ -1883,21 +1883,56 @@ const DetalheEventos: React.FC = () => {
                       {canalCompararProjetado ? (
                         <>
                           <Tooltip
-                            formatter={(v: number | undefined, name: string | undefined) => [fmt(v ?? 0), name === 'projetado' ? 'Projetado' : 'Inscritos']}
                             cursor={{ fill: dark ? '#334155' : '#f1f5f9' }}
-                            contentStyle={{ background: dark ? '#1e293b' : '#fff', border: 'none', borderRadius: 12, fontSize: 12, fontWeight: 600, boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)' }}
+                            content={({ active, payload: tp }: any) => {
+                              if (!active || !tp || !tp.length) return null;
+                              const row = tp[0]?.payload;
+                              if (!row) return null;
+                              const pct = row.projetado > 0 ? (row.inscritos / row.projetado) * 100 : null;
+                              const pctColor = pct === null ? textSec : pct >= 100 ? '#22c55e' : pct >= 70 ? '#f59e0b' : '#ef4444';
+                              return (
+                                <div style={{ background: dark ? '#1e293b' : '#fff', border: 'none', borderRadius: 12, fontSize: 12, fontWeight: 600, boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)', padding: '10px 14px', color: dark ? '#e2e8f0' : '#1e293b' }}>
+                                  <div style={{ marginBottom: 6, fontWeight: 700 }}>{row.canal}</div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <span style={{ width: 8, height: 8, borderRadius: 2, background: CANAL_COLORS[row.canal] || CHART_COLORS[0] }} />
+                                    Inscritos: {fmt(row.inscritos)}
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <span style={{ width: 8, height: 8, borderRadius: 2, background: dark ? '#94a3b8' : '#64748b' }} />
+                                    Projetado: {fmt(row.projetado)}
+                                  </div>
+                                  {pct !== null && (
+                                    <div style={{ marginTop: 4, color: pctColor }}>
+                                      Realizado: {pct.toFixed(0)}%
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            }}
                           />
-                          <Legend wrapperStyle={{ fontSize: 11, fontWeight: 600 }} formatter={(v) => v === 'projetado' ? 'Projetado' : 'Inscritos'} />
+                          <Legend
+                            wrapperStyle={{ fontSize: 11, fontWeight: 600 }}
+                            content={() => (
+                              <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 4 }}>
+                                <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: dark ? '#e2e8f0' : '#334155' }}>
+                                  <span style={{ width: 8, height: 8, borderRadius: 2, background: '#3b82f6', display: 'inline-block' }} />
+                                  Inscritos
+                                </span>
+                                <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: dark ? '#e2e8f0' : '#334155' }}>
+                                  <span style={{ width: 8, height: 8, borderRadius: 2, background: dark ? '#94a3b8' : '#64748b', display: 'inline-block' }} />
+                                  Projetado
+                                </span>
+                              </div>
+                            )}
+                          />
                           <Bar dataKey="inscritos" name="inscritos" radius={[6, 6, 0, 0]}>
                             {canalChartData.map((entry, i) => <Cell key={i} fill={CANAL_COLORS[entry.canal] || CHART_COLORS[i % CHART_COLORS.length]} />)}
                           </Bar>
-                          <Bar dataKey="projetado" name="projetado" radius={[6, 6, 0, 0]} fillOpacity={0.45}>
-                            {canalChartData.map((entry, i) => <Cell key={i} fill={CANAL_COLORS[entry.canal] || CHART_COLORS[i % CHART_COLORS.length]} />)}
-                          </Bar>
+                          <Bar dataKey="projetado" name="projetado" radius={[6, 6, 0, 0]} fill={dark ? '#94a3b8' : '#64748b'} fillOpacity={0.55} stroke={dark ? '#cbd5e1' : '#475569'} strokeWidth={1} strokeDasharray="3 2" />
                         </>
                       ) : (
                         <>
-                          <Tooltip formatter={(v: number | undefined) => [fmt(v ?? 0), 'Inscritos']} cursor={{ fill: dark ? '#334155' : '#f1f5f9' }} contentStyle={{ background: dark ? '#1e293b' : '#fff', border: 'none', borderRadius: 12, fontSize: 12, fontWeight: 600, boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)' }} />
+                          <Tooltip formatter={(v: number | undefined) => [fmt(v ?? 0), 'Inscritos']} cursor={{ fill: dark ? '#334155' : '#f1f5f9' }} contentStyle={{ background: dark ? '#1e293b' : '#fff', border: 'none', borderRadius: 12, fontSize: 12, fontWeight: 600, boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)', color: dark ? '#e2e8f0' : '#1e293b' }} labelStyle={{ color: dark ? '#e2e8f0' : '#1e293b' }} itemStyle={{ color: dark ? '#e2e8f0' : '#1e293b' }} />
                           <Bar dataKey="inscritos" radius={[6, 6, 0, 0]}>
                             {canalChartData.map((entry, i) => <Cell key={i} fill={CANAL_COLORS[entry.canal] || CHART_COLORS[i % CHART_COLORS.length]} />)}
                           </Bar>
@@ -1915,7 +1950,7 @@ const DetalheEventos: React.FC = () => {
                     <BarChart data={modalidadeChartData.slice(0, 8)} layout="vertical" barSize={16} margin={{ top: 0, right: 20, left: 0, bottom: 0 }}>
                       <XAxis type="number" hide />
                       <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 10, fill: dark ? '#94a3b8' : '#64748b', fontWeight: 600 }} axisLine={false} tickLine={false} />
-                      <Tooltip formatter={(v: number | undefined) => [fmt(v ?? 0), 'Inscritos']} cursor={{ fill: dark ? '#334155' : '#f1f5f9' }} contentStyle={{ background: dark ? '#1e293b' : '#fff', border: 'none', borderRadius: 12, fontSize: 12, fontWeight: 600, boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)' }} />
+                      <Tooltip formatter={(v: number | undefined) => [fmt(v ?? 0), 'Inscritos']} cursor={{ fill: dark ? '#334155' : '#f1f5f9' }} contentStyle={{ background: dark ? '#1e293b' : '#fff', border: 'none', borderRadius: 12, fontSize: 12, fontWeight: 600, boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)', color: dark ? '#e2e8f0' : '#1e293b' }} labelStyle={{ color: dark ? '#e2e8f0' : '#1e293b' }} itemStyle={{ color: dark ? '#e2e8f0' : '#1e293b' }} />
                       <Bar dataKey="value" radius={[0, 6, 6, 0]}>
                         {modalidadeChartData.slice(0, 8).map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
                       </Bar>
