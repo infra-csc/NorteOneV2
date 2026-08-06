@@ -1920,7 +1920,7 @@ const DetalheEventos: React.FC = () => {
                                       <span key={i} style={{ width: 7, height: 7, borderRadius: 2, background: CANAL_COLORS[entry.canal] || CHART_COLORS[i % CHART_COLORS.length], display: 'inline-block' }} />
                                     ))}
                                   </span>
-                                  Inscritos (cor por canal)
+                                  Inscritos
                                 </span>
                                 <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: dark ? '#e2e8f0' : '#334155' }}>
                                   <span style={{ width: 8, height: 8, borderRadius: 2, background: dark ? '#94a3b8' : '#64748b', display: 'inline-block' }} />
