@@ -1903,7 +1903,7 @@ const DetalheEventos: React.FC = () => {
                                   </div>
                                   {pct !== null && (
                                     <div style={{ marginTop: 4, color: pctColor }}>
-                                      Realizado: {pct.toFixed(0)}%
+                                      Realizado: {pct.toFixed(1)}%
                                     </div>
                                   )}
                                 </div>
