@@ -781,11 +781,44 @@ def refresh_active_event_details(max_events: int | None = None) -> int:
     naquele ano (não varre todos os grupos em dobro) para não dobrar a carga
     sobre o túnel Magento (concorrência limitada — ver magento-concurrency-limit).
 
+    Cada grupo dispara `get_marketing_event_by_id(force_refresh=True)`, que por
+    sua vez força `get_margem_por_kit(force_refresh=True)` — a recomputação
+    "pesada" de margem por kit (várias queries Magento em sequência por grupo).
+    Sem pausa entre grupos, uma rodada com dezenas de grupos ativos vira uma
+    rajada contínua de vários minutos sobre o único slot de concorrência do
+    Magento, mesmo com profile="background" (que só evita uma NOVA aquisição
+    enquanto há requisição interativa esperando — não interrompe a que já
+    está rodando). Isso reduz a chance real de uma query interativa (ex.:
+    botão "Atualizar" do ISC) conseguir a vez dentro do seu próprio timeout.
+
+    Para dar folga ao pool durante o expediente, uma pausa configurável é
+    aplicada entre grupos (mesma convenção de `reconcile_completed_event_details`):
+    - `EVENT_DETAIL_REFRESH_THROTTLE_SECONDS` (default 2.0): pausa entre grupos
+      quando a rodada roda em horário comercial (fora da janela de quiet hours
+      do scheduler — ver `_scheduler_in_quiet_hours`).
+    - `EVENT_DETAIL_REFRESH_THROTTLE_QUIET_SECONDS` (default 0.0): pausa usada
+      durante quiet hours, onde a varredura noturna pode rodar rápido sem
+      concorrer com usuários reais.
+
     Retorna a quantidade de eventos atualizados.
     """
     from ..core.database import SessionLocal
     from ..models.dimensoes import EventoGrupo as EventoGrupoModel, SkuMapping
     from ..api.routes.marketing import get_marketing_event_by_id
+    from ..core.cache import _scheduler_in_quiet_hours
+
+    def _env_float(name: str, default: float) -> float:
+        try:
+            return max(0.0, float(os.getenv(name, str(default))))
+        except (TypeError, ValueError):
+            return default
+
+    _in_quiet_hours = _scheduler_in_quiet_hours()
+    throttle_seconds = (
+        _env_float("EVENT_DETAIL_REFRESH_THROTTLE_QUIET_SECONDS", 0.0)
+        if _in_quiet_hours
+        else _env_float("EVENT_DETAIL_REFRESH_THROTTLE_SECONDS", 2.0)
+    )
 
     count = 0
     skipped_completed = 0
@@ -851,6 +884,13 @@ def refresh_active_event_details(max_events: int | None = None) -> int:
             if g.nome in grupos_ano_seguinte:
                 jobs.append((g.nome, ano_seguinte))
 
+        logger.info(
+            f"[EventDetailSnapshot] refresh_active_event_details: {len(jobs)} edição(ões) "
+            f"nesta rodada (quiet_hours={_in_quiet_hours}, throttle={throttle_seconds:.1f}s/grupo)"
+        )
+
+        _throttleable_jobs = [j for j in jobs if j not in completed_pairs]
+        _processed_idx = 0
         for nome_grupo, ano_job in jobs:
             evento_id = f"grp_{nome_grupo}"
 
@@ -876,6 +916,13 @@ def refresh_active_event_details(max_events: int | None = None) -> int:
                     _db_iter.close()
             except Exception as e:
                 logger.warning(f"[EventDetailSnapshot] refresh '{evento_id}'/{ano_job} falhou: {e}")
+
+            # Pausa entre grupos para dar folga ao slot único de concorrência do
+            # Magento — evita uma rajada contínua de vários minutos que compete
+            # com cliques interativos de usuários (ver docstring da função).
+            _processed_idx += 1
+            if throttle_seconds > 0 and _processed_idx < len(_throttleable_jobs):
+                time.sleep(throttle_seconds)
     except Exception as e:
         logger.error(f"[EventDetailSnapshot] refresh_active_event_details falhou: {e}")
     finally:
